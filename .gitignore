@@ -1,0 +1,3 @@
+node_modules/
+dist/
+.magento-di-lsp-cache.json

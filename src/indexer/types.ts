@@ -1,0 +1,122 @@
+/**
+ * Core type definitions shared across the indexer, index, cache, and handler modules.
+ *
+ * These types model the Magento 2 dependency injection configuration as found in di.xml files.
+ * Magento's Object Manager uses di.xml to wire up class preferences, plugins (interceptors),
+ * constructor arguments, and virtual types. Each of these creates a "reference" linking a
+ * PHP fully-qualified class name (FQCN) to a specific location in a di.xml file.
+ */
+
+/**
+ * Identifies which kind of di.xml element a reference comes from.
+ *
+ * Example di.xml entries and their corresponding kinds:
+ *   <preference for="InterfaceFqcn" type="ImplFqcn" />
+ *     -> 'preference-for' (the interface) and 'preference-type' (the implementation)
+ *   <type name="ClassName">
+ *     -> 'type-name'
+ *   <plugin name="..." type="PluginClass" />
+ *     -> 'plugin-type'
+ *   <argument xsi:type="object">ClassName</argument>
+ *     -> 'argument-object'
+ *   <virtualType name="VTypeName" type="ParentClass">
+ *     -> 'virtualtype-name' and 'virtualtype-type'
+ */
+export type ReferenceKind =
+  | 'preference-for'
+  | 'preference-type'
+  | 'type-name'
+  | 'plugin-type'
+  | 'argument-object'
+  | 'virtualtype-name'
+  | 'virtualtype-type';
+
+/**
+ * A single reference to a PHP class found in a di.xml file.
+ * Stores enough information to navigate to the exact position in the XML
+ * and to determine config merging priority.
+ */
+export interface DiReference {
+  /** Normalized PHP FQCN (no leading backslash, trimmed). */
+  fqcn: string;
+  /** Which di.xml element this reference comes from. */
+  kind: ReferenceKind;
+  /** Absolute filesystem path to the di.xml file containing this reference. */
+  file: string;
+  /** 0-based line number within the di.xml file. */
+  line: number;
+  /** 0-based column where the FQCN string starts (inside the attribute quotes or text content). */
+  column: number;
+  /** 0-based column where the FQCN string ends. */
+  endColumn: number;
+  /** DI scope area: 'global', 'frontend', 'adminhtml', etc. Derived from the file path. */
+  area: string;
+  /** Magento module name in Vendor_Module format (e.g., 'Magento_Store'). */
+  module: string;
+  /**
+   * Position of this module in app/etc/config.php. Higher number = loaded later = higher priority.
+   * Used for config merging: when multiple modules declare the same preference, the last one wins.
+   */
+  moduleOrder: number;
+  /**
+   * For preferences only: links the 'for' and 'type' sides together.
+   * On a preference-for ref, this is the implementation FQCN (the type= value).
+   * On a preference-type ref, this is the interface FQCN (the for= value).
+   */
+  pairedFqcn?: string;
+}
+
+/**
+ * A virtualType declaration parsed from di.xml.
+ *
+ * VirtualTypes are Magento's mechanism for creating named DI configurations without a real PHP class.
+ * They inherit from a parent class (the `type` attribute) and can override constructor arguments.
+ * Example: <virtualType name="MyVType" type="Magento\Framework\Logger">
+ */
+export interface VirtualTypeDecl {
+  /** The virtualType name — can be a short alias or a FQCN-like string. */
+  name: string;
+  /** The PHP class this virtualType extends (the type= attribute). */
+  parentType: string;
+  /** Absolute path to the di.xml file. */
+  file: string;
+  /** 0-based line of the declaration. */
+  line: number;
+  /** 0-based column of the name attribute value. */
+  column: number;
+  /** DI scope area. */
+  area: string;
+  /** Magento module name. */
+  module: string;
+  /** Module load order from config.php, for config merging priority. */
+  moduleOrder: number;
+}
+
+/**
+ * Metadata about an active Magento module, as listed in app/etc/config.php.
+ */
+export interface ModuleInfo {
+  /** Module name in Vendor_Module format (e.g., 'Magento_Catalog'). */
+  name: string;
+  /** Absolute filesystem path to the module root directory. */
+  path: string;
+  /** 0-based position in config.php — determines DI config merge priority (last wins). */
+  order: number;
+}
+
+/**
+ * A single PSR-4 autoload mapping: namespace prefix to filesystem directory.
+ * Used to resolve a PHP FQCN to its source file on disk.
+ */
+export interface Psr4Entry {
+  /** Namespace prefix ending with backslash (e.g., 'Magento\\Store\\'). */
+  prefix: string;
+  /** Absolute filesystem path to the directory mapped to this prefix. */
+  path: string;
+}
+
+/**
+ * Ordered list of PSR-4 entries, sorted by prefix length descending.
+ * Longest-prefix-first ordering ensures correct matching when namespaces overlap.
+ */
+export type Psr4Map = Psr4Entry[];

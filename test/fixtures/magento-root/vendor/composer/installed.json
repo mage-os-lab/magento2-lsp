@@ -1,0 +1,17 @@
+{
+  "packages": [
+    {
+      "name": "test/module-foo",
+      "type": "magento2-module",
+      "install-path": "../test/module-foo",
+      "autoload": {
+        "psr-4": {
+          "Test\\Foo\\": ""
+        },
+        "files": [
+          "registration.php"
+        ]
+      }
+    }
+  ]
+}
