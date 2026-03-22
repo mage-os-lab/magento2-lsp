@@ -49,8 +49,8 @@ describe('handleReferences', () => {
       FIXTURE_ROOT,
       'vendor/test/module-foo/Model/Foo.php',
     );
-    // Line 4: "class Foo"  — class name starts at column 6
-    const result = handleReferences(makeParams(phpFile, 4, 6), getProject);
+    // Line 6 (0-based): "class Foo implements FooInterface" — class name at col 6
+    const result = handleReferences(makeParams(phpFile, 6, 6), getProject);
     expect(result).not.toBeNull();
     expect(result!.length).toBeGreaterThanOrEqual(1);
 
@@ -87,6 +87,48 @@ describe('handleReferences', () => {
       makeParams('/some/file.txt', 0, 0),
       getProject,
     );
+    expect(result).toBeNull();
+  });
+
+  it('finds plugin method + di.xml from intercepted method name', () => {
+    const phpFile = path.join(
+      FIXTURE_ROOT,
+      'vendor/test/module-foo/Model/Foo.php',
+    );
+    // Line 8 (0-based): "    public function save(): void {}" — "save" starts at col 20
+    const result = handleReferences(makeParams(phpFile, 8, 20), getProject);
+    expect(result).not.toBeNull();
+    // Should include both the plugin PHP method (beforeSave) and the di.xml declaration
+    expect(result!).toHaveLength(2);
+    const paths = result!.map((r) => URI.parse(r.uri).fsPath);
+    expect(paths.some((p) => p.endsWith('FooPlugin.php'))).toBe(true);
+    expect(paths.some((p) => p.endsWith('di.xml'))).toBe(true);
+  });
+
+  it('navigates from plugin method to target method + di.xml', () => {
+    const pluginFile = path.join(
+      FIXTURE_ROOT,
+      'app/code/Custom/Bar/Plugin/FooPlugin.php',
+    );
+    // Line 6: "    public function beforeSave($subject): void {}"
+    // "beforeSave" starts at col 20
+    const result = handleReferences(makeParams(pluginFile, 6, 20), getProject);
+    expect(result).not.toBeNull();
+    // Should include the target method (save on FooInterface) and the di.xml declaration
+    expect(result!).toHaveLength(2);
+    const paths = result!.map((r) => URI.parse(r.uri).fsPath);
+    // The plugin is declared on the interface, so the target is the interface
+    expect(paths.some((p) => p.endsWith('FooInterface.php'))).toBe(true);
+    expect(paths.some((p) => p.endsWith('di.xml'))).toBe(true);
+  });
+
+  it('returns null for non-intercepted method name', () => {
+    const phpFile = path.join(
+      FIXTURE_ROOT,
+      'vendor/test/module-foo/Model/Foo.php',
+    );
+    // Line 11 (0-based): "    public function delete(): void {}" — "delete" starts at col 20
+    const result = handleReferences(makeParams(phpFile, 11, 20), getProject);
     expect(result).toBeNull();
   });
 });

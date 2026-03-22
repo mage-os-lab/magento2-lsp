@@ -10,13 +10,18 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { realpath } from '../utils/realpath';
 
 /**
  * @param startPath - A directory path to start searching from (typically the dir of an open file).
- * @returns The absolute path to the Magento root, or undefined if not found.
+ * @returns The canonical (symlink-resolved) absolute path to the Magento root, or undefined.
  */
 export function detectMagentoRoot(startPath: string): string | undefined {
-  let current = path.resolve(startPath);
+  // Resolve symlinks so all paths use the same canonical form.
+  // Without this, a symlink like ~/Workspace -> /Volumes/CaseSensitive/Workspace
+  // causes the editor (which resolves symlinks) and the indexer to store different
+  // paths, making index lookups fail.
+  let current = realpath(path.resolve(startPath));
 
   // Walk up until we reach the filesystem root (where dirname === itself)
   while (current !== path.dirname(current)) {

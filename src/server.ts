@@ -29,18 +29,25 @@ import { SERVER_CAPABILITIES } from './capabilities';
 import { ProjectManager } from './project/projectManager';
 import { handleDefinition } from './handlers/definition';
 import { handleReferences } from './handlers/references';
+import { handleCodeLens } from './handlers/codeLens';
 import { FileWatcher } from './watcher/fileWatcher';
 import { discoverDiXmlFiles } from './project/moduleResolver';
 import { DiXmlParseContext } from './indexer/diXmlParser';
+import { realpath } from './utils/realpath';
 import * as path from 'path';
 
 const connection = createConnection(ProposedFeatures.all);
 const projectManager = new ProjectManager();
 const watchers: FileWatcher[] = [];
 
+function log(msg: string): void {
+  process.stderr.write(`[magento2-lsp] ${msg}\n`);
+}
+
 // --- LSP lifecycle ---
 
 connection.onInitialize((_params: InitializeParams): InitializeResult => {
+  log('onInitialize');
   return { capabilities: SERVER_CAPABILITIES };
 });
 
@@ -51,13 +58,24 @@ connection.onInitialized(async () => {
 // --- LSP feature handlers ---
 
 connection.onDefinition((params) => {
-  const filePath = URI.parse(params.textDocument.uri).fsPath;
-  return handleDefinition(params, () => projectManager.getProjectForFile(filePath));
+  const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
+  const project = projectManager.getProjectForFile(filePath);
+  log(`onDefinition: ${filePath} line=${params.position.line} col=${params.position.character} project=${project?.root ?? 'NONE'} indexedFiles=${project?.index.getFileCount() ?? 0}`);
+  if (project) {
+    const ref = project.index.getReferenceAtPosition(filePath, params.position.line, params.position.character);
+    log(`  ref at position: ${ref ? `${ref.kind} ${ref.fqcn} col=${ref.column}-${ref.endColumn}` : 'NONE'}`);
+  }
+  return handleDefinition(params, () => project);
 });
 
 connection.onReferences((params) => {
-  const filePath = URI.parse(params.textDocument.uri).fsPath;
+  const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
   return handleReferences(params, () => projectManager.getProjectForFile(filePath));
+});
+
+connection.onCodeLens((params) => {
+  const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
+  return handleCodeLens(params, () => projectManager.getProjectForFile(filePath));
 });
 
 // --- Lazy project initialization ---
@@ -70,9 +88,14 @@ connection.onReferences((params) => {
  * which typically shows as a progress bar or spinner in the editor's status line.
  */
 connection.onDidOpenTextDocument(async (params) => {
-  const filePath = URI.parse(params.textDocument.uri).fsPath;
+  const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
+  log(`onDidOpenTextDocument: ${filePath}`);
   const existing = projectManager.getProjectForFile(filePath);
-  if (existing) return;
+  if (existing) {
+    log(`  project already initialized: ${existing.root} (${existing.index.getFileCount()} files)`);
+    return;
+  }
+  log('  initializing new project...');
 
   // Create a unique progress token for this indexing session
   const token = `magento-di-indexing-${Date.now()}`;
@@ -126,6 +149,8 @@ connection.onDidOpenTextDocument(async (params) => {
       }
     },
   });
+
+  log(`  project initialized: ${project?.root ?? 'NONE'} (${project?.index.getFileCount() ?? 0} files)`);
 
   // --- Set up file watcher for automatic re-indexing ---
 

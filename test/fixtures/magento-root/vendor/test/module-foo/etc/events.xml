@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:Event/etc/events.xsd">
+    <event name="test_foo_save_after">
+        <observer name="foo_save_observer" instance="Test\Foo\Observer\FooSaveObserver" />
+    </event>
+    <event name="test_foo_load_after">
+        <observer name="foo_load_observer" instance="Test\Foo\Observer\FooLoadObserver" />
+        <observer name="bar_load_observer" instance="Custom\Bar\Observer\BarLoadObserver" />
+    </event>
+</config>

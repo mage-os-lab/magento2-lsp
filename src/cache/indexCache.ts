@@ -6,7 +6,7 @@
  * file's modification time (mtimeMs). On subsequent startups, only files whose mtime
  * has changed need to be re-parsed — bringing warm startup down to <100ms.
  *
- * The cache is stored as JSON at {magentoRoot}/.magento-di-lsp-cache.json.
+ * The cache is stored as JSON at {magentoRoot}/.magento2-lsp-cache.json.
  * It includes a version number so the cache is automatically invalidated when the
  * data format changes (bump CACHE_VERSION to force a full re-index).
  *
@@ -20,7 +20,7 @@ import { DiReference, VirtualTypeDecl } from '../indexer/types';
 
 /** Bump this when the DiReference/VirtualTypeDecl format changes to invalidate old caches. */
 const CACHE_VERSION = 1;
-const CACHE_FILENAME = '.magento-di-lsp-cache.json';
+const CACHE_FILENAME = '.magento2-lsp-cache.json';
 
 /** Cached parse results for a single di.xml file. */
 export interface CacheFileEntry {

@@ -18,4 +18,7 @@ export const SERVER_CAPABILITIES: ServerCapabilities = {
   textDocumentSync: TextDocumentSyncKind.Full,
   definitionProvider: true,
   referencesProvider: true,
+  codeLensProvider: {
+    resolveProvider: false,
+  },
 };

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractPhpClass } from '../../src/utils/phpNamespace';
+import { extractPhpClass, extractPhpMethods, getInterceptedMethodName } from '../../src/utils/phpNamespace';
 
 describe('extractPhpClass', () => {
   it('extracts a simple class with namespace', () => {
@@ -17,6 +17,8 @@ class StoreManager
       name: 'StoreManager',
       fqcn: 'Magento\\Store\\Model\\StoreManager',
       kind: 'class',
+      parentClass: undefined,
+      interfaces: [],
       line: 4,
       column: 6,
       endColumn: 18,
@@ -38,6 +40,8 @@ interface StoreManagerInterface
       name: 'StoreManagerInterface',
       fqcn: 'Magento\\Store\\Api\\StoreManagerInterface',
       kind: 'interface',
+      parentClass: undefined,
+      interfaces: [],
       line: 4,
       column: 10,
       endColumn: 31,
@@ -59,6 +63,8 @@ abstract class AbstractModel
       name: 'AbstractModel',
       fqcn: 'Magento\\Framework\\AbstractModel',
       kind: 'class',
+      parentClass: undefined,
+      interfaces: [],
       line: 4,
       column: 15,
       endColumn: 28,
@@ -80,6 +86,8 @@ trait Loggable
       name: 'Loggable',
       fqcn: 'App\\Traits\\Loggable',
       kind: 'trait',
+      parentClass: undefined,
+      interfaces: [],
       line: 4,
       column: 6,
       endColumn: 14,
@@ -101,6 +109,8 @@ enum Status
       name: 'Status',
       fqcn: 'App\\Enums\\Status',
       kind: 'enum',
+      parentClass: undefined,
+      interfaces: [],
       line: 4,
       column: 5,
       endColumn: 11,
@@ -120,6 +130,8 @@ class GlobalClass
       name: 'GlobalClass',
       fqcn: 'GlobalClass',
       kind: 'class',
+      parentClass: undefined,
+      interfaces: [],
       line: 2,
       column: 6,
       endColumn: 17,
@@ -143,6 +155,8 @@ class StoreManager
       name: 'StoreManager',
       fqcn: 'Magento\\Store\\Model\\StoreManager',
       kind: 'class',
+      parentClass: undefined,
+      interfaces: [],
       line: 4,
       column: 6,
       endColumn: 18,
@@ -164,6 +178,8 @@ final class PaymentService
       name: 'PaymentService',
       fqcn: 'App\\Services\\PaymentService',
       kind: 'class',
+      parentClass: undefined,
+      interfaces: [],
       line: 4,
       column: 12,
       endColumn: 26,
@@ -201,5 +217,106 @@ class RealClass
 `;
     const result = extractPhpClass(content);
     expect(result?.name).toBe('RealClass');
+  });
+});
+
+describe('extractPhpMethods', () => {
+  it('extracts public methods', () => {
+    const content = `<?php
+
+namespace App\\Model;
+
+class Foo
+{
+    public function save(): void {}
+    public function getName(): string {}
+}
+`;
+    const methods = extractPhpMethods(content);
+    expect(methods).toHaveLength(2);
+    expect(methods[0].name).toBe('save');
+    expect(methods[1].name).toBe('getName');
+  });
+
+  it('extracts public static methods', () => {
+    const content = `<?php
+class Foo
+{
+    public static function create(): self {}
+}
+`;
+    const methods = extractPhpMethods(content);
+    expect(methods).toHaveLength(1);
+    expect(methods[0].name).toBe('create');
+  });
+
+  it('ignores protected and private methods', () => {
+    const content = `<?php
+class Foo
+{
+    public function visible(): void {}
+    protected function hidden(): void {}
+    private function secret(): void {}
+}
+`;
+    const methods = extractPhpMethods(content);
+    expect(methods).toHaveLength(1);
+    expect(methods[0].name).toBe('visible');
+  });
+
+  it('returns correct line and column positions', () => {
+    const content = `<?php
+
+class Foo
+{
+    public function doSomething(): void {}
+}
+`;
+    const methods = extractPhpMethods(content);
+    expect(methods).toHaveLength(1);
+    expect(methods[0].line).toBe(4);
+    expect(methods[0].column).toBe(20);
+    expect(methods[0].endColumn).toBe(31);
+  });
+
+  it('returns empty array for file with no methods', () => {
+    const content = `<?php
+class EmptyClass {}
+`;
+    expect(extractPhpMethods(content)).toHaveLength(0);
+  });
+});
+
+describe('getInterceptedMethodName', () => {
+  it('maps beforeSave to save', () => {
+    const result = getInterceptedMethodName('beforeSave');
+    expect(result).toEqual({ prefix: 'before', methodName: 'save' });
+  });
+
+  it('maps afterGetName to getName', () => {
+    const result = getInterceptedMethodName('afterGetName');
+    expect(result).toEqual({ prefix: 'after', methodName: 'getName' });
+  });
+
+  it('maps aroundLoad to load', () => {
+    const result = getInterceptedMethodName('aroundLoad');
+    expect(result).toEqual({ prefix: 'around', methodName: 'load' });
+  });
+
+  it('lowercases only the first letter after the prefix', () => {
+    const result = getInterceptedMethodName('beforeGetHTMLContent');
+    expect(result).toEqual({ prefix: 'before', methodName: 'getHTMLContent' });
+  });
+
+  it('returns undefined for non-plugin method names', () => {
+    expect(getInterceptedMethodName('save')).toBeUndefined();
+    expect(getInterceptedMethodName('execute')).toBeUndefined();
+    expect(getInterceptedMethodName('__construct')).toBeUndefined();
+  });
+
+  it('returns undefined for prefix-only names', () => {
+    expect(getInterceptedMethodName('before')).toBeUndefined();
+    expect(getInterceptedMethodName('after')).toBeUndefined();
+    expect(getInterceptedMethodName('around')).toBeUndefined();
   });
 });

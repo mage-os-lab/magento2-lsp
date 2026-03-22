@@ -120,3 +120,51 @@ export interface Psr4Entry {
  * Longest-prefix-first ordering ensures correct matching when namespaces overlap.
  */
 export type Psr4Map = Psr4Entry[];
+
+// ---- Events.xml types ----
+
+/**
+ * A reference to an event name in events.xml.
+ * Example: <event name="catalog_product_save_after">
+ */
+export interface EventReference {
+  /** The event name string. */
+  eventName: string;
+  /** Absolute path to the events.xml file. */
+  file: string;
+  /** 0-based line of the event name attribute value. */
+  line: number;
+  /** 0-based column where the event name starts. */
+  column: number;
+  /** 0-based column where the event name ends. */
+  endColumn: number;
+  /** DI scope area. */
+  area: string;
+  /** Magento module name. */
+  module: string;
+}
+
+/**
+ * A reference to an observer class in events.xml.
+ * Example: <observer name="my_observer" instance="Vendor\Module\Observer\MyObserver" />
+ */
+export interface ObserverReference {
+  /** The observer PHP class FQCN (from the instance attribute). */
+  fqcn: string;
+  /** The event name this observer is registered for. */
+  eventName: string;
+  /** The observer name attribute. */
+  observerName: string;
+  /** Absolute path to the events.xml file. */
+  file: string;
+  /** 0-based line of the instance attribute value. */
+  line: number;
+  /** 0-based column where the FQCN starts. */
+  column: number;
+  /** 0-based column where the FQCN ends. */
+  endColumn: number;
+  /** DI scope area. */
+  area: string;
+  /** Magento module name. */
+  module: string;
+}

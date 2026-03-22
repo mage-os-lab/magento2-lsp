@@ -39,7 +39,7 @@ describe('locatePhpClass', () => {
     const loc = locatePhpClass('Test\\Foo\\Model\\Foo', psr4Map);
     expect(loc).toBeDefined();
     expect(loc!.file).toContain('Foo.php');
-    expect(loc!.line).toBe(4); // 0-based line of "class Foo"
+    expect(loc!.line).toBe(6); // 0-based line of "class Foo implements FooInterface"
     expect(loc!.column).toBe(6); // "class " = 6 chars
   });
 

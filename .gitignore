@@ -1,3 +1,3 @@
 node_modules/
 dist/
-.magento-di-lsp-cache.json
+.magento2-lsp-cache.json

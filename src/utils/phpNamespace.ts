@@ -23,6 +23,10 @@ export interface PhpClassInfo {
   column: number;
   /** 0-based column where the class name ends. */
   endColumn: number;
+  /** FQCN of the parent class (extends), if any. */
+  parentClass?: string;
+  /** FQCNs of implemented interfaces. */
+  interfaces: string[];
 }
 
 /** Matches: namespace Vendor\Package\SubPackage; or namespace Vendor\Package { */
@@ -34,9 +38,77 @@ const CLASS_RE = /^\s*(?:abstract\s+|final\s+|readonly\s+)*(?:class|interface|tr
 /** Extracts just the keyword (class/interface/trait/enum) to determine the declaration kind. */
 const KIND_RE = /\b(class|interface|trait|enum)\s+/;
 
+/** Represents a public method declaration found in a PHP class. */
+export interface PhpMethodInfo {
+  name: string;
+  /** 0-based line of the method declaration. */
+  line: number;
+  /** 0-based column where the method name starts. */
+  column: number;
+  /** 0-based column where the method name ends. */
+  endColumn: number;
+}
+
+/**
+ * Matches public method declarations.
+ * Handles: public function foo(, public static function bar(
+ * Does NOT match protected/private methods — Magento only intercepts public methods.
+ */
+const METHOD_RE = /^\s*public\s+(?:static\s+)?function\s+(\w+)\s*\(/;
+
+/**
+ * Extract all public method declarations from a PHP file.
+ * Used to find which methods exist in a class (for code lens)
+ * and which methods a plugin class declares (to determine intercepted methods).
+ */
+export function extractPhpMethods(content: string): PhpMethodInfo[] {
+  const lines = content.split('\n');
+  const methods: PhpMethodInfo[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const match = METHOD_RE.exec(lines[i]);
+    if (match) {
+      const name = match[1];
+      // Find column of method name: skip past "public [static] function "
+      const nameIndex = lines[i].indexOf(name, match.index + match[0].indexOf('function') + 9);
+      methods.push({
+        name,
+        line: i,
+        column: nameIndex,
+        endColumn: nameIndex + name.length,
+      });
+    }
+  }
+
+  return methods;
+}
+
+/**
+ * Map a plugin method name to the original method it intercepts.
+ * Magento convention: beforeSave -> save, afterGetName -> getName, aroundLoad -> load.
+ * Returns undefined if the method doesn't follow the before/after/around convention.
+ */
+export function getInterceptedMethodName(pluginMethodName: string): { prefix: 'before' | 'after' | 'around'; methodName: string } | undefined {
+  for (const prefix of ['before', 'after', 'around'] as const) {
+    if (pluginMethodName.startsWith(prefix) && pluginMethodName.length > prefix.length) {
+      // The intercepted method name has its first letter lowercased:
+      // beforeSave -> Save -> save, afterGetName -> GetName -> getName
+      const rest = pluginMethodName.slice(prefix.length);
+      const methodName = rest[0].toLowerCase() + rest.slice(1);
+      return { prefix, methodName };
+    }
+  }
+  return undefined;
+}
+
+/** Matches: use Vendor\Package\ClassName; or use Vendor\Package\ClassName as Alias; */
+const USE_RE = /^\s*use\s+([\w\\]+?)(?:\s+as\s+(\w+))?\s*;/;
+
 export function extractPhpClass(content: string): PhpClassInfo | undefined {
   const lines = content.split('\n');
   let namespace = '';
+  // Map from short name (or alias) to FQCN, built from `use` statements
+  const useImports = new Map<string, string>();
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -45,6 +117,17 @@ export function extractPhpClass(content: string): PhpClassInfo | undefined {
     const nsMatch = NAMESPACE_RE.exec(line);
     if (nsMatch) {
       namespace = nsMatch[1];
+      continue;
+    }
+
+    // Track `use` imports for resolving short names in extends/implements
+    const useMatch = USE_RE.exec(line);
+    if (useMatch) {
+      const fullName = useMatch[1];
+      const alias = useMatch[2];
+      // Key is the alias if present, otherwise the last segment of the FQCN
+      const shortName = alias ?? fullName.split('\\').pop()!;
+      useImports.set(shortName, fullName);
       continue;
     }
 
@@ -58,6 +141,15 @@ export function extractPhpClass(content: string): PhpClassInfo | undefined {
 
       // Find the exact column of the class name (after the keyword)
       const nameIndex = line.indexOf(className, line.indexOf(kind) + kind.length);
+
+      // Parse extends and implements — may span multiple lines until `{`
+      const { parentClass, interfaces } = extractInheritance(
+        lines,
+        i,
+        namespace,
+        useImports,
+      );
+
       return {
         namespace,
         name: className,
@@ -66,9 +158,93 @@ export function extractPhpClass(content: string): PhpClassInfo | undefined {
         line: i,
         column: nameIndex,
         endColumn: nameIndex + className.length,
+        parentClass,
+        interfaces,
       };
     }
   }
 
   return undefined;
+}
+
+/**
+ * Extract `extends` and `implements` from a class declaration that may span multiple lines.
+ * Collects everything from the class declaration line up to the opening `{`.
+ *
+ * Resolves short class names to FQCNs using the `use` imports and current namespace.
+ */
+function extractInheritance(
+  lines: string[],
+  classLine: number,
+  namespace: string,
+  useImports: Map<string, string>,
+): { parentClass?: string; interfaces: string[] } {
+  // Collect the full declaration text from the class line until we find `{`
+  let declaration = '';
+  for (let i = classLine; i < Math.min(classLine + 20, lines.length); i++) {
+    declaration += ' ' + lines[i];
+    if (lines[i].includes('{')) break;
+  }
+
+  let parentClass: string | undefined;
+  const interfaces: string[] = [];
+
+  // Extract `extends ClassName`
+  const extendsMatch = /\bextends\s+([\w\\]+)/.exec(declaration);
+  if (extendsMatch) {
+    parentClass = resolveClassName(extendsMatch[1], namespace, useImports);
+  }
+
+  // Extract `implements Interface1, Interface2, ...`
+  const implementsMatch = /\bimplements\s+(.+?)(?:\{|$)/.exec(declaration);
+  if (implementsMatch) {
+    const implementsList = implementsMatch[1];
+    // Split by comma, trim each, resolve to FQCN
+    const names = implementsList.split(',').map((s) => s.trim()).filter(Boolean);
+    for (const name of names) {
+      // Clean up: the name might have trailing `{` or whitespace
+      const cleaned = name.replace(/\s*\{.*/, '').trim();
+      if (cleaned && /^[\w\\]+$/.test(cleaned)) {
+        interfaces.push(resolveClassName(cleaned, namespace, useImports));
+      }
+    }
+  }
+
+  return { parentClass, interfaces };
+}
+
+/**
+ * Resolve a class name reference to a FQCN.
+ *
+ * Handles three forms:
+ *   1. Fully qualified with leading backslash: \Magento\Foo\Bar -> Magento\Foo\Bar
+ *   2. Short name matching a `use` import: ProductInterface -> Magento\Catalog\Api\Data\ProductInterface
+ *   3. Unqualified name: assumed to be in the current namespace
+ */
+function resolveClassName(
+  name: string,
+  namespace: string,
+  useImports: Map<string, string>,
+): string {
+  // Fully qualified
+  if (name.startsWith('\\')) {
+    return name.slice(1);
+  }
+
+  // Check use imports — the first segment of the name might be an import
+  const firstSegment = name.split('\\')[0];
+  const imported = useImports.get(firstSegment);
+  if (imported) {
+    if (name.includes('\\')) {
+      // Partial qualification: use Foo\Bar; ... extends Bar\Baz -> Foo\Bar\Baz
+      return imported + name.slice(firstSegment.length);
+    }
+    return imported;
+  }
+
+  // Unqualified — resolve relative to current namespace
+  if (namespace) {
+    return `${namespace}\\${name}`;
+  }
+  return name;
 }

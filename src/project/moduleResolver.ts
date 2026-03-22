@@ -17,6 +17,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { ModuleInfo } from '../indexer/types';
+import { realpath } from '../utils/realpath';
 
 /** Matches 'Vendor_Module' => 1 entries in config.php. */
 const MODULE_ENTRY_RE = /['"](\w+_\w+)['"]\s*=>\s*1/g;
@@ -59,7 +60,7 @@ function resolveModulePath(
   if (vendor && module) {
     const appCodePath = path.join(magentoRoot, 'app', 'code', vendor, module);
     if (isDirectory(appCodePath)) {
-      return appCodePath;
+      return realpath(appCodePath);
     }
   }
 
@@ -97,23 +98,43 @@ function resolveFromInstalledJson(
       const installPath = pkg['install-path'];
       if (!installPath) continue;
 
-      // install-path is relative to vendor/composer/
-      const absPath = path.resolve(
+      // install-path is relative to vendor/composer/ — resolve symlinks for consistency
+      const absPath = realpath(path.resolve(
         magentoRoot,
         'vendor',
         'composer',
         installPath,
-      );
+      ));
 
-      // Read registration.php to check which module name this package registers
-      const registrationPath = path.join(absPath, 'registration.php');
-      try {
-        const regContent = fs.readFileSync(registrationPath, 'utf-8');
-        if (regContent.includes(`'${moduleName}'`)) {
-          return absPath;
+      // Find registration.php — it may be at the package root or in a subdirectory
+      // (e.g., src/registration.php). Check autoload.files entries first, then fall back
+      // to the package root. The module root is the directory containing registration.php,
+      // because it uses __DIR__ to register itself.
+      const regCandidates: string[] = [];
+
+      // Check autoload.files entries (e.g., ["src/registration.php"])
+      const autoloadFiles = pkg.autoload?.files;
+      if (Array.isArray(autoloadFiles)) {
+        for (const f of autoloadFiles) {
+          if (typeof f === 'string' && f.endsWith('registration.php')) {
+            regCandidates.push(path.join(absPath, f));
+          }
         }
-      } catch {
-        // registration.php not found or not readable — skip this package
+      }
+
+      // Also check the package root as fallback
+      regCandidates.push(path.join(absPath, 'registration.php'));
+
+      for (const registrationPath of regCandidates) {
+        try {
+          const regContent = fs.readFileSync(registrationPath, 'utf-8');
+          if (regContent.includes(`'${moduleName}'`)) {
+            // Module root is the directory of registration.php (it uses __DIR__)
+            return realpath(path.dirname(registrationPath));
+          }
+        } catch {
+          // Not found at this candidate — try next
+        }
       }
     }
   } catch {
@@ -146,30 +167,51 @@ export const DI_AREAS = [
 ] as const;
 
 /**
+ * Discover all files with a given name under etc/ for a module.
+ * Checks etc/{filename} (global) and etc/{area}/{filename} for each area.
+ */
+export function discoverModuleXmlFiles(
+  modulePath: string,
+  filename: string,
+): { file: string; area: string }[] {
+  const results: { file: string; area: string }[] = [];
+
+  // Global: {module}/etc/{filename}
+  const globalFile = path.join(modulePath, 'etc', filename);
+  if (fileExists(globalFile)) {
+    results.push({ file: globalFile, area: 'global' });
+  }
+
+  // Area-specific: {module}/etc/frontend/{filename}, etc/adminhtml/{filename}, etc.
+  for (const area of DI_AREAS) {
+    if (area === 'global') continue;
+    const areaFile = path.join(modulePath, 'etc', area, filename);
+    if (fileExists(areaFile)) {
+      results.push({ file: areaFile, area });
+    }
+  }
+
+  return results;
+}
+
+/**
  * Discover all di.xml files for a given module.
  * Checks etc/di.xml (global) and etc/{area}/di.xml for each area.
  */
 export function discoverDiXmlFiles(
   modulePath: string,
 ): { file: string; area: string }[] {
-  const results: { file: string; area: string }[] = [];
+  return discoverModuleXmlFiles(modulePath, 'di.xml');
+}
 
-  // Global di.xml: {module}/etc/di.xml
-  const globalDiXml = path.join(modulePath, 'etc', 'di.xml');
-  if (fileExists(globalDiXml)) {
-    results.push({ file: globalDiXml, area: 'global' });
-  }
-
-  // Area-specific: {module}/etc/frontend/di.xml, etc/adminhtml/di.xml, etc.
-  for (const area of DI_AREAS) {
-    if (area === 'global') continue;
-    const areaDiXml = path.join(modulePath, 'etc', area, 'di.xml');
-    if (fileExists(areaDiXml)) {
-      results.push({ file: areaDiXml, area });
-    }
-  }
-
-  return results;
+/**
+ * Discover all events.xml files for a given module.
+ * Checks etc/events.xml (global) and etc/{area}/events.xml for each area.
+ */
+export function discoverEventsXmlFiles(
+  modulePath: string,
+): { file: string; area: string }[] {
+  return discoverModuleXmlFiles(modulePath, 'events.xml');
 }
 
 function fileExists(p: string): boolean {

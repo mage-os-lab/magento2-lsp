@@ -14,11 +14,15 @@ import { detectMagentoRoot } from './detector';
 import {
   resolveActiveModules,
   discoverDiXmlFiles,
+  discoverEventsXmlFiles,
 } from './moduleResolver';
 import { buildPsr4Map } from './composerAutoload';
 import { DiIndex } from '../index/diIndex';
+import { EventsIndex } from '../index/eventsIndex';
 import { IndexCache } from '../cache/indexCache';
 import { parseDiXml } from '../indexer/diXmlParser';
+import { parseEventsXml } from '../indexer/eventsXmlParser';
+import { PluginMethodIndex } from '../index/pluginMethodIndex';
 import { ModuleInfo, Psr4Map } from '../indexer/types';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -33,6 +37,10 @@ export interface ProjectContext {
   psr4Map: Psr4Map;
   /** In-memory DI index for this project. */
   index: DiIndex;
+  /** Maps target class methods to their plugin interceptions (for code lens + references). */
+  pluginMethodIndex: PluginMethodIndex;
+  /** In-memory events/observer index for this project. */
+  eventsIndex: EventsIndex;
   /** Disk cache for this project's parse results. */
   cache: IndexCache;
   /** True once the initial indexing pass is complete. */
@@ -166,6 +174,29 @@ export class ProjectManager {
     cache.pruneDeletedFiles(new Set(diXmlFiles.map((f) => f.file)));
     cache.save();
 
+    // --- Index events.xml files ---
+    const eventsIndex = new EventsIndex();
+    for (const mod of modules) {
+      const eventsFiles = discoverEventsXmlFiles(mod.path);
+      for (const f of eventsFiles) {
+        try {
+          const content = fs.readFileSync(f.file, 'utf-8');
+          const result = parseEventsXml(content, {
+            file: f.file,
+            area: f.area,
+            module: mod.name,
+          });
+          eventsIndex.addFile(f.file, result.events, result.observers);
+        } catch {
+          // Skip unreadable files
+        }
+      }
+    }
+
+    // Build the plugin method index: maps target class methods to their plugin interceptions.
+    const pluginMethodIndex = new PluginMethodIndex();
+    pluginMethodIndex.build(index, psr4Map);
+
     progress?.onEnd();
 
     return {
@@ -173,6 +204,8 @@ export class ProjectManager {
       modules,
       psr4Map,
       index,
+      pluginMethodIndex,
+      eventsIndex,
       cache,
       indexingComplete: true,
     };

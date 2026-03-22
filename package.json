@@ -1,9 +1,9 @@
 {
-  "name": "magento-di-lsp",
+  "name": "magento2-lsp",
   "version": "0.1.0",
   "description": "LSP server for navigating Magento 2 di.xml declarations",
   "bin": {
-    "magento-di-lsp": "./bin/magento-di-lsp"
+    "magento2-lsp": "./bin/magento2-lsp"
   },
   "main": "./dist/server.js",
   "scripts": {

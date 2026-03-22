@@ -182,6 +182,36 @@ export class DiIndex {
     );
   }
 
+  /**
+   * Iterate all plugin-type references paired with their target class FQCN.
+   * Used by PluginMethodIndex to build the method-level plugin mapping.
+   */
+  *getAllPluginRefsWithTargets(): Generator<{ targetFqcn: string; pluginRef: DiReference }> {
+    for (const [file, refs] of this.fileToRefs) {
+      for (const ref of refs) {
+        if (ref.kind === 'plugin-type') {
+          const targetFqcn = this.findParentTypeName(ref, refs);
+          if (targetFqcn) {
+            yield { targetFqcn, pluginRef: ref };
+          }
+        }
+      }
+    }
+  }
+
+  /** Return all unique FQCNs that appear as type-name refs (classes configured in di.xml). */
+  *getAllTypeNameFqcns(): Generator<string> {
+    const seen = new Set<string>();
+    for (const refs of this.fqcnToRefs.values()) {
+      for (const ref of refs) {
+        if (ref.kind === 'type-name' && !seen.has(ref.fqcn)) {
+          seen.add(ref.fqcn);
+          yield ref.fqcn;
+        }
+      }
+    }
+  }
+
   /** Number of di.xml files currently indexed. */
   getFileCount(): number {
     return this.fileToRefs.size;

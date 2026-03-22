@@ -20,6 +20,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Psr4Map } from '../indexer/types';
+import { realpath } from '../utils/realpath';
 
 export function buildPsr4Map(magentoRoot: string): Psr4Map {
   const map: Psr4Map = [];
@@ -42,13 +43,13 @@ export function buildPsr4Map(magentoRoot: string): Psr4Map {
       const installPath = pkg['install-path'];
       if (!installPath) continue;
 
-      // install-path is relative to vendor/composer/
-      const absBasePath = path.resolve(
+      // install-path is relative to vendor/composer/ — resolve symlinks for consistency
+      const absBasePath = realpath(path.resolve(
         magentoRoot,
         'vendor',
         'composer',
         installPath,
-      );
+      ));
 
       // PSR-4 can map a prefix to one or more directories
       const psr4 = pkg.autoload?.['psr-4'];
@@ -56,7 +57,7 @@ export function buildPsr4Map(magentoRoot: string): Psr4Map {
         for (const [prefix, dirs] of Object.entries(psr4)) {
           const dirList = Array.isArray(dirs) ? dirs : [dirs];
           for (const dir of dirList) {
-            const fullPath = path.join(absBasePath, dir as string);
+            const fullPath = realpath(path.join(absBasePath, dir as string));
             map.push({ prefix: normalizePrefix(prefix), path: fullPath });
           }
         }
@@ -82,7 +83,7 @@ export function buildPsr4Map(magentoRoot: string): Psr4Map {
 
         map.push({
           prefix: `${vendor}\\${module}\\`,
-          path: modulePath + path.sep,
+          path: realpath(modulePath) + path.sep,
         });
       }
     }

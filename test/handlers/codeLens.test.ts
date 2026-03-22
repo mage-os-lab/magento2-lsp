@@ -1,0 +1,93 @@
+import { describe, it, expect, beforeAll } from 'vitest';
+import * as path from 'path';
+import { URI } from 'vscode-uri';
+import { handleCodeLens } from '../../src/handlers/codeLens';
+import { ProjectManager, ProjectContext } from '../../src/project/projectManager';
+
+const FIXTURE_ROOT = path.resolve(__dirname, '../fixtures/magento-root');
+
+describe('handleCodeLens', () => {
+  let project: ProjectContext;
+
+  beforeAll(async () => {
+    const pm = new ProjectManager();
+    project = (await pm.ensureProject(FIXTURE_ROOT))!;
+  });
+
+  function getProject(): ProjectContext | undefined {
+    return project;
+  }
+
+  function makeParams(filePath: string) {
+    return {
+      textDocument: { uri: URI.file(filePath).toString() },
+    };
+  }
+
+  it('returns null for non-PHP files', () => {
+    const diXml = path.join(FIXTURE_ROOT, 'vendor/test/module-foo/etc/di.xml');
+    const result = handleCodeLens(makeParams(diXml), getProject);
+    expect(result).toBeNull();
+  });
+
+  it('returns null for classes without plugins', () => {
+    const phpFile = path.join(FIXTURE_ROOT, 'app/code/Custom/Bar/Model/Bar.php');
+    const result = handleCodeLens(makeParams(phpFile), getProject);
+    expect(result).toBeNull();
+  });
+
+  it('returns class-level code lens with unique plugin count', () => {
+    const phpFile = path.join(FIXTURE_ROOT, 'vendor/test/module-foo/Model/Foo.php');
+    const result = handleCodeLens(makeParams(phpFile), getProject);
+    expect(result).not.toBeNull();
+    // First lens should be on the class declaration
+    const classLens = result![0];
+    // All 3 interceptions come from one <plugin> declaration = 1 unique plugin
+    expect(classLens.command?.title).toBe('1 plugin');
+    expect(classLens.range.start.line).toBe(6); // "class Foo" line (0-based)
+  });
+
+  it('returns method-level code lenses for intercepted methods', () => {
+    const phpFile = path.join(FIXTURE_ROOT, 'vendor/test/module-foo/Model/Foo.php');
+    const result = handleCodeLens(makeParams(phpFile), getProject);
+    expect(result).not.toBeNull();
+    // Should have class lens + 3 method lenses (save, getName, load)
+    expect(result!).toHaveLength(4);
+
+    // Method lenses (skip first which is class-level)
+    const methodLenses = result!.slice(1);
+    const titles = methodLenses.map((l) => l.command?.title);
+    expect(titles).toEqual(['1 plugin', '1 plugin', '1 plugin']);
+  });
+
+  it('does not show code lens for non-intercepted methods', () => {
+    const phpFile = path.join(FIXTURE_ROOT, 'vendor/test/module-foo/Model/Foo.php');
+    const result = handleCodeLens(makeParams(phpFile), getProject);
+    // "delete" method has no plugins — should not get a lens
+    const lines = result!.map((l) => l.range.start.line);
+    // Line 11 (0-based) is "public function delete()" — should not be in the list
+    expect(lines).not.toContain(11);
+  });
+
+  it('shows plugin target on plugin before/after/around methods', () => {
+    const pluginFile = path.join(
+      FIXTURE_ROOT,
+      'app/code/Custom/Bar/Plugin/FooPlugin.php',
+    );
+    const result = handleCodeLens(makeParams(pluginFile), getProject);
+    expect(result).not.toBeNull();
+    // 3 methods: beforeSave, afterGetName, aroundLoad
+    expect(result!).toHaveLength(3);
+
+    const titles = result!.map((l) => l.command?.title);
+    expect(titles).toContain('→ Test\\Foo\\Api\\FooInterface::save');
+    expect(titles).toContain('→ Test\\Foo\\Api\\FooInterface::getName');
+    expect(titles).toContain('→ Test\\Foo\\Api\\FooInterface::load');
+  });
+
+  it('returns null for classes that are neither targets nor plugins', () => {
+    const phpFile = path.join(FIXTURE_ROOT, 'app/code/Custom/Bar/Model/Bar.php');
+    const result = handleCodeLens(makeParams(phpFile), getProject);
+    expect(result).toBeNull();
+  });
+});
