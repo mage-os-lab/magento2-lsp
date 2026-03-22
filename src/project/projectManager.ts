@@ -17,11 +17,14 @@ import {
   discoverEventsXmlFiles,
 } from './moduleResolver';
 import { buildPsr4Map } from './composerAutoload';
+import { ThemeResolver } from './themeResolver';
 import { DiIndex } from '../index/diIndex';
 import { EventsIndex } from '../index/eventsIndex';
+import { LayoutIndex } from '../index/layoutIndex';
 import { IndexCache } from '../cache/indexCache';
 import { parseDiXml } from '../indexer/diXmlParser';
 import { parseEventsXml } from '../indexer/eventsXmlParser';
+import { parseLayoutXml } from '../indexer/layoutXmlParser';
 import { PluginMethodIndex } from '../index/pluginMethodIndex';
 import { ModuleInfo, Psr4Map } from '../indexer/types';
 import * as fs from 'fs';
@@ -41,6 +44,10 @@ export interface ProjectContext {
   pluginMethodIndex: PluginMethodIndex;
   /** In-memory events/observer index for this project. */
   eventsIndex: EventsIndex;
+  /** In-memory layout XML index (block classes, templates, argument objects). */
+  layoutIndex: LayoutIndex;
+  /** Theme discovery and template fallback resolution. */
+  themeResolver: ThemeResolver;
   /** Disk cache for this project's parse results. */
   cache: IndexCache;
   /** True once the initial indexing pass is complete. */
@@ -193,6 +200,55 @@ export class ProjectManager {
       }
     }
 
+    // --- Discover themes and index layout XML files ---
+    const themeResolver = new ThemeResolver();
+    themeResolver.discover(root);
+
+    const layoutIndex = new LayoutIndex();
+
+    // Index module layout and page_layout files
+    for (const mod of modules) {
+      for (const subdir of ['layout', 'page_layout']) {
+        for (const area of ['frontend', 'adminhtml', 'base']) {
+          const dir = path.join(mod.path, 'view', area, subdir);
+          for (const xmlFile of listXmlFiles(dir)) {
+            try {
+              const content = fs.readFileSync(xmlFile, 'utf-8');
+              const result = parseLayoutXml(content, xmlFile);
+              layoutIndex.addFile(xmlFile, result.references);
+            } catch {
+              // Skip unreadable files
+            }
+          }
+        }
+      }
+    }
+
+    // Index theme layout and page_layout files
+    for (const theme of themeResolver.getAllThemes()) {
+      try {
+        const entries = fs.readdirSync(theme.path);
+        for (const entry of entries) {
+          // Theme directories are named after modules: Magento_Catalog, Hyva_Theme, etc.
+          if (!entry.includes('_')) continue;
+          for (const subdir of ['layout', 'page_layout']) {
+            const dir = path.join(theme.path, entry, subdir);
+            for (const xmlFile of listXmlFiles(dir)) {
+              try {
+                const content = fs.readFileSync(xmlFile, 'utf-8');
+                const result = parseLayoutXml(content, xmlFile);
+                layoutIndex.addFile(xmlFile, result.references);
+              } catch {
+                // Skip unreadable files
+              }
+            }
+          }
+        }
+      } catch {
+        // Theme dir unreadable
+      }
+    }
+
     // Build the plugin method index: maps target class methods to their plugin interceptions.
     const pluginMethodIndex = new PluginMethodIndex();
     pluginMethodIndex.build(index, psr4Map);
@@ -206,6 +262,8 @@ export class ProjectManager {
       index,
       pluginMethodIndex,
       eventsIndex,
+      layoutIndex,
+      themeResolver,
       cache,
       indexingComplete: true,
     };
@@ -229,5 +287,16 @@ function fileExists(p: string): boolean {
     return fs.statSync(p).isFile();
   } catch {
     return false;
+  }
+}
+
+/** List all .xml files in a directory (non-recursive). Returns empty array if dir doesn't exist. */
+function listXmlFiles(dir: string): string[] {
+  try {
+    return fs.readdirSync(dir)
+      .filter((f) => f.endsWith('.xml'))
+      .map((f) => path.join(dir, f));
+  } catch {
+    return [];
   }
 }

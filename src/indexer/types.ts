@@ -168,3 +168,35 @@ export interface ObserverReference {
   /** Magento module name. */
   module: string;
 }
+
+// ---- Layout XML types ----
+
+export type LayoutReferenceKind =
+  | 'block-class'         // <block class="Magento\Catalog\Block\Product\View">
+  | 'block-template'      // <block template="Magento_Catalog::product/view.phtml">
+  | 'refblock-template'   // <referenceBlock template="...">
+  | 'argument-object';    // <argument xsi:type="object">ClassName</argument>
+
+/**
+ * A reference found in a layout or page_layout XML file.
+ * Can be a block PHP class, a template identifier, or an object argument.
+ */
+export interface LayoutReference {
+  kind: LayoutReferenceKind;
+  /** The raw value from the XML: FQCN or template identifier. */
+  value: string;
+  /**
+   * For templates: the fully resolved identifier (Module_Name::path).
+   * If the original was a short path (no :: prefix), this is resolved using
+   * the parent block's class attribute via Magento's extractModuleName convention.
+   */
+  resolvedTemplateId?: string;
+  /** Absolute path to the layout XML file. */
+  file: string;
+  /** 0-based line. */
+  line: number;
+  /** 0-based column where the value starts. */
+  column: number;
+  /** 0-based column where the value ends. */
+  endColumn: number;
+}

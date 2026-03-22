@@ -29,6 +29,18 @@ Language Server for navigating Magento 2 XML configuration and PHP classes. Work
 - **Find References** from observer `execute()` method: shows the `events.xml` declarations
 - **Code Lens** on observer `execute()` method: shows `→ event_name`
 
+### Layout XML Navigation
+
+- **Go to Definition** from a `class` attribute on `<block>` elements: jump to the PHP class file
+- **Go to Definition** from `<argument xsi:type="object">` values (ViewModels, etc.): jump to the PHP class file
+- **Go to Definition** from a `template` attribute on `<block>` or `<referenceBlock>`: jump to the `.phtml` file, resolved through the theme fallback hierarchy
+- **Find References** from a class name in layout XML: shows all layout XML and `di.xml` locations referencing that class
+- **Find References** from a template identifier in layout XML: shows all layout XML files using that template
+- **Find References** from a PHP class declaration: includes layout XML references (block classes and object arguments)
+- **Find References** from a `.phtml` template file: shows all layout XML files that reference the template
+- **Template resolution** follows Magento's full fallback chain: current theme → parent themes → module area-specific (`view/frontend/templates/`) → module base (`view/base/templates/`)
+- **Short template paths** (e.g., `product/view.phtml` without a module prefix) are automatically resolved using the enclosing block's class to infer the module name
+
 
 ## Requirements
 
@@ -95,10 +107,11 @@ magento2-lsp --stdio
 
 1. Detects the Magento project root by walking up from the opened file looking for `app/etc/di.xml`
 2. Reads `app/etc/config.php` to determine active modules and their load order
-3. Discovers all `di.xml` and `events.xml` files from active modules (vendor and app/code)
-4. Parses each XML file and builds in-memory indexes mapping PHP class names to their XML locations
-5. Builds a class hierarchy (extends/implements) to resolve inherited plugins
-6. Builds a plugin method index by reading plugin PHP files for `before`/`after`/`around` methods
+3. Discovers all `di.xml`, `events.xml`, and layout XML files from active modules (vendor and app/code)
+4. Discovers themes from `vendor/` packages and `app/design/` directories, resolving parent theme fallback chains
+5. Parses each XML file and builds in-memory indexes mapping PHP class names, templates, and events to their XML locations
+6. Builds a class hierarchy (extends/implements) to resolve inherited plugins
+7. Builds a plugin method index by reading plugin PHP files for `before`/`after`/`around` methods
 7. Caches the DI index to `.magento2-lsp-cache.json` in the project root (add to `.gitignore`)
 8. Watches XML files for changes and re-indexes automatically
 

@@ -38,7 +38,46 @@ export function handleDefinition(
   const project = getProject(filePath);
   if (!project) return null;
 
-  // --- Try events.xml first ---
+  // --- Try layout XML ---
+  const layoutRef = project.layoutIndex.getReferenceAtPosition(
+    filePath,
+    params.position.line,
+    params.position.character,
+  );
+  if (layoutRef) {
+    if (layoutRef.kind === 'block-template' || layoutRef.kind === 'refblock-template') {
+      // Template identifier -> resolve to .phtml file via theme fallback
+      const templateId = layoutRef.resolvedTemplateId ?? layoutRef.value;
+      if (templateId.includes('::')) {
+        const area = project.themeResolver.getAreaForFile(filePath) ?? 'frontend';
+        const theme = project.themeResolver.getThemeForFile(filePath);
+        const resolved = project.themeResolver.resolveTemplate(
+          templateId,
+          area,
+          theme?.code,
+          project.modules,
+        );
+        if (resolved.length > 0) {
+          return Location.create(
+            URI.file(resolved[0]).toString(),
+            Range.create(0, 0, 0, 0),
+          );
+        }
+      }
+      return null;
+    }
+    // block-class or argument-object -> resolve to PHP file
+    const loc = locatePhpClass(layoutRef.value, project.psr4Map);
+    if (loc) {
+      return Location.create(
+        URI.file(loc.file).toString(),
+        Range.create(loc.line, loc.column, loc.line, loc.column),
+      );
+    }
+    return null;
+  }
+
+  // --- Try events.xml ---
   const eventsRef = project.eventsIndex.getReferenceAtPosition(
     filePath,
     params.position.line,

@@ -49,12 +49,16 @@ export function handleReferences(
     return handlePhpReferences(filePath, params, project);
   }
 
+  if (filePath.endsWith('.phtml')) {
+    return handlePhtmlReferences(filePath, project);
+  }
+
   return null;
 }
 
 /**
- * Handle references from an XML file (di.xml or events.xml).
- * Checks events.xml first, then falls back to di.xml.
+ * Handle references from an XML file (di.xml, events.xml, or layout XML).
+ * Tries layout XML, then events.xml, then di.xml.
  */
 function handleXmlReferences(
   filePath: string,
@@ -63,15 +67,27 @@ function handleXmlReferences(
 ): Location[] | null {
   const { line, character } = params.position;
 
+  // --- Try layout XML ---
+  const layoutRef = project.layoutIndex.getReferenceAtPosition(filePath, line, character);
+  if (layoutRef) {
+    if (layoutRef.kind === 'block-template' || layoutRef.kind === 'refblock-template') {
+      // Template identifier -> find all layout files using this template
+      const templateId = layoutRef.resolvedTemplateId ?? layoutRef.value;
+      return refsToLocations(project.layoutIndex.getReferencesForTemplate(templateId));
+    }
+    // block-class or argument-object -> find all layout + di.xml refs for this FQCN
+    const layoutRefs = project.layoutIndex.getReferencesForFqcn(layoutRef.value);
+    const diRefs = project.index.getReferencesForFqcn(layoutRef.value);
+    return refsToLocations([...layoutRefs, ...diRefs]);
+  }
+
   // --- Try events.xml ---
   const eventsRef = project.eventsIndex.getReferenceAtPosition(filePath, line, character);
   if (eventsRef) {
     if (isObserverReference(eventsRef)) {
-      // Cursor on an observer instance FQCN -> all events.xml locations for this class
       const observers = project.eventsIndex.getObserversForFqcn(eventsRef.fqcn);
       return refsToLocations(observers);
     } else {
-      // Cursor on an event name -> all observers for this event (across all modules/areas)
       const observers = project.eventsIndex.getObserversForEvent(eventsRef.eventName);
       return refsToLocations(observers);
     }
@@ -113,11 +129,12 @@ function handlePhpReferences(
     character >= classInfo.column &&
     character < classInfo.endColumn
   ) {
-    // Include di.xml refs for this class AND all ancestor classes/interfaces,
-    // plus events.xml observer registrations for this class.
+    // Include di.xml, events.xml, and layout XML refs for this class,
+    // plus inherited di.xml refs from ancestor classes/interfaces.
     const allRefs: { file: string; line: number; column: number; endColumn: number }[] = [
       ...project.index.getReferencesForFqcn(classInfo.fqcn),
       ...project.eventsIndex.getObserversForFqcn(classInfo.fqcn),
+      ...project.layoutIndex.getReferencesForFqcn(classInfo.fqcn),
     ];
     for (const ancestor of project.pluginMethodIndex.getAncestors(classInfo.fqcn)) {
       allRefs.push(...project.index.getReferencesForFqcn(ancestor));
@@ -241,6 +258,63 @@ function handlePhpReferences(
   }
 
   return null;
+}
+
+/**
+ * Handle references from a .phtml template file.
+ * Determines the template identifier from the file path and finds all layout XML
+ * files that reference this template.
+ *
+ * Template paths can be:
+ *   - In a module: {modulePath}/view/frontend/templates/product/view.phtml
+ *     -> Template ID: Module_Name::product/view.phtml
+ *   - In a theme override: {themePath}/Module_Name/templates/product/view.phtml
+ *     -> Template ID: Module_Name::product/view.phtml
+ */
+function handlePhtmlReferences(
+  filePath: string,
+  project: ProjectContext,
+): Location[] | null {
+  const templateId = reverseResolveTemplateId(filePath, project);
+  if (!templateId) return null;
+
+  return refsToLocations(project.layoutIndex.getReferencesForTemplate(templateId));
+}
+
+/**
+ * Reverse-resolve a .phtml file path to its template identifier (Module_Name::path).
+ */
+function reverseResolveTemplateId(
+  filePath: string,
+  project: ProjectContext,
+): string | undefined {
+  // Check if the file is in a theme: {themePath}/{ModuleName}/templates/{path}
+  const theme = project.themeResolver.getThemeForFile(filePath);
+  if (theme) {
+    const relToTheme = filePath.substring(theme.path.length + 1);
+    // relToTheme: "Module_Name/templates/path/to/file.phtml"
+    const parts = relToTheme.split('/');
+    if (parts.length >= 3 && parts[1] === 'templates') {
+      const moduleName = parts[0];
+      const templatePath = parts.slice(2).join('/');
+      return `${moduleName}::${templatePath}`;
+    }
+  }
+
+  // Check if the file is in a module: {modulePath}/view/{area}/templates/{path}
+  for (const mod of project.modules) {
+    if (filePath.startsWith(mod.path)) {
+      const relToModule = filePath.substring(mod.path.length + 1);
+      // relToModule: "view/frontend/templates/path/to/file.phtml"
+      const templatesIdx = relToModule.indexOf('/templates/');
+      if (templatesIdx !== -1) {
+        const templatePath = relToModule.substring(templatesIdx + '/templates/'.length);
+        return `${mod.name}::${templatePath}`;
+      }
+    }
+  }
+
+  return undefined;
 }
 
 /** Convert a list of references to LSP Locations, returning null if empty. */
