@@ -26,6 +26,8 @@ import { parseDiXml } from '../indexer/diXmlParser';
 import { parseEventsXml } from '../indexer/eventsXmlParser';
 import { parseLayoutXml } from '../indexer/layoutXmlParser';
 import { PluginMethodIndex } from '../index/pluginMethodIndex';
+import { CompatModuleIndex } from '../index/compatModuleIndex';
+import { parseCompatModuleRegistrations } from '../indexer/compatModuleParser';
 import { ModuleInfo, Psr4Map } from '../indexer/types';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -48,6 +50,8 @@ export interface ProjectContext {
   layoutIndex: LayoutIndex;
   /** Theme discovery and template fallback resolution. */
   themeResolver: ThemeResolver;
+  /** Hyvä compatibility module registrations (automatic template overrides). */
+  compatModuleIndex: CompatModuleIndex;
   /** Disk cache for this project's parse results. */
   cache: IndexCache;
   /** True once the initial indexing pass is complete. */
@@ -249,6 +253,32 @@ export class ProjectManager {
       }
     }
 
+    // --- Discover Hyvä compat module registrations ---
+    // Compat modules register in etc/frontend/di.xml by adding arguments to
+    // Hyva\CompatModuleFallback\Model\CompatModuleRegistry. We scan all modules'
+    // frontend di.xml files for these registrations.
+    const compatModuleIndex = new CompatModuleIndex();
+    for (const mod of modules) {
+      const frontendDiXml = path.join(mod.path, 'etc', 'frontend', 'di.xml');
+      try {
+        const content = fs.readFileSync(frontendDiXml, 'utf-8');
+        const mappings = parseCompatModuleRegistrations(content);
+        for (const mapping of mappings) {
+          // Resolve the compat module's filesystem path from the active modules list
+          const compatMod = modules.find((m) => m.name === mapping.compatModule);
+          if (compatMod) {
+            compatModuleIndex.addMapping(
+              mapping.originalModule,
+              mapping.compatModule,
+              compatMod.path,
+            );
+          }
+        }
+      } catch {
+        // No frontend/di.xml or unreadable — skip
+      }
+    }
+
     // Build the plugin method index: maps target class methods to their plugin interceptions.
     const pluginMethodIndex = new PluginMethodIndex();
     pluginMethodIndex.build(index, psr4Map);
@@ -264,6 +294,7 @@ export class ProjectManager {
       eventsIndex,
       layoutIndex,
       themeResolver,
+      compatModuleIndex,
       cache,
       indexingComplete: true,
     };

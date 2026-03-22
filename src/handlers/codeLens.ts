@@ -62,11 +62,15 @@ export function handleCodeLens(
  *
  * For a module template (lives under {modulePath}/view/{area}/templates/...):
  *   → Shows "overridden in N themes" if any theme has an override file.
+ *   → Shows "overridden in Hyvä compat module X" for each compat module override.
  *
  * For a theme override template (lives under {themePath}/{Module_Name}/templates/...):
  *   → Shows "overrides Module_Name::path/to/template.phtml" pointing back to the original.
  *
- * Both lenses appear on line 0 (top of the file) and trigger "find references"
+ * For a Hyvä compat module override template:
+ *   → Shows "Hyvä compat override: Module_Name::path/to/template.phtml"
+ *
+ * All lenses appear on line 0 (top of the file) and trigger "find references"
  * so the user can navigate with grr to see all related files.
  */
 function handlePhtmlCodeLens(
@@ -79,11 +83,17 @@ function handlePhtmlCodeLens(
 
   const lenses: CodeLens[] = [];
 
-  // Check if this file is a theme override (lives inside a theme directory).
-  // If so, show a lens pointing back to the original module template.
+  // Step 1: Determine what kind of .phtml file this is and resolve its template ID.
+  // The template ID (e.g., "Magento_Catalog::product/image.phtml") is needed for
+  // looking up compat module overrides regardless of file type.
+  let templateId: string | undefined;
+
   const theme = project.themeResolver.getThemeForFile(filePath);
+  const compatInfo = project.compatModuleIndex.getCompatModuleForFile(filePath);
+
   if (theme) {
-    const templateId = reverseResolveThemeOverrideTemplateId(filePath, theme);
+    // File is a theme override — show "overrides Module::path" lens
+    templateId = reverseResolveThemeOverrideTemplateId(filePath, theme);
     if (templateId) {
       const original = project.themeResolver.getOriginalModuleTemplate(filePath, project.modules);
       if (original) {
@@ -99,32 +109,66 @@ function handlePhtmlCodeLens(
         });
       }
     }
-    return lenses.length > 0 ? lenses : null;
+  } else if (compatInfo) {
+    // File is a Hyvä compat module override — show "Hyvä compat override: ..." lens
+    templateId = compatInfo.templateId;
+    const original = project.compatModuleIndex.getOriginalModuleTemplate(filePath, project.modules);
+    if (original) {
+      lenses.push({
+        range: Range.create(0, 0, 0, 0),
+        command: Command.create(
+          `Hyvä compat override: ${templateId}`,
+          SHOW_PLUGIN_REFERENCES_COMMAND,
+          params.textDocument.uri,
+          0,
+          0,
+        ),
+      });
+    }
+  } else {
+    // File is a module template — show theme override counts
+    templateId = reverseResolveModuleTemplateId(filePath, project);
+    if (templateId) {
+      const area = project.themeResolver.getAreaForFile(filePath) ?? 'frontend';
+      const themeOverrides = project.themeResolver.findOverrides(templateId, area);
+      if (themeOverrides.length > 0) {
+        const count = themeOverrides.length;
+        lenses.push({
+          range: Range.create(0, 0, 0, 0),
+          command: Command.create(
+            `overridden in ${count} theme${count === 1 ? '' : 's'}`,
+            SHOW_PLUGIN_REFERENCES_COMMAND,
+            params.textDocument.uri,
+            0,
+            0,
+          ),
+        });
+      }
+    }
   }
 
-  // Not in a theme — check if this is a module template with theme overrides.
-  // Reverse-resolve the file path to a template ID (e.g., "Magento_Catalog::product/view.phtml")
-  // then search all themes for override files.
-  const templateId = reverseResolveModuleTemplateId(filePath, project);
-  if (!templateId) return null;
+  // Step 2: Regardless of file type, show compat module overrides for this template.
+  // This way, opening a theme override that is also overridden by a compat module
+  // will show both the "overrides ..." lens and the "overridden in Hyvä compat module ..." lens.
+  if (templateId) {
+    const compatOverrides = project.compatModuleIndex.findOverrides(templateId);
+    for (const override of compatOverrides) {
+      // Don't show "overridden by compat module X" if the current file IS that compat override
+      if (override.filePath === filePath) continue;
+      lenses.push({
+        range: Range.create(0, 0, 0, 0),
+        command: Command.create(
+          `overridden in Hyvä compat module ${override.compatModule}`,
+          SHOW_PLUGIN_REFERENCES_COMMAND,
+          params.textDocument.uri,
+          0,
+          0,
+        ),
+      });
+    }
+  }
 
-  const area = project.themeResolver.getAreaForFile(filePath) ?? 'frontend';
-  const overrides = project.themeResolver.findOverrides(templateId, area);
-  if (overrides.length === 0) return null;
-
-  const count = overrides.length;
-  lenses.push({
-    range: Range.create(0, 0, 0, 0),
-    command: Command.create(
-      `overridden in ${count} theme${count === 1 ? '' : 's'}`,
-      SHOW_PLUGIN_REFERENCES_COMMAND,
-      params.textDocument.uri,
-      0,
-      0,
-    ),
-  });
-
-  return lenses;
+  return lenses.length > 0 ? lenses : null;
 }
 
 /**

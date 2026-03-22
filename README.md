@@ -49,6 +49,16 @@ Language Server for navigating Magento 2 XML configuration and PHP classes. Work
 - **Find References** from a module template: shows layout XML usages and all theme override files
 - **Find References** from a theme override template: shows layout XML usages, the original module template, and other theme overrides
 
+### Hyvä Compatibility Module Override Navigation
+
+Supports [automatic template overrides](https://docs.hyva.io/hyva-themes/compatibility-modules/technical-deep-dive.html#automatic-template-overrides) from Hyvä compatibility modules (requires `hyva-themes/magento2-compat-module-fallback`). Compat module registrations are discovered from `etc/frontend/di.xml` files.
+
+- **Code Lens** on module templates: shows `overridden in Hyvä compat module Hyva_Catalog` when a compat module provides an override (shown as a separate lens alongside theme override lenses)
+- **Code Lens** on compat module override templates: shows `Hyvä compat override: Magento_Catalog::category/products.phtml`
+- **Go to Definition** from a compat module override template: jump to the original module template
+- **Find References** from a module template: includes compat module override files alongside theme overrides
+- **Find References** from a compat module override: shows the original module template, layout XML usages, and other overrides
+
 
 ## Requirements
 
@@ -99,9 +109,36 @@ end
 
 The LSP only activates when a Magento root is found (directory containing `app/etc/di.xml`).
 
-### VS Code and Zed
+### Zed
 
-A VS Code extension or Zed wrapper is not yet available. Contributions welcome.
+Add to your Zed settings (`~/.config/zed/settings.json`):
+
+```json
+{
+  "lsp": {
+    "magento2-lsp": {
+      "binary": {
+        "path": "magento2-lsp",
+        "arguments": ["--stdio"]
+      }
+    }
+  },
+  "languages": {
+    "PHP": {
+      "language_servers": ["intelephense", "magento2-lsp"]
+    },
+    "XML": {
+      "language_servers": ["magento2-lsp"]
+    }
+  }
+}
+```
+
+This runs `magento2-lsp` alongside Intelephense for PHP files, and as the sole LSP for XML files. The server auto-detects the Magento root from any open file.
+
+### VS Code
+
+A VS Code extension is not yet available. Contributions welcome.
 
 ### Other Editors
 
@@ -118,10 +155,11 @@ magento2-lsp --stdio
 3. Discovers all `di.xml`, `events.xml`, and layout XML files from active modules (vendor and app/code)
 4. Discovers themes from `vendor/` packages and `app/design/` directories, resolving parent theme fallback chains
 5. Parses each XML file and builds in-memory indexes mapping PHP class names, templates, and events to their XML locations
-6. Builds a class hierarchy (extends/implements) to resolve inherited plugins
-7. Builds a plugin method index by reading plugin PHP files for `before`/`after`/`around` methods
-7. Caches the DI index to `.magento2-lsp-cache.json` in the project root (add to `.gitignore`)
-8. Watches XML files for changes and re-indexes automatically
+6. Scans `etc/frontend/di.xml` files for Hyvä compatibility module registrations (`CompatModuleRegistry` arguments)
+7. Builds a class hierarchy (extends/implements) to resolve inherited plugins
+8. Builds a plugin method index by reading plugin PHP files for `before`/`after`/`around` methods
+9. Caches the DI index to `.magento2-lsp-cache.json` in the project root (add to `.gitignore`)
+10. Watches XML files for changes and re-indexes automatically
 
 Multiple Magento projects can be open simultaneously — each gets its own isolated index.
 

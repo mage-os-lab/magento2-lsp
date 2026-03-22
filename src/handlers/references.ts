@@ -263,19 +263,22 @@ function handlePhpReferences(
 /**
  * Handle references from a .phtml template file.
  *
- * Collects three kinds of related locations:
+ * Collects four kinds of related locations:
  *   1. Layout XML files that reference this template (via layoutIndex)
  *   2. Theme override files — all themes that override this template
- *   3. The original module template (if the current file is a theme override)
+ *   3. Hyvä compat module override files — compat modules that override this template
+ *   4. The original module template (if the current file is a theme/compat override)
  *
- * This means grr on a module template shows layout XML usages + theme overrides,
- * and grr on a theme override shows layout XML usages + the original + other overrides.
+ * This means grr on a module template shows layout XML usages + all overrides,
+ * and grr on an override shows layout XML usages + the original + sibling overrides.
  *
  * Template paths can be:
  *   - In a module: {modulePath}/view/frontend/templates/product/view.phtml
  *     -> Template ID: Module_Name::product/view.phtml
  *   - In a theme override: {themePath}/Module_Name/templates/product/view.phtml
  *     -> Template ID: Module_Name::product/view.phtml
+ *   - In a compat module: {compatPath}/view/frontend/templates/[Orig_Module/]product/view.phtml
+ *     -> Template ID: Orig_Module::product/view.phtml
  */
 function handlePhtmlReferences(
   filePath: string,
@@ -297,12 +300,10 @@ function handlePhtmlReferences(
     );
   }
 
-  // 2. Theme override files for this template (or the original + sibling overrides
-  //    if the current file is itself a theme override)
+  // 2. Theme override files for this template
   const area = project.themeResolver.getAreaForFile(filePath) ?? 'frontend';
-  const overrides = project.themeResolver.findOverrides(templateId, area);
-  for (const { filePath: overridePath } of overrides) {
-    // Don't include the current file in its own references list
+  const themeOverrides = project.themeResolver.findOverrides(templateId, area);
+  for (const { filePath: overridePath } of themeOverrides) {
     if (overridePath === filePath) continue;
     locations.push(
       Location.create(
@@ -312,26 +313,50 @@ function handlePhtmlReferences(
     );
   }
 
-  // 3. If the current file is a theme override, include the original module template
-  const original = project.themeResolver.getOriginalModuleTemplate(filePath, project.modules);
-  if (original) {
+  // 3. Hyvä compat module override files for this template
+  const compatOverrides = project.compatModuleIndex.findOverrides(templateId);
+  for (const { filePath: overridePath } of compatOverrides) {
+    if (overridePath === filePath) continue;
     locations.push(
       Location.create(
-        URI.file(original).toString(),
+        URI.file(overridePath).toString(),
         Range.create(0, 0, 0, 0),
       ),
     );
   }
 
-  // For a module template, also include the module file itself in the override direction:
-  // if we're NOT a theme override, find the module's own template path and add it
-  // (this is already the current file, so we skip it — overrides are the interesting part)
+  // 4. If the current file is a theme override, include the original module template
+  const themeOriginal = project.themeResolver.getOriginalModuleTemplate(filePath, project.modules);
+  if (themeOriginal) {
+    locations.push(
+      Location.create(
+        URI.file(themeOriginal).toString(),
+        Range.create(0, 0, 0, 0),
+      ),
+    );
+  }
+
+  // 5. If the current file is a compat module override, include the original module template
+  const compatOriginal = project.compatModuleIndex.getOriginalModuleTemplate(filePath, project.modules);
+  if (compatOriginal) {
+    locations.push(
+      Location.create(
+        URI.file(compatOriginal).toString(),
+        Range.create(0, 0, 0, 0),
+      ),
+    );
+  }
 
   return locations.length > 0 ? locations : null;
 }
 
 /**
  * Reverse-resolve a .phtml file path to its template identifier (Module_Name::path).
+ *
+ * Handles three cases:
+ *   1. Theme override: {themePath}/{ModuleName}/templates/{path}
+ *   2. Hyvä compat module override: detected via compatModuleIndex
+ *   3. Module template: {modulePath}/view/{area}/templates/{path}
  */
 function reverseResolveTemplateId(
   filePath: string,
@@ -348,6 +373,12 @@ function reverseResolveTemplateId(
       const templatePath = parts.slice(2).join('/');
       return `${moduleName}::${templatePath}`;
     }
+  }
+
+  // Check if the file is in a Hyvä compat module
+  const compatInfo = project.compatModuleIndex.getCompatModuleForFile(filePath);
+  if (compatInfo) {
+    return compatInfo.templateId;
   }
 
   // Check if the file is in a module: {modulePath}/view/{area}/templates/{path}

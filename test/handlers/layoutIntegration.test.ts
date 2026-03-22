@@ -147,9 +147,9 @@ describe('layout XML integration', () => {
         getProject,
       );
       expect(result).not.toBeNull();
-      expect(result!).toHaveLength(1);
-      // Both parent and child themes override this template
-      expect(result![0].command?.title).toBe('overridden in 2 themes');
+      // Both parent and child themes override this template, plus the compat module
+      const titles = result!.map((l) => l.command?.title);
+      expect(titles).toContain('overridden in 2 themes');
       expect(result![0].range.start.line).toBe(0);
     });
 
@@ -159,8 +159,20 @@ describe('layout XML integration', () => {
         getProject,
       );
       expect(result).not.toBeNull();
-      expect(result!).toHaveLength(1);
-      expect(result![0].command?.title).toBe('overrides Test_Foo::product/list.phtml');
+      const titles = result!.map((l) => l.command?.title);
+      expect(titles).toContain('overrides Test_Foo::product/list.phtml');
+    });
+
+    it('shows compat module override lens on a theme override template', () => {
+      // A theme override for Test_Foo::product/list.phtml should also show
+      // that a compat module overrides the same template
+      const result = handleCodeLens(
+        { textDocument: { uri: URI.file(childThemeOverride).toString() } },
+        getProject,
+      );
+      expect(result).not.toBeNull();
+      const titles = result!.map((l) => l.command?.title);
+      expect(titles).toContain('overridden in Hyvä compat module Test_HyvaCompat');
     });
 
     it('returns null for a module template with no overrides', () => {
@@ -255,6 +267,95 @@ describe('layout XML integration', () => {
       );
       // Module template IS the definition — nowhere to go
       expect(result).toBeNull();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Hyvä compat module template override navigation
+  //
+  // Fixture layout:
+  //   Module template:       vendor/test/module-foo/view/frontend/templates/product/list.phtml
+  //   Compat module override: vendor/test/module-compat/view/frontend/templates/Test_Foo/product/list.phtml
+  //   Registration:          vendor/test/module-compat/etc/frontend/di.xml registers
+  //                          Test_Foo → Test_HyvaCompat in CompatModuleRegistry
+  // -----------------------------------------------------------------------
+
+  const compatOverride = path.join(
+    FIXTURE_ROOT,
+    'vendor/test/module-compat/view/frontend/templates/Test_Foo/product/list.phtml',
+  );
+
+  describe('code lens on Hyvä compat module templates', () => {
+    it('shows compat module override lens on a module template', () => {
+      const result = handleCodeLens(
+        { textDocument: { uri: URI.file(moduleTemplate).toString() } },
+        getProject,
+      );
+      expect(result).not.toBeNull();
+      const titles = result!.map((l) => l.command?.title);
+      expect(titles).toContain('overridden in Hyvä compat module Test_HyvaCompat');
+    });
+
+    it('shows "Hyvä compat override: ..." on a compat module override template', () => {
+      const result = handleCodeLens(
+        { textDocument: { uri: URI.file(compatOverride).toString() } },
+        getProject,
+      );
+      expect(result).not.toBeNull();
+      expect(result!).toHaveLength(1);
+      expect(result![0].command?.title).toBe(
+        'Hyvä compat override: Test_Foo::product/list.phtml',
+      );
+    });
+  });
+
+  describe('references from Hyvä compat module override', () => {
+    it('includes compat module override when finding references from a module template', () => {
+      const result = handleReferences(
+        {
+          textDocument: { uri: URI.file(moduleTemplate).toString() },
+          position: { line: 0, character: 0 },
+          context: { includeDeclaration: true },
+        },
+        getProject,
+      );
+      expect(result).not.toBeNull();
+      const uris = result!.map((l) => URI.parse(l.uri).fsPath);
+      expect(uris.some((u) => u.includes('module-compat'))).toBe(true);
+    });
+
+    it('includes original module template when finding references from a compat override', () => {
+      const result = handleReferences(
+        {
+          textDocument: { uri: URI.file(compatOverride).toString() },
+          position: { line: 0, character: 0 },
+          context: { includeDeclaration: true },
+        },
+        getProject,
+      );
+      expect(result).not.toBeNull();
+      const uris = result!.map((l) => URI.parse(l.uri).fsPath);
+      // Should include the original module template
+      expect(uris.some((u) => u.includes('vendor/test/module-foo'))).toBe(true);
+      // Should NOT include itself
+      expect(uris.some((u) => u === compatOverride)).toBe(false);
+    });
+  });
+
+  describe('definition from Hyvä compat module override', () => {
+    it('navigates from compat override to original module template (gd)', () => {
+      const result = handleDefinition(
+        {
+          textDocument: { uri: URI.file(compatOverride).toString() },
+          position: { line: 0, character: 0 },
+        },
+        getProject,
+      );
+      expect(result).not.toBeNull();
+      const loc = result as { uri: string };
+      expect(URI.parse(loc.uri).fsPath).toContain(
+        path.join('vendor', 'test', 'module-foo', 'view', 'frontend', 'templates', 'product', 'list.phtml'),
+      );
     });
   });
 });

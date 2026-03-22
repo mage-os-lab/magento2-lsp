@@ -106,10 +106,15 @@ function resolveFromInstalledJson(
         installPath,
       ));
 
-      // Find registration.php — it may be at the package root or in a subdirectory
-      // (e.g., src/registration.php). Check autoload.files entries first, then fall back
-      // to the package root. The module root is the directory containing registration.php,
-      // because it uses __DIR__ to register itself.
+      // Find registration.php — it may be at the package root, listed in autoload.files,
+      // or nested in a subdirectory (e.g., src/Module_Name/registration.php for packages
+      // that bundle multiple modules). Check in priority order:
+      //   1. autoload.files entries ending in registration.php
+      //   2. Package root registration.php
+      //   3. Recursive search through subdirectories (max 3 levels deep)
+      //
+      // The module root is the directory containing registration.php, because Magento's
+      // ComponentRegistrar::register() uses __DIR__ to set the module path.
       const regCandidates: string[] = [];
 
       // Check autoload.files entries (e.g., ["src/registration.php"])
@@ -124,6 +129,10 @@ function resolveFromInstalledJson(
 
       // Also check the package root as fallback
       regCandidates.push(path.join(absPath, 'registration.php'));
+
+      // Search subdirectories for packages that nest modules (e.g.,
+      // vendor/mollie/magento2-hyva-compatibility/src/Mollie_HyvaCompatibility/registration.php)
+      findRegistrationFiles(absPath, 3, regCandidates);
 
       for (const registrationPath of regCandidates) {
         try {
@@ -212,6 +221,42 @@ export function discoverEventsXmlFiles(
   modulePath: string,
 ): { file: string; area: string }[] {
   return discoverModuleXmlFiles(modulePath, 'events.xml');
+}
+
+/**
+ * Recursively search for registration.php files in subdirectories.
+ *
+ * Some Composer packages bundle multiple Magento modules in subdirectories
+ * (e.g., vendor/mollie/magento2-hyva-compatibility/src/Mollie_HyvaCompatibility/registration.php).
+ * These aren't listed in autoload.files, so we need to find them by scanning.
+ *
+ * Skips vendor/, node_modules/, and Test/ directories to avoid false matches.
+ * Appends found paths to the candidates array (avoids duplicates with existing entries).
+ */
+function findRegistrationFiles(dir: string, maxDepth: number, candidates: string[]): void {
+  if (maxDepth <= 0) return;
+  const candidateSet = new Set(candidates);
+
+  try {
+    const entries = fs.readdirSync(dir);
+    for (const entry of entries) {
+      // Skip directories that would cause false matches or slow scanning
+      if (entry === 'vendor' || entry === 'node_modules' || entry === 'Test' || entry === 'test') continue;
+      const fullPath = path.join(dir, entry);
+      try {
+        const stat = fs.statSync(fullPath);
+        if (stat.isFile() && entry === 'registration.php' && !candidateSet.has(fullPath)) {
+          candidates.push(fullPath);
+        } else if (stat.isDirectory()) {
+          findRegistrationFiles(fullPath, maxDepth - 1, candidates);
+        }
+      } catch {
+        // Skip inaccessible entries
+      }
+    }
+  } catch {
+    // Directory unreadable
+  }
 }
 
 function fileExists(p: string): boolean {

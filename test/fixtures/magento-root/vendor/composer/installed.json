@@ -12,6 +12,19 @@
           "registration.php"
         ]
       }
+    },
+    {
+      "name": "test/module-compat",
+      "type": "magento2-module",
+      "install-path": "../test/module-compat",
+      "autoload": {
+        "psr-4": {
+          "Test\\HyvaCompat\\": ""
+        },
+        "files": [
+          "registration.php"
+        ]
+      }
     }
   ]
 }

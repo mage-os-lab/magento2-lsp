@@ -171,13 +171,13 @@ export function handleDefinition(
 /**
  * Handle "go to definition" from a .phtml template file.
  *
- * Only meaningful for theme override files: navigates from the override
- * back to the original module template. This is the natural "gd" direction —
- * from the override to the "definition" (the original).
+ * Meaningful for override files (theme overrides and Hyvä compat module overrides):
+ * navigates from the override back to the original module template. This is the
+ * natural "gd" direction — from the override to the "definition" (the original).
  *
  * For module templates (non-overrides), returns null — there's no "definition"
  * to jump to (the file IS the definition). Use grr (find references) to see
- * theme overrides and layout XML usages instead.
+ * overrides and layout XML usages instead.
  */
 function handlePhtmlDefinition(
   filePath: string,
@@ -186,18 +186,33 @@ function handlePhtmlDefinition(
   const project = getProject(filePath);
   if (!project) return null;
 
-  // Only act when the file is inside a theme directory (i.e., it's a theme override)
+  // Check if the file is a theme override
   const theme = project.themeResolver.getThemeForFile(filePath);
-  if (!theme) return null;
+  if (theme) {
+    const original = project.themeResolver.getOriginalModuleTemplate(
+      filePath,
+      project.modules,
+    );
+    if (original) {
+      return Location.create(
+        URI.file(original).toString(),
+        Range.create(0, 0, 0, 0),
+      );
+    }
+    return null;
+  }
 
-  const original = project.themeResolver.getOriginalModuleTemplate(
+  // Check if the file is a Hyvä compat module override
+  const compatOriginal = project.compatModuleIndex.getOriginalModuleTemplate(
     filePath,
     project.modules,
   );
-  if (!original) return null;
+  if (compatOriginal) {
+    return Location.create(
+      URI.file(compatOriginal).toString(),
+      Range.create(0, 0, 0, 0),
+    );
+  }
 
-  return Location.create(
-    URI.file(original).toString(),
-    Range.create(0, 0, 0, 0),
-  );
+  return null;
 }

@@ -1,3 +1,4 @@
 node_modules/
 dist/
 .magento2-lsp-cache.json
+.claude/settings.local.json
