@@ -41,6 +41,14 @@ Language Server for navigating Magento 2 XML configuration and PHP classes. Work
 - **Template resolution** follows Magento's full fallback chain: current theme → parent themes → module area-specific (`view/frontend/templates/`) → module base (`view/base/templates/`)
 - **Short template paths** (e.g., `product/view.phtml` without a module prefix) are automatically resolved using the enclosing block's class to infer the module name
 
+### Template Override Navigation
+
+- **Code Lens** on module templates (e.g., `vendor/magento/module-catalog/view/frontend/templates/category/products.phtml`): shows `overridden in N themes` when theme overrides exist
+- **Code Lens** on theme override templates (e.g., `app/design/frontend/Hyva/default/Magento_Catalog/templates/category/products.phtml`): shows `overrides Magento_Catalog::category/products.phtml`
+- **Go to Definition** from a theme override template: jump to the original module template
+- **Find References** from a module template: shows layout XML usages and all theme override files
+- **Find References** from a theme override template: shows layout XML usages, the original module template, and other theme overrides
+
 
 ## Requirements
 

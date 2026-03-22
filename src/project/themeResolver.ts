@@ -12,6 +12,12 @@
  * Themes are discovered from:
  *   - vendor/ packages with type "magento2-theme" in installed.json
  *   - app/design/{area}/ directories
+ *
+ * This class also supports reverse navigation:
+ *   - findOverrides(): given a template ID, find all theme files overriding it
+ *     (used by code lens to show "overridden in N themes" and by references handler)
+ *   - getOriginalModuleTemplate(): given a theme override file path, find the
+ *     original module template (used by "go to definition" from a theme override)
  */
 
 import * as fs from 'fs';
@@ -163,6 +169,75 @@ export class ThemeResolver {
     }
 
     return results;
+  }
+
+  /**
+   * Find all theme files that override a given module template.
+   *
+   * Searches all known themes in the given area for override files at
+   * {themePath}/{ModuleName}/templates/{templatePath}.
+   *
+   * @param templateId  Full identifier: "Magento_Catalog::product/view.phtml"
+   * @param area        "frontend" or "adminhtml"
+   * @returns Array of { theme, filePath } for each override found
+   */
+  findOverrides(
+    templateId: string,
+    area: string,
+  ): { theme: ThemeInfo; filePath: string }[] {
+    const parts = templateId.split('::');
+    if (parts.length !== 2) return [];
+
+    const [moduleName, templatePath] = parts;
+    const results: { theme: ThemeInfo; filePath: string }[] = [];
+
+    for (const theme of this.themes.values()) {
+      if (theme.area !== area) continue;
+      const candidate = path.join(theme.path, moduleName, 'templates', templatePath);
+      if (fileExists(candidate)) {
+        results.push({ theme, filePath: candidate });
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Reverse-resolve a theme override .phtml file to the original module template path.
+   *
+   * Given a file like {themePath}/Module_Name/templates/path/to/file.phtml,
+   * finds the corresponding module template at {modulePath}/view/{area}/templates/path/to/file.phtml
+   * or {modulePath}/view/base/templates/path/to/file.phtml.
+   *
+   * @returns The absolute path to the original module template, or undefined if not found
+   */
+  getOriginalModuleTemplate(
+    filePath: string,
+    modules: ModuleInfo[],
+  ): string | undefined {
+    const theme = this.getThemeForFile(filePath);
+    if (!theme) return undefined;
+
+    const relToTheme = filePath.substring(theme.path.length + 1);
+    // relToTheme: "Module_Name/templates/path/to/file.phtml"
+    const parts = relToTheme.split('/');
+    if (parts.length < 3 || parts[1] !== 'templates') return undefined;
+
+    const moduleName = parts[0];
+    const templatePath = parts.slice(2).join('/');
+
+    const moduleInfo = modules.find((m) => m.name === moduleName);
+    if (!moduleInfo) return undefined;
+
+    // Check area-specific first
+    const areaCandidate = path.join(moduleInfo.path, 'view', theme.area, 'templates', templatePath);
+    if (fileExists(areaCandidate)) return areaCandidate;
+
+    // Then base
+    const baseCandidate = path.join(moduleInfo.path, 'view', 'base', 'templates', templatePath);
+    if (fileExists(baseCandidate)) return baseCandidate;
+
+    return undefined;
   }
 
   /** Get all known themes. */

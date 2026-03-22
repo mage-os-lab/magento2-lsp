@@ -262,8 +262,14 @@ function handlePhpReferences(
 
 /**
  * Handle references from a .phtml template file.
- * Determines the template identifier from the file path and finds all layout XML
- * files that reference this template.
+ *
+ * Collects three kinds of related locations:
+ *   1. Layout XML files that reference this template (via layoutIndex)
+ *   2. Theme override files — all themes that override this template
+ *   3. The original module template (if the current file is a theme override)
+ *
+ * This means grr on a module template shows layout XML usages + theme overrides,
+ * and grr on a theme override shows layout XML usages + the original + other overrides.
  *
  * Template paths can be:
  *   - In a module: {modulePath}/view/frontend/templates/product/view.phtml
@@ -278,7 +284,50 @@ function handlePhtmlReferences(
   const templateId = reverseResolveTemplateId(filePath, project);
   if (!templateId) return null;
 
-  return refsToLocations(project.layoutIndex.getReferencesForTemplate(templateId));
+  const locations: Location[] = [];
+
+  // 1. Layout XML files that use this template
+  const layoutRefs = project.layoutIndex.getReferencesForTemplate(templateId);
+  for (const r of layoutRefs) {
+    locations.push(
+      Location.create(
+        URI.file(r.file).toString(),
+        Range.create(r.line, r.column, r.line, r.endColumn),
+      ),
+    );
+  }
+
+  // 2. Theme override files for this template (or the original + sibling overrides
+  //    if the current file is itself a theme override)
+  const area = project.themeResolver.getAreaForFile(filePath) ?? 'frontend';
+  const overrides = project.themeResolver.findOverrides(templateId, area);
+  for (const { filePath: overridePath } of overrides) {
+    // Don't include the current file in its own references list
+    if (overridePath === filePath) continue;
+    locations.push(
+      Location.create(
+        URI.file(overridePath).toString(),
+        Range.create(0, 0, 0, 0),
+      ),
+    );
+  }
+
+  // 3. If the current file is a theme override, include the original module template
+  const original = project.themeResolver.getOriginalModuleTemplate(filePath, project.modules);
+  if (original) {
+    locations.push(
+      Location.create(
+        URI.file(original).toString(),
+        Range.create(0, 0, 0, 0),
+      ),
+    );
+  }
+
+  // For a module template, also include the module file itself in the override direction:
+  // if we're NOT a theme override, find the module's own template path and add it
+  // (this is already the current file, so we skip it — overrides are the interesting part)
+
+  return locations.length > 0 ? locations : null;
 }
 
 /**

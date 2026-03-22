@@ -1,7 +1,7 @@
 /**
  * LSP "textDocument/definition" handler.
  *
- * Handles "go to definition" requests from XML files (di.xml, events.xml).
+ * Handles "go to definition" requests from XML files and .phtml templates.
  * PHP definition is left to Intelephense.
  *
  * From di.xml:
@@ -11,6 +11,16 @@
  *
  * From events.xml:
  *   - Observer instance attribute -> PHP observer class file
+ *
+ * From layout XML:
+ *   - Block class attribute -> PHP class file
+ *   - Template attribute -> .phtml file (resolved via theme fallback)
+ *   - Argument xsi:type="object" -> PHP class file
+ *
+ * From .phtml (theme override):
+ *   - gd on a theme override template jumps to the original module template.
+ *     e.g., app/design/frontend/Hyva/default/Magento_Catalog/templates/product/view.phtml
+ *     -> vendor/magento/module-catalog/view/frontend/templates/product/view.phtml
  */
 
 import {
@@ -30,7 +40,12 @@ export function handleDefinition(
 ): Location | Location[] | null {
   const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
 
-  // This LSP only provides definitions from XML files.
+  // Theme override .phtml -> original module template
+  if (filePath.endsWith('.phtml')) {
+    return handlePhtmlDefinition(filePath, getProject);
+  }
+
+  // This LSP only provides definitions from XML files (beyond .phtml above).
   if (!filePath.endsWith('.xml')) {
     return null;
   }
@@ -151,4 +166,38 @@ export function handleDefinition(
   }
 
   return null;
+}
+
+/**
+ * Handle "go to definition" from a .phtml template file.
+ *
+ * Only meaningful for theme override files: navigates from the override
+ * back to the original module template. This is the natural "gd" direction —
+ * from the override to the "definition" (the original).
+ *
+ * For module templates (non-overrides), returns null — there's no "definition"
+ * to jump to (the file IS the definition). Use grr (find references) to see
+ * theme overrides and layout XML usages instead.
+ */
+function handlePhtmlDefinition(
+  filePath: string,
+  getProject: (uri: string) => ProjectContext | undefined,
+): Location | null {
+  const project = getProject(filePath);
+  if (!project) return null;
+
+  // Only act when the file is inside a theme directory (i.e., it's a theme override)
+  const theme = project.themeResolver.getThemeForFile(filePath);
+  if (!theme) return null;
+
+  const original = project.themeResolver.getOriginalModuleTemplate(
+    filePath,
+    project.modules,
+  );
+  if (!original) return null;
+
+  return Location.create(
+    URI.file(original).toString(),
+    Range.create(0, 0, 0, 0),
+  );
 }
