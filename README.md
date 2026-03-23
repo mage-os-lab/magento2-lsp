@@ -126,34 +126,52 @@ The LSP only activates when a Magento root is found (directory containing `app/e
 
 ### Zed
 
-Open your Zed settings with `Cmd+,` (or Command Palette → "zed: open settings") and merge the following into your `settings.json`:
+Zed requires an extension to register custom language servers. A minimal extension is included in `editors/zed/`.
+
+**Step 1 — Install the extension:**
+
+Zed compiles the extension from source, so [Rust](https://rustup.rs/) must be installed and `~/.cargo/bin` must be in your `$PATH`. If you don't want to add it to your PATH permanently, you can start Zed once from a terminal with Rust available:
+
+```bash
+source ~/.cargo/env && open -a Zed
+```
+
+Rust is only needed for this installation step — not for day-to-day use.
+
+1. Open Zed's Command Palette (`Cmd+Shift+P`)
+2. Run **"zed: install dev extension"**
+3. Select the `editors/zed/` directory from this repository
+
+**Step 2 — Configure Zed settings:**
+
+Open your Zed settings with `Cmd+,` and add:
 
 ```json
 {
   "lsp": {
     "magento2-lsp": {
       "binary": {
-        "path": "magento2-lsp",
+        "path": "/absolute/path/to/magento2-lsp",
         "arguments": ["--stdio"]
       }
     }
   },
   "languages": {
     "PHP": {
-      "language_servers": ["intelephense", "magento2-lsp"]
+      "language_servers": ["magento2-lsp", "..."]
     },
     "XML": {
-      "language_servers": ["magento2-lsp"]
+      "language_servers": ["magento2-lsp", "..."]
     }
   }
 }
 ```
 
-If `magento2-lsp` is not on your `$PATH`, replace `"path": "magento2-lsp"` with the absolute path to the binary (e.g., the output of `which magento2-lsp`).
+Replace `/absolute/path/to/magento2-lsp` with the path to the `magento2-lsp` binary (e.g. the result of `which magento2-lsp`, or a path into this repo like `/path/to/magento2-lsp/bin/magento2-lsp`). If `magento2-lsp` is already on your `$PATH`, the `lsp` section can be omitted — the extension will find it automatically.
 
-This runs `magento2-lsp` alongside Intelephense for PHP files, and as the sole LSP for XML files. If you use a different PHP language server, replace `"intelephense"` with its name. The server auto-detects the Magento root when you open any file inside a Magento project.
+The `"..."` keeps any other default servers enabled.
 
-Zed supports code lenses, go-to-definition, find-references, hover, and workspace symbol search — all features provided by this LSP will work out of the box.
+Go-to-definition, find-references, hover, and workspace symbol search all work out of the box. Code lenses are [not yet supported by Zed](https://github.com/zed-industries/zed/issues/11565).
 
 ### VS Code
 

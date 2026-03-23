@@ -1,0 +1,10 @@
+id = "magento2-lsp"
+name = "Magento 2 LSP"
+version = "0.0.1"
+schema_version = 1
+authors = ["Vinai Kopp"]
+description = "Magento 2 Language Server integration for Zed"
+
+[language_servers.magento2-lsp]
+name = "magento2-lsp"
+languages = ["PHP", "XML"]
