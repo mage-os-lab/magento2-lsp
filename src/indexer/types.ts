@@ -64,6 +64,11 @@ export interface DiReference {
    * On a preference-type ref, this is the interface FQCN (the for= value).
    */
   pairedFqcn?: string;
+  /**
+   * For plugin-type refs: the FQCN of the parent <type> or <virtualType> element
+   * this plugin is nested in. Set during SAX parsing from proper nesting context.
+   */
+  parentTypeFqcn?: string;
 }
 
 /**

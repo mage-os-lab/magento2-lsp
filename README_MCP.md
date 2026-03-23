@@ -98,6 +98,19 @@ Find theme overrides and layout XML usages for a template identifier.
 
 **Returns:** Module source template path, theme overrides with theme codes, and layout XML files using the template.
 
+### `magento_resolve_class`
+
+Resolve a PHP class: given a file path, returns its FQCN; given a FQCN, returns its file path. Also returns the module the class belongs to. This is a lightweight PSR-4 lookup — use it when you need to map between file paths and class names without querying the full index.
+
+**Parameters:**
+- `filePath` (required) — Any file or directory in the Magento project
+- `fqcn` (optional) — Fully-qualified PHP class name to resolve to a file path
+- `phpFile` (optional) — Absolute path to a PHP file to resolve to a FQCN
+
+At least one of `fqcn` or `phpFile` is required. Provide both to validate the mapping.
+
+**Returns:** Resolved FQCN and/or file path, plus the module name.
+
 ### `magento_reindex`
 
 Rebuild all in-memory indexes after making changes to the project (creating modules, adding di.xml entries, etc.). Uses the disk cache for unchanged files, so incremental re-indexing is fast.

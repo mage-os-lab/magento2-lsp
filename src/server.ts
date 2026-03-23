@@ -17,12 +17,11 @@
 
 import {
   createConnection,
+  CancellationToken,
   ProposedFeatures,
   InitializeParams,
   InitializeResult,
-  WorkDoneProgressBegin,
-  WorkDoneProgressReport,
-  WorkDoneProgressEnd,
+  WorkDoneProgress,
 } from 'vscode-languageserver/node';
 import { URI } from 'vscode-uri';
 import { SERVER_CAPABILITIES } from './capabilities';
@@ -30,10 +29,15 @@ import { ProjectManager } from './project/projectManager';
 import { handleDefinition } from './handlers/definition';
 import { handleReferences } from './handlers/references';
 import { handleCodeLens } from './handlers/codeLens';
+import { handleHover } from './handlers/hover';
+import { handleWorkspaceSymbol } from './handlers/workspaceSymbol';
 import { FileWatcher } from './watcher/fileWatcher';
-import { discoverDiXmlFiles } from './project/moduleResolver';
-import { DiXmlParseContext } from './indexer/diXmlParser';
+import { discoverDiXmlFiles, discoverEventsXmlFiles } from './project/moduleResolver';
+import { parseDiXml, DiXmlParseContext } from './indexer/diXmlParser';
+import { parseEventsXml, EventsXmlParseContext } from './indexer/eventsXmlParser';
+import { parseLayoutXml } from './indexer/layoutXmlParser';
 import { realpath } from './utils/realpath';
+import * as fs from 'fs';
 import * as path from 'path';
 
 const connection = createConnection(ProposedFeatures.all);
@@ -57,7 +61,7 @@ connection.onInitialized(async () => {
 
 // --- LSP feature handlers ---
 
-connection.onDefinition((params) => {
+connection.onDefinition((params, token) => {
   const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
   const project = projectManager.getProjectForFile(filePath);
   log(`onDefinition: ${filePath} line=${params.position.line} col=${params.position.character} project=${project?.root ?? 'NONE'} indexedFiles=${project?.index.getFileCount() ?? 0}`);
@@ -65,17 +69,26 @@ connection.onDefinition((params) => {
     const ref = project.index.getReferenceAtPosition(filePath, params.position.line, params.position.character);
     log(`  ref at position: ${ref ? `${ref.kind} ${ref.fqcn} col=${ref.column}-${ref.endColumn}` : 'NONE'}`);
   }
-  return handleDefinition(params, () => project);
+  return handleDefinition(params, () => project, token);
 });
 
-connection.onReferences((params) => {
+connection.onReferences((params, token) => {
   const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
-  return handleReferences(params, () => projectManager.getProjectForFile(filePath));
+  return handleReferences(params, () => projectManager.getProjectForFile(filePath), token);
 });
 
-connection.onCodeLens((params) => {
+connection.onCodeLens((params, token) => {
   const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
-  return handleCodeLens(params, () => projectManager.getProjectForFile(filePath));
+  return handleCodeLens(params, () => projectManager.getProjectForFile(filePath), token);
+});
+
+connection.onHover((params, token) => {
+  const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
+  return handleHover(params, () => projectManager.getProjectForFile(filePath), token);
+});
+
+connection.onWorkspaceSymbol((params, token) => {
+  return handleWorkspaceSymbol(params, () => projectManager.getAllProjects(), token);
 });
 
 // --- Lazy project initialization ---
@@ -109,8 +122,8 @@ connection.onDidOpenTextDocument(async (params) => {
   const project = await projectManager.ensureProject(filePath, {
     onBegin(total: number) {
       try {
-        connection.sendProgress<WorkDoneProgressBegin>(
-          { method: 'progress' } as any,
+        connection.sendProgress(
+          WorkDoneProgress.type,
           token,
           {
             kind: 'begin',
@@ -124,8 +137,8 @@ connection.onDidOpenTextDocument(async (params) => {
     },
     onProgress(current: number, total: number, file: string) {
       try {
-        connection.sendProgress<WorkDoneProgressReport>(
-          { method: 'progress' } as any,
+        connection.sendProgress(
+          WorkDoneProgress.type,
           token,
           {
             kind: 'report',
@@ -139,8 +152,8 @@ connection.onDidOpenTextDocument(async (params) => {
     },
     onEnd() {
       try {
-        connection.sendProgress<WorkDoneProgressEnd>(
-          { method: 'progress' } as any,
+        connection.sendProgress(
+          WorkDoneProgress.type,
           token,
           { kind: 'end', message: 'Done' },
         );
@@ -152,77 +165,194 @@ connection.onDidOpenTextDocument(async (params) => {
 
   log(`  project initialized: ${project?.root ?? 'NONE'} (${project?.index.getFileCount() ?? 0} files)`);
 
-  // --- Set up file watcher for automatic re-indexing ---
+  // --- Set up file watchers for automatic re-indexing ---
 
   if (project) {
-    const watchPatterns: string[] = [];
-    // Maps known di.xml paths to their parse context (area, module, moduleOrder)
-    const contextMap = new Map<string, DiXmlParseContext>();
-
-    // Register all known di.xml files from active modules
-    for (const mod of project.modules) {
-      const files = discoverDiXmlFiles(mod.path);
-      for (const f of files) {
-        watchPatterns.push(f.file);
-        contextMap.set(f.file, {
-          file: f.file,
-          area: f.area,
-          module: mod.name,
-          moduleOrder: mod.order,
-        });
-      }
-    }
-
-    // Watch the root app/etc/di.xml separately (not part of any module)
-    const rootDiXml = path.join(project.root, 'app', 'etc', 'di.xml');
-    watchPatterns.push(rootDiXml);
-    contextMap.set(rootDiXml, {
-      file: rootDiXml,
-      area: 'global',
-      module: '__root__',
-      moduleOrder: -1,
-    });
-
-    // Also watch for new di.xml files that might be added to modules
-    for (const mod of project.modules) {
-      watchPatterns.push(path.join(mod.path, 'etc', '**', 'di.xml'));
-    }
-
-    const watcher = new FileWatcher({
-      index: project.index,
-      cache: project.cache,
-      getContext: (file) => {
-        // First check the pre-built map of known files
-        const cached = contextMap.get(file);
-        if (cached) return cached;
-
-        // For newly added di.xml files, determine the context from the file path.
-        // Path structure: {modulePath}/etc/di.xml (global) or {modulePath}/etc/{area}/di.xml
-        for (const mod of project.modules) {
-          if (file.startsWith(mod.path)) {
-            const relPath = path.relative(mod.path, file);
-            const parts = relPath.split(path.sep);
-            if (parts[0] === 'etc' && parts[parts.length - 1] === 'di.xml') {
-              const area = parts.length === 2 ? 'global' : parts[1];
-              const ctx: DiXmlParseContext = {
-                file,
-                area,
-                module: mod.name,
-                moduleOrder: mod.order,
-              };
-              contextMap.set(file, ctx);
-              return ctx;
-            }
-          }
-        }
-        return undefined;
-      },
-    });
-
-    watcher.watch(watchPatterns);
-    watchers.push(watcher);
+    setupFileWatchers(project);
   }
 });
+
+// --- File watcher setup ---
+
+function setupFileWatchers(project: import('./project/projectManager').ProjectContext): void {
+  // --- di.xml watcher ---
+  const diWatchPatterns: string[] = [];
+  const diContextMap = new Map<string, DiXmlParseContext>();
+
+  for (const mod of project.modules) {
+    const files = discoverDiXmlFiles(mod.path);
+    for (const f of files) {
+      diWatchPatterns.push(f.file);
+      diContextMap.set(f.file, {
+        file: f.file,
+        area: f.area,
+        module: mod.name,
+        moduleOrder: mod.order,
+      });
+    }
+    // Also watch for new di.xml files
+    diWatchPatterns.push(path.join(mod.path, 'etc', '**', 'di.xml'));
+  }
+
+  const rootDiXml = path.join(project.root, 'app', 'etc', 'di.xml');
+  diWatchPatterns.push(rootDiXml);
+  diContextMap.set(rootDiXml, {
+    file: rootDiXml,
+    area: 'global',
+    module: '__root__',
+    moduleOrder: -1,
+  });
+
+  function getDiContext(file: string): DiXmlParseContext | undefined {
+    const cached = diContextMap.get(file);
+    if (cached) return cached;
+    for (const mod of project.modules) {
+      if (file.startsWith(mod.path)) {
+        const relPath = path.relative(mod.path, file);
+        const parts = relPath.split(path.sep);
+        if (parts[0] === 'etc' && parts[parts.length - 1] === 'di.xml') {
+          const area = parts.length === 2 ? 'global' : parts[1];
+          const ctx: DiXmlParseContext = { file, area, module: mod.name, moduleOrder: mod.order };
+          diContextMap.set(file, ctx);
+          return ctx;
+        }
+      }
+    }
+    return undefined;
+  }
+
+  // Debounced rebuild of PluginMethodIndex after di.xml changes.
+  // Avoids thrashing during rapid edits while keeping plugin data fresh.
+  let pluginRebuildTimer: ReturnType<typeof setTimeout> | undefined;
+  function schedulePluginRebuild(): void {
+    if (pluginRebuildTimer) clearTimeout(pluginRebuildTimer);
+    pluginRebuildTimer = setTimeout(() => {
+      project.pluginMethodIndex.build(project.index, project.psr4Map);
+    }, 500);
+  }
+
+  const diWatcher = new FileWatcher({
+    onFileChange(filePath) {
+      const context = getDiContext(filePath);
+      if (!context) return;
+      try {
+        const content = fs.readFileSync(filePath, 'utf-8');
+        const stat = fs.statSync(filePath);
+        const result = parseDiXml(content, context);
+        project.index.removeFile(filePath);
+        project.index.addFile(filePath, result.references, result.virtualTypes);
+        project.cache.setDiEntry(filePath, stat.mtimeMs, result.references, result.virtualTypes);
+        project.cache.save();
+        schedulePluginRebuild();
+      } catch {
+        // File might be temporarily unreadable during write
+      }
+    },
+    onFileRemove(filePath) {
+      project.index.removeFile(filePath);
+      project.cache.removeEntry(filePath);
+      project.cache.save();
+      schedulePluginRebuild();
+    },
+  });
+  diWatcher.watch(diWatchPatterns);
+  watchers.push(diWatcher);
+
+  // --- events.xml watcher ---
+  const eventsWatchPatterns: string[] = [];
+  const eventsContextMap = new Map<string, EventsXmlParseContext>();
+
+  for (const mod of project.modules) {
+    const files = discoverEventsXmlFiles(mod.path);
+    for (const f of files) {
+      eventsWatchPatterns.push(f.file);
+      eventsContextMap.set(f.file, { file: f.file, area: f.area, module: mod.name });
+    }
+    // Also watch for new events.xml files
+    eventsWatchPatterns.push(path.join(mod.path, 'etc', '**', 'events.xml'));
+  }
+
+  function getEventsContext(file: string): EventsXmlParseContext | undefined {
+    const cached = eventsContextMap.get(file);
+    if (cached) return cached;
+    for (const mod of project.modules) {
+      if (file.startsWith(mod.path)) {
+        const relPath = path.relative(mod.path, file);
+        const parts = relPath.split(path.sep);
+        if (parts[0] === 'etc' && parts[parts.length - 1] === 'events.xml') {
+          const area = parts.length === 2 ? 'global' : parts[1];
+          const ctx: EventsXmlParseContext = { file, area, module: mod.name };
+          eventsContextMap.set(file, ctx);
+          return ctx;
+        }
+      }
+    }
+    return undefined;
+  }
+
+  const eventsWatcher = new FileWatcher({
+    onFileChange(filePath) {
+      const context = getEventsContext(filePath);
+      if (!context) return;
+      try {
+        const content = fs.readFileSync(filePath, 'utf-8');
+        const stat = fs.statSync(filePath);
+        const result = parseEventsXml(content, context);
+        project.eventsIndex.removeFile(filePath);
+        project.eventsIndex.addFile(filePath, result.events, result.observers);
+        project.cache.setEventsEntry(filePath, stat.mtimeMs, result.events, result.observers);
+        project.cache.save();
+      } catch {
+        // File might be temporarily unreadable during write
+      }
+    },
+    onFileRemove(filePath) {
+      project.eventsIndex.removeFile(filePath);
+      project.cache.removeEventsEntry(filePath);
+      project.cache.save();
+    },
+  });
+  eventsWatcher.watch(eventsWatchPatterns);
+  watchers.push(eventsWatcher);
+
+  // --- layout XML watcher ---
+  const layoutWatchPatterns: string[] = [];
+
+  for (const mod of project.modules) {
+    for (const subdir of ['layout', 'page_layout']) {
+      for (const area of ['frontend', 'adminhtml', 'base']) {
+        layoutWatchPatterns.push(path.join(mod.path, 'view', area, subdir, '*.xml'));
+      }
+    }
+  }
+  for (const theme of project.themeResolver.getAllThemes()) {
+    layoutWatchPatterns.push(path.join(theme.path, '*', 'layout', '*.xml'));
+    layoutWatchPatterns.push(path.join(theme.path, '*', 'page_layout', '*.xml'));
+  }
+
+  const layoutWatcher = new FileWatcher({
+    onFileChange(filePath) {
+      try {
+        const content = fs.readFileSync(filePath, 'utf-8');
+        const stat = fs.statSync(filePath);
+        const result = parseLayoutXml(content, filePath);
+        project.layoutIndex.removeFile(filePath);
+        project.layoutIndex.addFile(filePath, result.references);
+        project.cache.setLayoutEntry(filePath, stat.mtimeMs, result.references);
+        project.cache.save();
+      } catch {
+        // File might be temporarily unreadable during write
+      }
+    },
+    onFileRemove(filePath) {
+      project.layoutIndex.removeFile(filePath);
+      project.cache.removeLayoutEntry(filePath);
+      project.cache.save();
+    },
+  });
+  layoutWatcher.watch(layoutWatchPatterns);
+  watchers.push(layoutWatcher);
+}
 
 // --- Shutdown ---
 

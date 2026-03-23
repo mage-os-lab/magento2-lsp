@@ -148,6 +148,7 @@ export class ProjectManager {
     progress?.onBegin(total);
     let diCacheHits = 0;
 
+    index.beginBatch();
     for (let i = 0; i < diXmlFiles.length; i++) {
       const { file, area, module: moduleName, moduleOrder } = diXmlFiles[i];
       progress?.onProgress(i + 1, total, file);
@@ -170,6 +171,7 @@ export class ProjectManager {
       }
     }
 
+    index.endBatch();
     cache.pruneDiFiles(new Set(diXmlFiles.map((f) => f.file)));
     const t2 = Date.now();
     console.error(`[magento2-lsp]   di.xml (${diXmlFiles.length} files, ${diCacheHits} cached): ${t2 - t1}ms`);

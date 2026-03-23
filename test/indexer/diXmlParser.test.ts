@@ -76,6 +76,37 @@ describe('parseDiXml', () => {
       expect(pluginRef).toBeDefined();
       expect(pluginRef!.fqcn).toBe('Magento\\CatalogInventory\\Model\\Plugin\\ProductLinks');
       expect(pluginRef!.line).toBe(3);
+      expect(pluginRef!.parentTypeFqcn).toBe('Magento\\Catalog\\Model\\Product\\Link');
+    });
+
+    it('sets correct parentTypeFqcn for plugins in multiple type elements', () => {
+      const xml = `<?xml version="1.0"?>
+<config>
+    <type name="Vendor\\First\\Class">
+        <plugin name="p1" type="Vendor\\Plugin\\First" />
+    </type>
+    <type name="Vendor\\Second\\Class">
+        <plugin name="p2" type="Vendor\\Plugin\\Second" />
+    </type>
+</config>`;
+      const result = parseDiXml(xml, ctx());
+      const plugins = result.references.filter((r) => r.kind === 'plugin-type');
+      expect(plugins).toHaveLength(2);
+      expect(plugins[0].parentTypeFqcn).toBe('Vendor\\First\\Class');
+      expect(plugins[1].parentTypeFqcn).toBe('Vendor\\Second\\Class');
+    });
+
+    it('sets parentTypeFqcn for plugins inside virtualType', () => {
+      const xml = `<?xml version="1.0"?>
+<config>
+    <virtualType name="MyVirtualType" type="Vendor\\Base\\Class">
+        <plugin name="vPlugin" type="Vendor\\Plugin\\VPlugin" />
+    </virtualType>
+</config>`;
+      const result = parseDiXml(xml, ctx());
+      const pluginRef = result.references.find((r) => r.kind === 'plugin-type');
+      expect(pluginRef).toBeDefined();
+      expect(pluginRef!.parentTypeFqcn).toBe('MyVirtualType');
     });
 
     it('ignores plugin without type (disabled plugin)', () => {

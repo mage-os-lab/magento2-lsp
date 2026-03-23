@@ -1,8 +1,8 @@
 /**
  * LSP server capability declarations.
  *
- * Tells the editor which LSP features this server supports.
- * Currently: definition (go to definition) and references (find references).
+ * Tells the editor which LSP features this server supports:
+ * definition, references, hover, workspace symbol, and code lens.
  *
  * TextDocumentSyncKind.Full means the editor sends the full file content on every change.
  * This is used for di.xml files so we can re-parse them immediately when edited.
@@ -18,6 +18,8 @@ export const SERVER_CAPABILITIES: ServerCapabilities = {
   textDocumentSync: TextDocumentSyncKind.Full,
   definitionProvider: true,
   referencesProvider: true,
+  hoverProvider: true,
+  workspaceSymbolProvider: true,
   codeLensProvider: {
     resolveProvider: false,
   },

@@ -21,6 +21,7 @@
  */
 
 import {
+  CancellationToken,
   ReferenceParams,
   Location,
   Range,
@@ -36,6 +37,7 @@ import * as fs from 'fs';
 export function handleReferences(
   params: ReferenceParams,
   getProject: (uri: string) => ProjectContext | undefined,
+  token?: CancellationToken,
 ): Location[] | null {
   const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
   const project = getProject(filePath);
@@ -46,7 +48,7 @@ export function handleReferences(
   }
 
   if (filePath.endsWith('.php')) {
-    return handlePhpReferences(filePath, params, project);
+    return handlePhpReferences(filePath, params, project, token);
   }
 
   if (filePath.endsWith('.phtml')) {
@@ -110,6 +112,7 @@ function handlePhpReferences(
   filePath: string,
   params: ReferenceParams,
   project: ProjectContext,
+  token?: CancellationToken,
 ): Location[] | null {
   let content: string;
   try {
@@ -223,6 +226,7 @@ function handlePhpReferences(
       const locations: Location[] = [];
 
       for (const p of plugins) {
+        if (token?.isCancellationRequested) return null;
         // Add the plugin PHP method location (e.g., beforeSave in the plugin class)
         const methodKey = `${p.pluginMethodFile}:${p.pluginMethodLine}`;
         if (!seen.has(methodKey)) {

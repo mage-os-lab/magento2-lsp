@@ -49,6 +49,17 @@ Language Server for navigating Magento 2 XML configuration and PHP classes. Work
 - **Find References** from a module template: shows layout XML usages and all theme override files
 - **Find References** from a theme override template: shows layout XML usages, the original module template, and other theme overrides
 
+### Hover Information
+
+- **Hover** on class names in `di.xml`: shows effective DI config summary (preferences, plugins, virtual types)
+- **Hover** on event names in `events.xml`: shows observer count and registrations
+- **Hover** on observer `instance` in `events.xml`: shows which events the observer handles
+- **Hover** on class and template references in layout XML: shows block class info and template resolution paths
+
+### Workspace Symbol Search
+
+- **Workspace Symbol** search (e.g., `Ctrl+T` in VS Code, `:Telescope lsp_workspace_symbols` in Neovim): find DI preferences, plugins, virtual types, and event observers across all indexed projects
+
 ### Hyvä Compatibility Module Override Navigation
 
 Supports [automatic template overrides](https://docs.hyva.io/hyva-themes/compatibility-modules/technical-deep-dive.html#automatic-template-overrides) from Hyvä compatibility modules (requires `hyva-themes/magento2-compat-module-fallback`). Compat module registrations are discovered from `etc/frontend/di.xml` files.
@@ -115,7 +126,7 @@ The LSP only activates when a Magento root is found (directory containing `app/e
 
 ### Zed
 
-Add to your Zed settings (`~/.config/zed/settings.json`):
+Open your Zed settings with `Cmd+,` (or Command Palette → "zed: open settings") and merge the following into your `settings.json`:
 
 ```json
 {
@@ -138,7 +149,11 @@ Add to your Zed settings (`~/.config/zed/settings.json`):
 }
 ```
 
-This runs `magento2-lsp` alongside Intelephense for PHP files, and as the sole LSP for XML files. The server auto-detects the Magento root from any open file.
+If `magento2-lsp` is not on your `$PATH`, replace `"path": "magento2-lsp"` with the absolute path to the binary (e.g., the output of `which magento2-lsp`).
+
+This runs `magento2-lsp` alongside Intelephense for PHP files, and as the sole LSP for XML files. If you use a different PHP language server, replace `"intelephense"` with its name. The server auto-detects the Magento root when you open any file inside a Magento project.
+
+Zed supports code lenses, go-to-definition, find-references, hover, and workspace symbol search — all features provided by this LSP will work out of the box.
 
 ### VS Code
 

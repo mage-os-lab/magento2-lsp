@@ -36,6 +36,9 @@ export interface EffectiveConfig {
 }
 
 export class DiIndex {
+  /** When true, addFile() skips rebuildEffective() — call endBatch() when done. */
+  private batchMode = false;
+
   /** FQCN -> all references to that class across all di.xml files. */
   private fqcnToRefs = new Map<string, DiReference[]>();
   /** VirtualType name -> all declarations (may have multiple from different modules). */
@@ -78,6 +81,19 @@ export class DiIndex {
       }
     }
 
+    if (!this.batchMode) {
+      this.rebuildEffective();
+    }
+  }
+
+  /** Suppress rebuildEffective() during bulk loading. Call endBatch() when done. */
+  beginBatch(): void {
+    this.batchMode = true;
+  }
+
+  /** End batch mode and rebuild the effective config once. */
+  endBatch(): void {
+    this.batchMode = false;
     this.rebuildEffective();
   }
 
@@ -225,6 +241,16 @@ export class DiIndex {
     return result;
   }
 
+  /** Iterate all unique FQCNs in the index. */
+  getAllFqcns(): IterableIterator<string> {
+    return this.fqcnToRefs.keys();
+  }
+
+  /** Iterate all virtual type names in the index. */
+  getAllVirtualTypeNames(): IterableIterator<string> {
+    return this.virtualTypeDecls.keys();
+  }
+
   /** Number of di.xml files currently indexed. */
   getFileCount(): number {
     return this.fileToRefs.size;
@@ -333,6 +359,10 @@ export class DiIndex {
     pluginRef: DiReference,
     fileRefs: DiReference[],
   ): string | undefined {
+    // Prefer the parser-provided parent (from SAX nesting context).
+    if (pluginRef.parentTypeFqcn) return pluginRef.parentTypeFqcn;
+
+    // Fallback heuristic for old cached data parsed before parentTypeFqcn was added.
     let closest: DiReference | undefined;
     for (const r of fileRefs) {
       if (r.kind === 'type-name' && r.line <= pluginRef.line) {

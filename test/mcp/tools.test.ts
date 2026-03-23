@@ -8,6 +8,7 @@ import {
   handleGetTemplateOverrides,
   handleGetClassContext,
   handleGetModuleOverview,
+  handleResolveClass,
   handleReindex,
 } from '../../src/mcp/tools';
 
@@ -346,12 +347,88 @@ describe('MCP tools', () => {
   });
 
   // -----------------------------------------------------------------------
+  // Input validation
+  // -----------------------------------------------------------------------
+
+  describe('input validation', () => {
+    it('rejects missing parameters object', async () => {
+      await expect(handleGetDiConfig(pm, undefined)).rejects.toThrow('Missing parameters object');
+    });
+
+    it('rejects missing required string parameter', async () => {
+      await expect(handleGetDiConfig(pm, { filePath: FIXTURE_FILE })).rejects.toThrow(
+        'Missing or invalid required parameter: fqcn',
+      );
+    });
+
+    it('rejects non-string required parameter', async () => {
+      await expect(
+        handleGetDiConfig(pm, { filePath: FIXTURE_FILE, fqcn: 123 }),
+      ).rejects.toThrow('Missing or invalid required parameter: fqcn');
+    });
+
+    it('rejects empty string required parameter', async () => {
+      await expect(
+        handleGetDiConfig(pm, { filePath: FIXTURE_FILE, fqcn: '  ' }),
+      ).rejects.toThrow('Missing or invalid required parameter: fqcn');
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // magento_resolve_class
+  // -----------------------------------------------------------------------
+
+  describe('magento_resolve_class', () => {
+    it('resolves a PHP file to its FQCN', async () => {
+      const fooFile = path.join(FIXTURE_ROOT, 'vendor/test/module-foo/Model/Foo.php');
+      const result = await handleResolveClass(pm, { filePath: FIXTURE_FILE, phpFile: fooFile });
+      expect(result).not.toHaveProperty('error');
+      expect(result.resolvedFqcn).toBe('Test\\Foo\\Model\\Foo');
+      expect(result.module).toBe('Test_Foo');
+    });
+
+    it('resolves a FQCN to its file path', async () => {
+      const result = await handleResolveClass(pm, {
+        filePath: FIXTURE_FILE,
+        fqcn: 'Test\\Foo\\Model\\Foo',
+      });
+      expect(result).not.toHaveProperty('error');
+      expect(result.resolvedFile).toContain('Foo.php');
+      expect(result.module).toBe('Test_Foo');
+    });
+
+    it('returns both directions when both params provided', async () => {
+      const fooFile = path.join(FIXTURE_ROOT, 'vendor/test/module-foo/Model/Foo.php');
+      const result = await handleResolveClass(pm, {
+        filePath: FIXTURE_FILE,
+        fqcn: 'Test\\Foo\\Model\\Foo',
+        phpFile: fooFile,
+      });
+      expect(result.resolvedFqcn).toBe('Test\\Foo\\Model\\Foo');
+      expect(result.resolvedFile).toContain('Foo.php');
+    });
+
+    it('returns null for unknown FQCN', async () => {
+      const result = await handleResolveClass(pm, {
+        filePath: FIXTURE_FILE,
+        fqcn: 'NonExistent\\Class\\Name',
+      });
+      expect(result.resolvedFile).toBeNull();
+    });
+
+    it('returns error when neither fqcn nor phpFile provided', async () => {
+      const result = await handleResolveClass(pm, { filePath: FIXTURE_FILE });
+      expect(result).toHaveProperty('error');
+    });
+  });
+
+  // -----------------------------------------------------------------------
   // magento_reindex
   // -----------------------------------------------------------------------
 
   describe('magento_reindex', () => {
     it('rebuilds the project and returns a summary', async () => {
-      const { project: newProject, summary } = await handleReindex(pm, FIXTURE_FILE);
+      const { project: newProject, summary } = await handleReindex(pm, { filePath: FIXTURE_FILE }) as { project: { indexingComplete: boolean }; summary: unknown };
       expect(newProject).toBeDefined();
       expect(newProject.indexingComplete).toBe(true);
 

@@ -18,7 +18,7 @@ import * as path from 'path';
 import { DiReference, VirtualTypeDecl, EventReference, ObserverReference, LayoutReference } from '../indexer/types';
 
 /** Bump this when entry formats change to invalidate old caches. */
-const CACHE_VERSION = 2;
+const CACHE_VERSION = 3;
 const CACHE_FILENAME = '.magento2-lsp-cache.json';
 
 /** Cached parse results for a single di.xml file. */
@@ -150,6 +150,16 @@ export class IndexCache {
   /** Remove a single di.xml entry from the cache. */
   removeEntry(filePath: string): void {
     delete this.data.diFiles[filePath];
+  }
+
+  /** Remove a single events.xml entry from the cache. */
+  removeEventsEntry(filePath: string): void {
+    delete this.data.eventsFiles[filePath];
+  }
+
+  /** Remove a single layout XML entry from the cache. */
+  removeLayoutEntry(filePath: string): void {
+    delete this.data.layoutFiles[filePath];
   }
 
   /** List all di.xml file paths that have cached entries. */

@@ -24,6 +24,7 @@
  */
 
 import {
+  CancellationToken,
   DefinitionParams,
   Location,
   Range,
@@ -37,6 +38,7 @@ import { realpath } from '../utils/realpath';
 export function handleDefinition(
   params: DefinitionParams,
   getProject: (uri: string) => ProjectContext | undefined,
+  _token?: CancellationToken,
 ): Location | Location[] | null {
   const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
 

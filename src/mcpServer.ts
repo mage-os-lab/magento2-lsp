@@ -18,16 +18,10 @@ import {
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { ProjectManager } from './project/projectManager';
-import {
-  toolDefinitions,
-  handleGetDiConfig,
-  handleGetPluginsForMethod,
-  handleGetEventObservers,
-  handleGetTemplateOverrides,
-  handleGetClassContext,
-  handleGetModuleOverview,
-  handleReindex,
-} from './mcp/tools';
+import { toolDefinitions, toolHandlers, setLogger } from './mcp/tools';
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { version } = require('../package.json');
 
 // ---------------------------------------------------------------------------
 // Main
@@ -38,62 +32,48 @@ async function main() {
 
   // Create the MCP server
   const server = new Server(
-    { name: 'magento2-lsp-mcp', version: '0.1.0' },
-    { capabilities: { tools: {} } },
+    { name: 'magento2-lsp-mcp', version },
+    { capabilities: { tools: {}, logging: {} } },
   );
+
+  // Wire up tool-layer logging to MCP notifications (with stderr fallback)
+  setLogger({
+    log(message: string) {
+      process.stderr.write(message);
+      server.sendLoggingMessage({
+        level: 'info',
+        logger: 'magento2-lsp-mcp',
+        data: message.trimEnd(),
+      }).catch(() => {
+        // Swallow errors if client hasn't connected yet or doesn't support logging
+      });
+    },
+  });
 
   // Register tool list handler
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: toolDefinitions,
   }));
 
-  // Register tool call handler
+  // Register tool call handler (registry-based dispatch)
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
 
+    const handler = toolHandlers.get(name);
+    if (!handler) {
+      return {
+        content: [{ type: 'text', text: `Unknown tool: ${name}` }],
+        isError: true,
+      };
+    }
+
     try {
-      switch (name) {
-        case 'magento_get_di_config': {
-          const result = await handleGetDiConfig(projectManager, args as { filePath: string; fqcn: string; area?: string });
-          return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
-        }
-
-        case 'magento_get_plugins_for_method': {
-          const result = await handleGetPluginsForMethod(projectManager, args as { filePath: string; fqcn: string; method: string });
-          return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
-        }
-
-        case 'magento_get_event_observers': {
-          const result = await handleGetEventObservers(projectManager, args as { filePath: string; eventName?: string; observerClass?: string });
-          return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
-        }
-
-        case 'magento_get_template_overrides': {
-          const result = await handleGetTemplateOverrides(projectManager, args as { filePath: string; templateId: string; area?: string });
-          return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
-        }
-
-        case 'magento_get_class_context': {
-          const result = await handleGetClassContext(projectManager, args as { filePath: string });
-          return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
-        }
-
-        case 'magento_get_module_overview': {
-          const result = await handleGetModuleOverview(projectManager, args as { filePath: string; moduleName?: string });
-          return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
-        }
-
-        case 'magento_reindex': {
-          const { summary } = await handleReindex(projectManager, (args as { filePath: string }).filePath);
-          return { content: [{ type: 'text', text: JSON.stringify(summary, null, 2) }] };
-        }
-
-        default:
-          return {
-            content: [{ type: 'text', text: `Unknown tool: ${name}` }],
-            isError: true,
-          };
-      }
+      const result = await handler(projectManager, args);
+      // handleReindex returns { project, summary } — only send the summary
+      const output = name === 'magento_reindex'
+        ? (result as { summary: unknown }).summary
+        : result;
+      return { content: [{ type: 'text', text: JSON.stringify(output, null, 2) }] };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {

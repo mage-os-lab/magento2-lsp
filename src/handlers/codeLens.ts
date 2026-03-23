@@ -22,6 +22,7 @@
  */
 
 import {
+  CancellationToken,
   CodeLens,
   CodeLensParams,
   Command,
@@ -40,6 +41,7 @@ export const SHOW_PLUGIN_REFERENCES_COMMAND = 'magento2-lsp.showPluginReferences
 export function handleCodeLens(
   params: CodeLensParams,
   getProject: (uri: string) => ProjectContext | undefined,
+  token?: CancellationToken,
 ): CodeLens[] | null {
   const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
 
@@ -48,7 +50,7 @@ export function handleCodeLens(
   }
 
   if (filePath.endsWith('.php')) {
-    return handlePhpCodeLens(filePath, params, getProject);
+    return handlePhpCodeLens(filePath, params, getProject, token);
   }
 
   return null;
@@ -222,6 +224,7 @@ function handlePhpCodeLens(
   filePath: string,
   params: CodeLensParams,
   getProject: (uri: string) => ProjectContext | undefined,
+  token?: CancellationToken,
 ): CodeLens[] | null {
   const project = getProject(filePath);
   if (!project) return null;
@@ -326,7 +329,7 @@ function handlePhpCodeLens(
   }
 
   // --- Magic method calls: show "→ ClassName::method" or "→ ClassName::__call" ---
-  const magicLenses = computeMagicMethodLenses(content, classInfo, params, project);
+  const magicLenses = computeMagicMethodLenses(content, classInfo, params, project, token);
   lenses.push(...magicLenses);
 
   return lenses.length > 0 ? lenses : null;
@@ -346,6 +349,7 @@ function computeMagicMethodLenses(
   classInfo: { fqcn: string; namespace: string; useImports: Map<string, string> },
   params: CodeLensParams,
   project: ProjectContext,
+  token?: CancellationToken,
 ): CodeLens[] {
   const lenses: CodeLens[] = [];
   const lines = content.split('\n');
@@ -368,6 +372,7 @@ function computeMagicMethodLenses(
   const CALL_RE = /(\$[\w]+(?:->[\w]+)*)->([\w]+)\s*\(/g;
 
   for (let i = 0; i < lines.length; i++) {
+    if (token?.isCancellationRequested) return lenses;
     const line = lines[i];
     let match;
     CALL_RE.lastIndex = 0;

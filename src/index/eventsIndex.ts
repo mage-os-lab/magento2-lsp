@@ -111,6 +111,11 @@ export class EventsIndex {
     );
   }
 
+  /** Iterate all event names in the index. */
+  getAllEventNames(): IterableIterator<string> {
+    return this.eventNameRefs.keys();
+  }
+
   /** Number of events.xml files currently indexed. */
   getFileCount(): number {
     return this.fileToRefs.size;

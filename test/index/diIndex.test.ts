@@ -355,6 +355,66 @@ describe('DiIndex', () => {
     });
   });
 
+  describe('batch mode', () => {
+    it('defers rebuildEffective until endBatch', () => {
+      index.beginBatch();
+
+      const forRef = makeRef({
+        fqcn: 'My\\Interface',
+        kind: 'preference-for',
+        file: '/a.xml',
+        line: 0,
+        pairedFqcn: 'My\\Impl',
+      });
+      const typeRef = makeRef({
+        fqcn: 'My\\Impl',
+        kind: 'preference-type',
+        file: '/a.xml',
+        line: 0,
+        pairedFqcn: 'My\\Interface',
+      });
+      index.addFile('/a.xml', [forRef, typeRef], []);
+
+      // During batch mode, effective config is not built yet
+      expect(index.getEffectivePreferenceType('My\\Interface', 'global')).toBeUndefined();
+
+      index.endBatch();
+
+      // After endBatch, effective config is available
+      const effective = index.getEffectivePreferenceType('My\\Interface', 'global');
+      expect(effective).toBeDefined();
+      expect(effective!.fqcn).toBe('My\\Impl');
+    });
+
+    it('produces same results as non-batch mode', () => {
+      // Batch mode
+      const batchIndex = new DiIndex();
+      batchIndex.beginBatch();
+      const refs1 = [
+        makeRef({ fqcn: 'A\\Interface', kind: 'preference-for', file: '/a.xml', line: 0, pairedFqcn: 'A\\Impl' }),
+        makeRef({ fqcn: 'A\\Impl', kind: 'preference-type', file: '/a.xml', line: 0, pairedFqcn: 'A\\Interface' }),
+      ];
+      const refs2 = [
+        makeRef({ fqcn: 'A\\Interface', kind: 'preference-for', file: '/b.xml', line: 0, moduleOrder: 5, pairedFqcn: 'A\\Impl2' }),
+        makeRef({ fqcn: 'A\\Impl2', kind: 'preference-type', file: '/b.xml', line: 0, moduleOrder: 5, pairedFqcn: 'A\\Interface' }),
+      ];
+      batchIndex.addFile('/a.xml', refs1, []);
+      batchIndex.addFile('/b.xml', refs2, []);
+      batchIndex.endBatch();
+
+      // Non-batch mode
+      const normalIndex = new DiIndex();
+      normalIndex.addFile('/a.xml', refs1, []);
+      normalIndex.addFile('/b.xml', refs2, []);
+
+      // Both should produce the same effective preference
+      const batchResult = batchIndex.getEffectivePreferenceType('A\\Interface', 'global');
+      const normalResult = normalIndex.getEffectivePreferenceType('A\\Interface', 'global');
+      expect(batchResult?.fqcn).toBe(normalResult?.fqcn);
+      expect(batchResult?.fqcn).toBe('A\\Impl2');
+    });
+  });
+
   describe('clear', () => {
     it('removes all data', () => {
       index.addFile(

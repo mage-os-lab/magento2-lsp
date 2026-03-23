@@ -75,6 +75,10 @@ export function parseDiXml(
   let pendingArgument: PendingArgument | undefined;
   let argumentText = '';
 
+  // Tracks the FQCN of the current <type> or <virtualType> element for proper
+  // nesting context on child <plugin> elements.
+  let currentTypeFqcn: string | undefined;
+
   parser.onopentag = (tag) => {
     const tagLine = (parser.line ?? 0);
     const tagName = tag.name.toLowerCase();
@@ -83,10 +87,12 @@ export function parseDiXml(
       handlePreference(tag, tagLine, lines, context, references);
     } else if (tagName === 'type') {
       handleType(tag, tagLine, lines, context, references);
+      currentTypeFqcn = extractTagNameFqcn(tag);
     } else if (tagName === 'virtualtype') {
       handleVirtualType(tag, tagLine, lines, context, references, virtualTypes);
+      currentTypeFqcn = extractTagNameFqcn(tag);
     } else if (tagName === 'plugin') {
-      handlePlugin(tag, tagLine, lines, context, references);
+      handlePlugin(tag, tagLine, lines, context, references, currentTypeFqcn);
     } else if (tagName === 'argument' || tagName === 'item') {
       // Only <argument>/<item> elements with xsi:type="object" contain class references.
       // Others (string, array, number, const, init_parameter) are not PHP classes.
@@ -114,6 +120,9 @@ export function parseDiXml(
 
   parser.onclosetag = (tagName) => {
     const name = tagName.toLowerCase();
+    if (name === 'type' || name === 'virtualtype') {
+      currentTypeFqcn = undefined;
+    }
     if ((name === 'argument' || name === 'item') && pendingArgument) {
       handleArgumentObject(
         argumentText,
@@ -308,6 +317,7 @@ function handlePlugin(
   lines: string[],
   context: DiXmlParseContext,
   references: DiReference[],
+  parentTypeFqcn: string | undefined,
 ): void {
   const typeAttr = tag.attributes['type'] ?? tag.attributes['TYPE'];
   const typeValue = typeof typeAttr === 'string' ? typeAttr : typeAttr?.value;
@@ -326,6 +336,7 @@ function handlePlugin(
         area: context.area,
         module: context.module,
         moduleOrder: context.moduleOrder,
+        parentTypeFqcn,
       });
     }
   }
@@ -367,6 +378,13 @@ function handleArgumentObject(
  * Handles case variations since XML attribute names are case-sensitive but
  * some Magento modules may use inconsistent casing.
  */
+/** Extract and normalize the name attribute from a <type> or <virtualType> tag. */
+function extractTagNameFqcn(tag: sax.Tag | sax.QualifiedTag): string | undefined {
+  const nameAttr = tag.attributes['name'] ?? tag.attributes['NAME'];
+  const nameValue = typeof nameAttr === 'string' ? nameAttr : nameAttr?.value;
+  return nameValue ? normalizeFqcn(nameValue) : undefined;
+}
+
 function getXsiType(tag: sax.Tag | sax.QualifiedTag): string | undefined {
   const attr =
     tag.attributes['xsi:type'] ??
