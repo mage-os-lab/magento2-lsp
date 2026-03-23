@@ -30,6 +30,7 @@ import {
 import { URI } from 'vscode-uri';
 import { ProjectContext } from '../project/projectManager';
 import { extractPhpClass, extractPhpMethods } from '../utils/phpNamespace';
+import { resolveVariableTypes } from '../utils/phpTypeResolver';
 import { realpath } from '../utils/realpath';
 import * as fs from 'fs';
 
@@ -240,10 +241,6 @@ function handlePhpCodeLens(
   const hasPlugins = project.pluginMethodIndex.hasPlugins(classInfo.fqcn);
   const isObserver = project.eventsIndex.getObserversForFqcn(classInfo.fqcn).length > 0;
 
-  if (!isPluginClass && !hasPlugins && !isObserver) {
-    return null;
-  }
-
   // --- Target class: show "N plugins" on class and intercepted methods ---
   if (hasPlugins) {
     const totalPlugins = project.pluginMethodIndex.getTotalPluginCount(classInfo.fqcn);
@@ -328,5 +325,103 @@ function handlePhpCodeLens(
     }
   }
 
+  // --- Magic method calls: show "→ ClassName::method" or "→ ClassName::__call" ---
+  const magicLenses = computeMagicMethodLenses(content, classInfo, params, project);
+  lenses.push(...magicLenses);
+
   return lenses.length > 0 ? lenses : null;
+}
+
+/**
+ * Detect method calls on typed variables where the method doesn't exist on the
+ * declared type but is available on the concrete class (via DI preference resolution)
+ * or via __call/@method magic.
+ *
+ * For each such call, produces a code lens:
+ *   - "→ ClassName::methodName" if the method is physically declared on the concrete class
+ *   - "→ ClassName::__call" if the method is handled by __call or @method
+ */
+function computeMagicMethodLenses(
+  content: string,
+  classInfo: { fqcn: string; namespace: string; useImports: Map<string, string> },
+  params: CodeLensParams,
+  project: ProjectContext,
+): CodeLens[] {
+  const lenses: CodeLens[] = [];
+  const lines = content.split('\n');
+  const typeMap = resolveVariableTypes(content, classInfo as any);
+
+  // Pre-resolve DI preferences for each unique type (avoids repeated lookups)
+  const concreteTypeCache = new Map<string, string>();
+  function getConcreteType(fqcn: string): string {
+    if (concreteTypeCache.has(fqcn)) return concreteTypeCache.get(fqcn)!;
+    const prefRef =
+      project.index.getEffectivePreferenceType(fqcn, 'frontend') ??
+      project.index.getEffectivePreferenceType(fqcn, 'adminhtml') ??
+      project.index.getEffectivePreferenceType(fqcn, 'global');
+    const concrete = prefRef ? prefRef.fqcn : fqcn;
+    concreteTypeCache.set(fqcn, concrete);
+    return concrete;
+  }
+
+  // Match method calls: $var->method( or $this->prop->method(
+  const CALL_RE = /(\$[\w]+(?:->[\w]+)*)->([\w]+)\s*\(/g;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    let match;
+    CALL_RE.lastIndex = 0;
+
+    while ((match = CALL_RE.exec(line)) !== null) {
+      const objectExpr = match[1]; // e.g., "$this->storage" or "$product"
+      const methodName = match[2]; // e.g., "getData"
+
+      // Skip __construct, __call, etc.
+      if (methodName.startsWith('__')) continue;
+
+      // Resolve the object expression to a FQCN
+      const originalFqcn = typeMap.get(objectExpr);
+      if (!originalFqcn) continue;
+
+      // Check if the method is declared on the original type — if so, no lens needed.
+      // resolveMethod returns 'declared' when the method physically exists.
+      const originalResolution = project.magicMethodIndex.resolveMethod(
+        originalFqcn, methodName, project.psr4Map,
+      );
+      if (originalResolution?.kind === 'declared') continue;
+
+      // Try DI preference resolution: interface → concrete class
+      const concreteFqcn = getConcreteType(originalFqcn);
+
+      // Resolve the method on the concrete class (skip if same as original — already checked)
+      const resolution = concreteFqcn !== originalFqcn
+        ? project.magicMethodIndex.resolveMethod(concreteFqcn, methodName, project.psr4Map)
+        : originalResolution;
+      if (!resolution) continue;
+
+      // Build the label
+      const shortClass = resolution.className.split('\\').pop() ?? resolution.className;
+      const label =
+        resolution.kind === 'declared'
+          ? `→ ${shortClass}::${resolution.methodName}`
+          : `→ ${shortClass}::__call`;
+
+      // Position the lens on the method name in the call
+      const methodStart = match.index + match[1].length + 2; // +2 for "->"
+      const methodEnd = methodStart + methodName.length;
+
+      lenses.push({
+        range: Range.create(i, methodStart, i, methodEnd),
+        command: Command.create(
+          label,
+          SHOW_PLUGIN_REFERENCES_COMMAND,
+          params.textDocument.uri,
+          i,
+          methodStart,
+        ),
+      });
+    }
+  }
+
+  return lenses;
 }

@@ -26,6 +26,7 @@ import { parseDiXml } from '../indexer/diXmlParser';
 import { parseEventsXml } from '../indexer/eventsXmlParser';
 import { parseLayoutXml } from '../indexer/layoutXmlParser';
 import { PluginMethodIndex } from '../index/pluginMethodIndex';
+import { MagicMethodIndex } from '../index/magicMethodIndex';
 import { CompatModuleIndex } from '../index/compatModuleIndex';
 import { parseCompatModuleRegistrations } from '../indexer/compatModuleParser';
 import { ModuleInfo, Psr4Map } from '../indexer/types';
@@ -44,6 +45,8 @@ export interface ProjectContext {
   index: DiIndex;
   /** Maps target class methods to their plugin interceptions (for code lens + references). */
   pluginMethodIndex: PluginMethodIndex;
+  /** Lazy index for resolving magic method calls (__call, @method). */
+  magicMethodIndex: MagicMethodIndex;
   /** In-memory events/observer index for this project. */
   eventsIndex: EventsIndex;
   /** In-memory layout XML index (block classes, templates, argument objects). */
@@ -115,136 +118,144 @@ export class ProjectManager {
     root: string,
     progress?: ProgressCallback,
   ): Promise<ProjectContext> {
+    const t0 = Date.now();
+
     const modules = resolveActiveModules(root);
     const psr4Map = buildPsr4Map(root);
+    const t1 = Date.now();
+    console.error(`[magento2-lsp]   modules + psr4: ${t1 - t0}ms`);
+
     const index = new DiIndex();
     const cache = new IndexCache(root);
     cache.load();
 
-    // Discover all di.xml files to index
+    // --- Index di.xml files (cached) ---
     const diXmlFiles: { file: string; area: string; module: string; moduleOrder: number }[] = [];
 
-    // The root app/etc/di.xml contains framework-level preferences.
-    // It uses moduleOrder -1 because it's loaded before any module.
     const rootDiXml = path.join(root, 'app', 'etc', 'di.xml');
     if (fileExists(rootDiXml)) {
       diXmlFiles.push({ file: rootDiXml, area: 'global', module: '__root__', moduleOrder: -1 });
     }
 
-    // Per-module di.xml files (global + area-scoped)
     for (const mod of modules) {
       const files = discoverDiXmlFiles(mod.path);
       for (const f of files) {
-        diXmlFiles.push({
-          file: f.file,
-          area: f.area,
-          module: mod.name,
-          moduleOrder: mod.order,
-        });
+        diXmlFiles.push({ file: f.file, area: f.area, module: mod.name, moduleOrder: mod.order });
       }
     }
 
     const total = diXmlFiles.length;
     progress?.onBegin(total);
+    let diCacheHits = 0;
 
-    // Index each file, using cached parse results when the file hasn't changed
     for (let i = 0; i < diXmlFiles.length; i++) {
       const { file, area, module: moduleName, moduleOrder } = diXmlFiles[i];
       progress?.onProgress(i + 1, total, file);
 
       try {
         const stat = fs.statSync(file);
-        const cached = cache.getCachedEntry(file, stat.mtimeMs);
+        const cached = cache.getDiEntry(file, stat.mtimeMs);
 
         if (cached) {
-          // Cache hit — use stored parse results (much faster than re-parsing)
+          diCacheHits++;
           index.addFile(file, cached.references, cached.virtualTypes);
         } else {
-          // Cache miss — parse the file and update the cache
           const content = fs.readFileSync(file, 'utf-8');
-          const result = parseDiXml(content, {
-            file,
-            area,
-            module: moduleName,
-            moduleOrder,
-          });
+          const result = parseDiXml(content, { file, area, module: moduleName, moduleOrder });
           index.addFile(file, result.references, result.virtualTypes);
-          cache.setCachedEntry(
-            file,
-            stat.mtimeMs,
-            result.references,
-            result.virtualTypes,
-          );
+          cache.setDiEntry(file, stat.mtimeMs, result.references, result.virtualTypes);
         }
       } catch {
-        // Skip files that can't be read (permissions, broken symlinks, etc.)
+        // Skip files that can't be read
       }
     }
 
-    // Remove cache entries for files that no longer exist (deleted modules, etc.)
-    cache.pruneDeletedFiles(new Set(diXmlFiles.map((f) => f.file)));
-    cache.save();
+    cache.pruneDiFiles(new Set(diXmlFiles.map((f) => f.file)));
+    const t2 = Date.now();
+    console.error(`[magento2-lsp]   di.xml (${diXmlFiles.length} files, ${diCacheHits} cached): ${t2 - t1}ms`);
 
-    // --- Index events.xml files ---
+    // --- Index events.xml files (cached) ---
     const eventsIndex = new EventsIndex();
+    const allEventsFiles: string[] = [];
+    let eventsCacheHits = 0;
+
     for (const mod of modules) {
       const eventsFiles = discoverEventsXmlFiles(mod.path);
       for (const f of eventsFiles) {
+        allEventsFiles.push(f.file);
         try {
-          const content = fs.readFileSync(f.file, 'utf-8');
-          const result = parseEventsXml(content, {
-            file: f.file,
-            area: f.area,
-            module: mod.name,
-          });
-          eventsIndex.addFile(f.file, result.events, result.observers);
+          const stat = fs.statSync(f.file);
+          const cached = cache.getEventsEntry(f.file, stat.mtimeMs);
+
+          if (cached) {
+            eventsCacheHits++;
+            eventsIndex.addFile(f.file, cached.events, cached.observers);
+          } else {
+            const content = fs.readFileSync(f.file, 'utf-8');
+            const result = parseEventsXml(content, { file: f.file, area: f.area, module: mod.name });
+            eventsIndex.addFile(f.file, result.events, result.observers);
+            cache.setEventsEntry(f.file, stat.mtimeMs, result.events, result.observers);
+          }
         } catch {
           // Skip unreadable files
         }
       }
     }
 
-    // --- Discover themes and index layout XML files ---
+    cache.pruneEventsFiles(new Set(allEventsFiles));
+    const t3 = Date.now();
+    console.error(`[magento2-lsp]   events.xml (${allEventsFiles.length} files, ${eventsCacheHits} cached): ${t3 - t2}ms`);
+
+    // --- Discover themes and index layout XML files (cached) ---
     const themeResolver = new ThemeResolver();
     themeResolver.discover(root);
 
     const layoutIndex = new LayoutIndex();
+    const allLayoutFiles: string[] = [];
+    let layoutCacheHits = 0;
 
-    // Index module layout and page_layout files
+    function indexLayoutFile(xmlFile: string): void {
+      allLayoutFiles.push(xmlFile);
+      try {
+        const stat = fs.statSync(xmlFile);
+        const cached = cache.getLayoutEntry(xmlFile, stat.mtimeMs);
+
+        if (cached) {
+          layoutCacheHits++;
+          layoutIndex.addFile(xmlFile, cached.references);
+        } else {
+          const content = fs.readFileSync(xmlFile, 'utf-8');
+          const result = parseLayoutXml(content, xmlFile);
+          layoutIndex.addFile(xmlFile, result.references);
+          cache.setLayoutEntry(xmlFile, stat.mtimeMs, result.references);
+        }
+      } catch {
+        // Skip unreadable files
+      }
+    }
+
+    // Module layout and page_layout files
     for (const mod of modules) {
       for (const subdir of ['layout', 'page_layout']) {
         for (const area of ['frontend', 'adminhtml', 'base']) {
           const dir = path.join(mod.path, 'view', area, subdir);
           for (const xmlFile of listXmlFiles(dir)) {
-            try {
-              const content = fs.readFileSync(xmlFile, 'utf-8');
-              const result = parseLayoutXml(content, xmlFile);
-              layoutIndex.addFile(xmlFile, result.references);
-            } catch {
-              // Skip unreadable files
-            }
+            indexLayoutFile(xmlFile);
           }
         }
       }
     }
 
-    // Index theme layout and page_layout files
+    // Theme layout and page_layout files
     for (const theme of themeResolver.getAllThemes()) {
       try {
         const entries = fs.readdirSync(theme.path);
         for (const entry of entries) {
-          // Theme directories are named after modules: Magento_Catalog, Hyva_Theme, etc.
           if (!entry.includes('_')) continue;
           for (const subdir of ['layout', 'page_layout']) {
             const dir = path.join(theme.path, entry, subdir);
             for (const xmlFile of listXmlFiles(dir)) {
-              try {
-                const content = fs.readFileSync(xmlFile, 'utf-8');
-                const result = parseLayoutXml(content, xmlFile);
-                layoutIndex.addFile(xmlFile, result.references);
-              } catch {
-                // Skip unreadable files
-              }
+              indexLayoutFile(xmlFile);
             }
           }
         }
@@ -252,6 +263,10 @@ export class ProjectManager {
         // Theme dir unreadable
       }
     }
+
+    cache.pruneLayoutFiles(new Set(allLayoutFiles));
+    const t4 = Date.now();
+    console.error(`[magento2-lsp]   themes + layout (${allLayoutFiles.length} files, ${layoutCacheHits} cached): ${t4 - t3}ms`);
 
     // --- Discover Hyvä compat module registrations ---
     // Compat modules register in etc/frontend/di.xml by adding arguments to
@@ -264,24 +279,27 @@ export class ProjectManager {
         const content = fs.readFileSync(frontendDiXml, 'utf-8');
         const mappings = parseCompatModuleRegistrations(content);
         for (const mapping of mappings) {
-          // Resolve the compat module's filesystem path from the active modules list
           const compatMod = modules.find((m) => m.name === mapping.compatModule);
           if (compatMod) {
-            compatModuleIndex.addMapping(
-              mapping.originalModule,
-              mapping.compatModule,
-              compatMod.path,
-            );
+            compatModuleIndex.addMapping(mapping.originalModule, mapping.compatModule, compatMod.path);
           }
         }
       } catch {
         // No frontend/di.xml or unreadable — skip
       }
     }
+    const t5 = Date.now();
+    console.error(`[magento2-lsp]   compat modules: ${t5 - t4}ms`);
 
     // Build the plugin method index: maps target class methods to their plugin interceptions.
     const pluginMethodIndex = new PluginMethodIndex();
     pluginMethodIndex.build(index, psr4Map);
+
+    const t6 = Date.now();
+    console.error(`[magento2-lsp]   plugin methods + hierarchy: ${t6 - t5}ms`);
+
+    // Save cache once (covers di.xml, events.xml, and layout XML)
+    cache.save();
 
     progress?.onEnd();
 
@@ -291,6 +309,7 @@ export class ProjectManager {
       psr4Map,
       index,
       pluginMethodIndex,
+      magicMethodIndex: new MagicMethodIndex(),
       eventsIndex,
       layoutIndex,
       themeResolver,

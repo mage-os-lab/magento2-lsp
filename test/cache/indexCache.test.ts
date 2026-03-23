@@ -45,13 +45,13 @@ describe('IndexCache', () => {
 
   it('save and load round-trip', () => {
     const cache = new IndexCache(tmpDir);
-    cache.setCachedEntry('/test/di.xml', 12345.678, [makeRef('Foo\\Bar')], [makeVt('VFoo')]);
+    cache.setDiEntry('/test/di.xml', 12345.678, [makeRef('Foo\\Bar')], [makeVt('VFoo')]);
     cache.save();
 
     const cache2 = new IndexCache(tmpDir);
     expect(cache2.load()).toBe(true);
 
-    const entry = cache2.getCachedEntry('/test/di.xml', 12345.678);
+    const entry = cache2.getDiEntry('/test/di.xml', 12345.678);
     expect(entry).toBeDefined();
     expect(entry!.references).toHaveLength(1);
     expect(entry!.references[0].fqcn).toBe('Foo\\Bar');
@@ -61,13 +61,13 @@ describe('IndexCache', () => {
 
   it('returns undefined for changed mtime', () => {
     const cache = new IndexCache(tmpDir);
-    cache.setCachedEntry('/test/di.xml', 12345.678, [makeRef('Foo')], []);
+    cache.setDiEntry('/test/di.xml', 12345.678, [makeRef('Foo')], []);
     cache.save();
 
     const cache2 = new IndexCache(tmpDir);
     cache2.load();
 
-    expect(cache2.getCachedEntry('/test/di.xml', 99999.0)).toBeUndefined();
+    expect(cache2.getDiEntry('/test/di.xml', 99999.0)).toBeUndefined();
   });
 
   it('discards cache on version mismatch', () => {
@@ -80,7 +80,7 @@ describe('IndexCache', () => {
 
     const cache = new IndexCache(tmpDir);
     expect(cache.load()).toBe(false);
-    expect(cache.getCachedEntry('/test.xml', 0)).toBeUndefined();
+    expect(cache.getDiEntry('/test.xml', 0)).toBeUndefined();
   });
 
   it('returns false when no cache file exists', () => {
@@ -90,28 +90,28 @@ describe('IndexCache', () => {
 
   it('prunes deleted files', () => {
     const cache = new IndexCache(tmpDir);
-    cache.setCachedEntry('/a.xml', 100, [makeRef('A')], []);
-    cache.setCachedEntry('/b.xml', 200, [makeRef('B')], []);
-    cache.setCachedEntry('/c.xml', 300, [makeRef('C')], []);
+    cache.setDiEntry('/a.xml', 100, [makeRef('A')], []);
+    cache.setDiEntry('/b.xml', 200, [makeRef('B')], []);
+    cache.setDiEntry('/c.xml', 300, [makeRef('C')], []);
 
-    cache.pruneDeletedFiles(new Set(['/a.xml', '/c.xml']));
+    cache.pruneDiFiles(new Set(['/a.xml', '/c.xml']));
 
-    expect(cache.getCachedEntry('/a.xml', 100)).toBeDefined();
-    expect(cache.getCachedEntry('/b.xml', 200)).toBeUndefined();
-    expect(cache.getCachedEntry('/c.xml', 300)).toBeDefined();
+    expect(cache.getDiEntry('/a.xml', 100)).toBeDefined();
+    expect(cache.getDiEntry('/b.xml', 200)).toBeUndefined();
+    expect(cache.getDiEntry('/c.xml', 300)).toBeDefined();
   });
 
   it('removeEntry removes a single entry', () => {
     const cache = new IndexCache(tmpDir);
-    cache.setCachedEntry('/a.xml', 100, [makeRef('A')], []);
+    cache.setDiEntry('/a.xml', 100, [makeRef('A')], []);
     cache.removeEntry('/a.xml');
-    expect(cache.getCachedEntry('/a.xml', 100)).toBeUndefined();
+    expect(cache.getDiEntry('/a.xml', 100)).toBeUndefined();
   });
 
   it('getCachedFilePaths returns all cached paths', () => {
     const cache = new IndexCache(tmpDir);
-    cache.setCachedEntry('/a.xml', 100, [], []);
-    cache.setCachedEntry('/b.xml', 200, [], []);
+    cache.setDiEntry('/a.xml', 100, [], []);
+    cache.setDiEntry('/b.xml', 200, [], []);
     expect(cache.getCachedFilePaths().sort()).toEqual(['/a.xml', '/b.xml']);
   });
 

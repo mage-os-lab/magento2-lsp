@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractPhpClass, extractPhpMethods, getInterceptedMethodName } from '../../src/utils/phpNamespace';
+import { extractPhpClass, extractPhpMethods, getInterceptedMethodName, extractMagicMethodInfo, extractClassWithMagicInfo } from '../../src/utils/phpNamespace';
 
 describe('extractPhpClass', () => {
   it('extracts a simple class with namespace', () => {
@@ -12,7 +12,7 @@ class StoreManager
 }
 `;
     const result = extractPhpClass(content);
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       namespace: 'Magento\\Store\\Model',
       name: 'StoreManager',
       fqcn: 'Magento\\Store\\Model\\StoreManager',
@@ -35,7 +35,7 @@ interface StoreManagerInterface
 }
 `;
     const result = extractPhpClass(content);
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       namespace: 'Magento\\Store\\Api',
       name: 'StoreManagerInterface',
       fqcn: 'Magento\\Store\\Api\\StoreManagerInterface',
@@ -58,7 +58,7 @@ abstract class AbstractModel
 }
 `;
     const result = extractPhpClass(content);
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       namespace: 'Magento\\Framework',
       name: 'AbstractModel',
       fqcn: 'Magento\\Framework\\AbstractModel',
@@ -81,7 +81,7 @@ trait Loggable
 }
 `;
     const result = extractPhpClass(content);
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       namespace: 'App\\Traits',
       name: 'Loggable',
       fqcn: 'App\\Traits\\Loggable',
@@ -104,7 +104,7 @@ enum Status
 }
 `;
     const result = extractPhpClass(content);
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       namespace: 'App\\Enums',
       name: 'Status',
       fqcn: 'App\\Enums\\Status',
@@ -125,7 +125,7 @@ class GlobalClass
 }
 `;
     const result = extractPhpClass(content);
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       namespace: '',
       name: 'GlobalClass',
       fqcn: 'GlobalClass',
@@ -150,7 +150,7 @@ class StoreManager
 }
 `;
     const result = extractPhpClass(content);
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       namespace: 'Magento\\Store\\Model',
       name: 'StoreManager',
       fqcn: 'Magento\\Store\\Model\\StoreManager',
@@ -173,7 +173,7 @@ final class PaymentService
 }
 `;
     const result = extractPhpClass(content);
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       namespace: 'App\\Services',
       name: 'PaymentService',
       fqcn: 'App\\Services\\PaymentService',
@@ -290,22 +290,22 @@ class EmptyClass {}
 describe('getInterceptedMethodName', () => {
   it('maps beforeSave to save', () => {
     const result = getInterceptedMethodName('beforeSave');
-    expect(result).toEqual({ prefix: 'before', methodName: 'save' });
+    expect(result).toMatchObject({ prefix: 'before', methodName: 'save' });
   });
 
   it('maps afterGetName to getName', () => {
     const result = getInterceptedMethodName('afterGetName');
-    expect(result).toEqual({ prefix: 'after', methodName: 'getName' });
+    expect(result).toMatchObject({ prefix: 'after', methodName: 'getName' });
   });
 
   it('maps aroundLoad to load', () => {
     const result = getInterceptedMethodName('aroundLoad');
-    expect(result).toEqual({ prefix: 'around', methodName: 'load' });
+    expect(result).toMatchObject({ prefix: 'around', methodName: 'load' });
   });
 
   it('lowercases only the first letter after the prefix', () => {
     const result = getInterceptedMethodName('beforeGetHTMLContent');
-    expect(result).toEqual({ prefix: 'before', methodName: 'getHTMLContent' });
+    expect(result).toMatchObject({ prefix: 'before', methodName: 'getHTMLContent' });
   });
 
   it('returns undefined for non-plugin method names', () => {
@@ -318,5 +318,155 @@ describe('getInterceptedMethodName', () => {
     expect(getInterceptedMethodName('before')).toBeUndefined();
     expect(getInterceptedMethodName('after')).toBeUndefined();
     expect(getInterceptedMethodName('around')).toBeUndefined();
+  });
+});
+
+describe('extractPhpClass useImports', () => {
+  it('exposes use imports as a map', () => {
+    const content = `<?php
+
+namespace App\\Model;
+
+use Magento\\Framework\\DataObject;
+use Magento\\Store\\Api\\StoreInterface as Store;
+
+class Foo extends DataObject implements Store
+{
+}
+`;
+    const result = extractPhpClass(content);
+    expect(result?.useImports).toBeInstanceOf(Map);
+    expect(result?.useImports.get('DataObject')).toBe('Magento\\Framework\\DataObject');
+    expect(result?.useImports.get('Store')).toBe('Magento\\Store\\Api\\StoreInterface');
+  });
+});
+
+describe('extractMagicMethodInfo', () => {
+  it('detects __call method', () => {
+    const content = `<?php
+namespace App\\Model;
+
+class Foo
+{
+    public function __call($method, $args) {}
+    public function save(): void {}
+}
+`;
+    const info = extractMagicMethodInfo(content);
+    expect(info.hasCall).toBe(true);
+    expect(info.declaredMethods).toContain('__call');
+    expect(info.declaredMethods).toContain('save');
+  });
+
+  it('parses @method annotations', () => {
+    const content = `<?php
+namespace App\\Model;
+
+/**
+ * @method string getName()
+ * @method $this setName(string $name)
+ * @method static Foo create()
+ */
+class Foo
+{
+    public function save(): void {}
+}
+`;
+    const info = extractMagicMethodInfo(content);
+    expect(info.hasCall).toBe(false);
+    expect(info.docMethods).toEqual(['getName', 'setName', 'create']);
+    expect(info.declaredMethods).toEqual(['save']);
+  });
+
+  it('returns empty for class without magic methods', () => {
+    const content = `<?php
+namespace App\\Model;
+
+class Foo
+{
+    public function save(): void {}
+}
+`;
+    const info = extractMagicMethodInfo(content);
+    expect(info.hasCall).toBe(false);
+    expect(info.docMethods).toEqual([]);
+    expect(info.declaredMethods).toEqual(['save']);
+  });
+
+  it('detects both __call and @method', () => {
+    const content = `<?php
+namespace App\\Model;
+
+/**
+ * @method string getCustomerId()
+ */
+class SessionManager
+{
+    public function __call($method, $args) {}
+    public function start(): void {}
+}
+`;
+    const info = extractMagicMethodInfo(content);
+    expect(info.hasCall).toBe(true);
+    expect(info.docMethods).toEqual(['getCustomerId']);
+    expect(info.declaredMethods).toContain('__call');
+    expect(info.declaredMethods).toContain('start');
+  });
+});
+
+describe('extractClassWithMagicInfo', () => {
+  it('extracts class info and magic info in a single pass', () => {
+    const content = `<?php
+namespace App\\Model;
+
+use Magento\\Framework\\DataObject;
+
+/**
+ * @method string getName()
+ * @method $this setName(string $name)
+ */
+class Foo extends DataObject
+{
+    public function __call($method, $args) {}
+    public function save(): void {}
+}
+`;
+    const { classInfo, magicInfo } = extractClassWithMagicInfo(content);
+
+    // Class info
+    expect(classInfo).toBeDefined();
+    expect(classInfo!.fqcn).toBe('App\\Model\\Foo');
+    expect(classInfo!.parentClass).toBe('Magento\\Framework\\DataObject');
+    expect(classInfo!.useImports.get('DataObject')).toBe('Magento\\Framework\\DataObject');
+
+    // Magic info
+    expect(magicInfo.hasCall).toBe(true);
+    expect(magicInfo.docMethods).toEqual(['getName', 'setName']);
+    expect(magicInfo.declaredMethods).toContain('__call');
+    expect(magicInfo.declaredMethods).toContain('save');
+  });
+
+  it('produces same results as separate functions', () => {
+    const content = `<?php
+namespace App\\Model;
+
+/**
+ * @method string getCustomerId()
+ */
+class SessionManager
+{
+    public function __call($method, $args) {}
+    public function start(): void {}
+}
+`;
+    const combined = extractClassWithMagicInfo(content);
+    const separate = extractMagicMethodInfo(content);
+    const classInfo = extractPhpClass(content);
+
+    expect(combined.magicInfo.hasCall).toBe(separate.hasCall);
+    expect(combined.magicInfo.docMethods).toEqual(separate.docMethods);
+    expect(combined.magicInfo.declaredMethods).toEqual(separate.declaredMethods);
+    expect(combined.classInfo?.fqcn).toBe(classInfo?.fqcn);
+    expect(combined.classInfo?.parentClass).toBe(classInfo?.parentClass);
   });
 });

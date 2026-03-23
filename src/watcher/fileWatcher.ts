@@ -67,7 +67,7 @@ export class FileWatcher {
         result.references,
         result.virtualTypes,
       );
-      this.options.cache.setCachedEntry(
+      this.options.cache.setDiEntry(
         filePath,
         stat.mtimeMs,
         result.references,

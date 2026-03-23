@@ -1,40 +1,52 @@
 /**
- * Disk-based cache for the DI index.
+ * Disk-based cache for parsed XML index data.
  *
- * Parsing ~600 di.xml files on every LSP startup takes 2-3 seconds. This cache stores
- * the parse results (references + virtualTypes) keyed by file path, along with each
- * file's modification time (mtimeMs). On subsequent startups, only files whose mtime
- * has changed need to be re-parsed — bringing warm startup down to <100ms.
+ * Stores parse results for di.xml, events.xml, and layout XML files, keyed by
+ * file path with modification time (mtimeMs) for cache invalidation. On warm
+ * startup, only files whose mtime has changed need to be re-parsed.
  *
  * The cache is stored as JSON at {magentoRoot}/.magento2-lsp-cache.json.
- * It includes a version number so the cache is automatically invalidated when the
- * data format changes (bump CACHE_VERSION to force a full re-index).
+ * It includes a version number so the cache is automatically invalidated when
+ * the data format changes (bump CACHE_VERSION to force a full re-index).
  *
- * Cache operations are best-effort: if the cache can't be read or written (e.g.,
- * permission issues), the LSP continues working normally — it just re-parses everything.
+ * Cache operations are best-effort: if the cache can't be read or written,
+ * the LSP continues working normally — it just re-parses everything.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { DiReference, VirtualTypeDecl } from '../indexer/types';
+import { DiReference, VirtualTypeDecl, EventReference, ObserverReference, LayoutReference } from '../indexer/types';
 
-/** Bump this when the DiReference/VirtualTypeDecl format changes to invalidate old caches. */
-const CACHE_VERSION = 1;
+/** Bump this when entry formats change to invalidate old caches. */
+const CACHE_VERSION = 2;
 const CACHE_FILENAME = '.magento2-lsp-cache.json';
 
 /** Cached parse results for a single di.xml file. */
-export interface CacheFileEntry {
-  /** File modification time at the time of parsing. Used to detect changes. */
+export interface DiCacheEntry {
   mtimeMs: number;
   references: DiReference[];
   virtualTypes: VirtualTypeDecl[];
 }
 
+/** Cached parse results for a single events.xml file. */
+export interface EventsCacheEntry {
+  mtimeMs: number;
+  events: EventReference[];
+  observers: ObserverReference[];
+}
+
+/** Cached parse results for a single layout/page_layout XML file. */
+export interface LayoutCacheEntry {
+  mtimeMs: number;
+  references: LayoutReference[];
+}
+
 /** Top-level structure of the cache file on disk. */
 export interface CacheFile {
   version: number;
-  /** Keyed by absolute di.xml file path. */
-  files: Record<string, CacheFileEntry>;
+  diFiles: Record<string, DiCacheEntry>;
+  eventsFiles: Record<string, EventsCacheEntry>;
+  layoutFiles: Record<string, LayoutCacheEntry>;
 }
 
 export class IndexCache {
@@ -43,7 +55,7 @@ export class IndexCache {
 
   constructor(magentoRoot: string) {
     this.cachePath = path.join(magentoRoot, CACHE_FILENAME);
-    this.data = { version: CACHE_VERSION, files: {} };
+    this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {} };
   }
 
   /**
@@ -55,14 +67,17 @@ export class IndexCache {
       const raw = fs.readFileSync(this.cachePath, 'utf-8');
       const parsed = JSON.parse(raw) as CacheFile;
       if (parsed.version !== CACHE_VERSION) {
-        // Version mismatch — discard the entire cache
-        this.data = { version: CACHE_VERSION, files: {} };
+        this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {} };
         return false;
       }
+      // Ensure all sections exist (forward-compat for caches without new sections)
+      parsed.diFiles ??= {};
+      parsed.eventsFiles ??= {};
+      parsed.layoutFiles ??= {};
       this.data = parsed;
       return true;
     } catch {
-      this.data = { version: CACHE_VERSION, files: {} };
+      this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {} };
       return false;
     }
   }
@@ -76,42 +91,69 @@ export class IndexCache {
     }
   }
 
-  /**
-   * Get a cached entry if the file hasn't been modified since it was cached.
-   * Returns undefined if the file isn't cached or its mtime has changed.
-   */
-  getCachedEntry(filePath: string, currentMtimeMs: number): CacheFileEntry | undefined {
-    const entry = this.data.files[filePath];
-    if (entry && entry.mtimeMs === currentMtimeMs) {
-      return entry;
-    }
-    return undefined;
+  // --- di.xml ---
+
+  getDiEntry(filePath: string, currentMtimeMs: number): DiCacheEntry | undefined {
+    const entry = this.data.diFiles[filePath];
+    return entry && entry.mtimeMs === currentMtimeMs ? entry : undefined;
   }
 
-  /** Store parse results for a file, along with its current mtime. */
-  setCachedEntry(filePath: string, mtimeMs: number, refs: DiReference[], virtualTypes: VirtualTypeDecl[]): void {
-    this.data.files[filePath] = { mtimeMs, references: refs, virtualTypes };
+  setDiEntry(filePath: string, mtimeMs: number, refs: DiReference[], virtualTypes: VirtualTypeDecl[]): void {
+    this.data.diFiles[filePath] = { mtimeMs, references: refs, virtualTypes };
   }
 
-  /** Remove a single file from the cache (e.g., when the file is deleted). */
-  removeEntry(filePath: string): void {
-    delete this.data.files[filePath];
+  // --- events.xml ---
+
+  getEventsEntry(filePath: string, currentMtimeMs: number): EventsCacheEntry | undefined {
+    const entry = this.data.eventsFiles[filePath];
+    return entry && entry.mtimeMs === currentMtimeMs ? entry : undefined;
   }
 
-  /**
-   * Remove cache entries for files that no longer exist on disk.
-   * Called after indexing to clean up stale entries from deleted/moved files.
-   */
-  pruneDeletedFiles(existingFiles: Set<string>): void {
-    for (const filePath of Object.keys(this.data.files)) {
+  setEventsEntry(filePath: string, mtimeMs: number, events: EventReference[], observers: ObserverReference[]): void {
+    this.data.eventsFiles[filePath] = { mtimeMs, events, observers };
+  }
+
+  // --- layout XML ---
+
+  getLayoutEntry(filePath: string, currentMtimeMs: number): LayoutCacheEntry | undefined {
+    const entry = this.data.layoutFiles[filePath];
+    return entry && entry.mtimeMs === currentMtimeMs ? entry : undefined;
+  }
+
+  setLayoutEntry(filePath: string, mtimeMs: number, references: LayoutReference[]): void {
+    this.data.layoutFiles[filePath] = { mtimeMs, references };
+  }
+
+  // --- Pruning ---
+
+  /** Remove cache entries for files that no longer exist on disk. */
+  pruneDiFiles(existingFiles: Set<string>): void {
+    this.pruneSection(this.data.diFiles, existingFiles);
+  }
+
+  pruneEventsFiles(existingFiles: Set<string>): void {
+    this.pruneSection(this.data.eventsFiles, existingFiles);
+  }
+
+  pruneLayoutFiles(existingFiles: Set<string>): void {
+    this.pruneSection(this.data.layoutFiles, existingFiles);
+  }
+
+  private pruneSection(section: Record<string, unknown>, existingFiles: Set<string>): void {
+    for (const filePath of Object.keys(section)) {
       if (!existingFiles.has(filePath)) {
-        delete this.data.files[filePath];
+        delete section[filePath];
       }
     }
   }
 
-  /** List all file paths that have cached entries. */
+  /** Remove a single di.xml entry from the cache. */
+  removeEntry(filePath: string): void {
+    delete this.data.diFiles[filePath];
+  }
+
+  /** List all di.xml file paths that have cached entries. */
   getCachedFilePaths(): string[] {
-    return Object.keys(this.data.files);
+    return Object.keys(this.data.diFiles);
   }
 }

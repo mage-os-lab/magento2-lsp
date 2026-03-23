@@ -27,6 +27,8 @@ export interface PhpClassInfo {
   parentClass?: string;
   /** FQCNs of implemented interfaces. */
   interfaces: string[];
+  /** Map from short name/alias to FQCN, from `use` statements. */
+  useImports: Map<string, string>;
 }
 
 /** Matches: namespace Vendor\Package\SubPackage; or namespace Vendor\Package { */
@@ -160,6 +162,7 @@ export function extractPhpClass(content: string): PhpClassInfo | undefined {
         endColumn: nameIndex + className.length,
         parentClass,
         interfaces,
+        useImports,
       };
     }
   }
@@ -221,7 +224,7 @@ function extractInheritance(
  *   2. Short name matching a `use` import: ProductInterface -> Magento\Catalog\Api\Data\ProductInterface
  *   3. Unqualified name: assumed to be in the current namespace
  */
-function resolveClassName(
+export function resolveClassName(
   name: string,
   namespace: string,
   useImports: Map<string, string>,
@@ -247,4 +250,140 @@ function resolveClassName(
     return `${namespace}\\${name}`;
   }
   return name;
+}
+
+// ---------------------------------------------------------------------------
+// Magic method detection
+// ---------------------------------------------------------------------------
+
+export interface MagicMethodInfo {
+  /** True if the class declares a public __call method. */
+  hasCall: boolean;
+  /** Method names declared via @method PHPDoc annotations on the class. */
+  docMethods: string[];
+  /** All physically declared public method names. */
+  declaredMethods: string[];
+}
+
+/** Matches @method annotations in PHPDoc blocks. */
+const DOC_METHOD_RE = /@method\s+(?:static\s+)?(?:[\w\\|$]+\s+)?(\w+)\s*\(/;
+
+/**
+ * Extract magic method information from a PHP file.
+ *
+ * Detects:
+ *   1. Whether the class has a public `__call` method
+ *   2. Method names declared via `@method` PHPDoc annotations above the class
+ *   3. All physically declared public method names
+ */
+export function extractMagicMethodInfo(content: string): MagicMethodInfo {
+  const methods = extractPhpMethods(content);
+  const declaredMethods = methods.map((m) => m.name);
+  const hasCall = declaredMethods.includes('__call');
+
+  // Parse @method annotations from PHPDoc blocks before the class declaration.
+  // We scan all lines before (and including) the class declaration line.
+  const lines = content.split('\n');
+  const classInfo = extractPhpClass(content);
+  const classLine = classInfo?.line ?? lines.length;
+
+  const docMethods: string[] = [];
+  for (let i = 0; i < classLine; i++) {
+    const match = DOC_METHOD_RE.exec(lines[i]);
+    if (match) {
+      docMethods.push(match[1]);
+    }
+  }
+
+  return { hasCall, docMethods, declaredMethods };
+}
+
+// ---------------------------------------------------------------------------
+// Combined single-pass extraction (for MagicMethodIndex performance)
+// ---------------------------------------------------------------------------
+
+export interface ClassWithMagicInfo {
+  classInfo: PhpClassInfo | undefined;
+  magicInfo: MagicMethodInfo;
+}
+
+/**
+ * Extract both class info and magic method info in a single pass over the file.
+ *
+ * This avoids the 3x content.split('\n') overhead of calling extractPhpClass(),
+ * extractPhpMethods(), and extractMagicMethodInfo() separately.
+ */
+export function extractClassWithMagicInfo(content: string): ClassWithMagicInfo {
+  const lines = content.split('\n');
+  let namespace = '';
+  const useImports = new Map<string, string>();
+  let classInfo: PhpClassInfo | undefined;
+
+  const methods: PhpMethodInfo[] = [];
+  const docMethods: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Track namespace
+    if (!classInfo) {
+      const nsMatch = NAMESPACE_RE.exec(line);
+      if (nsMatch) {
+        namespace = nsMatch[1];
+        continue;
+      }
+
+      // Track use imports
+      const useMatch = USE_RE.exec(line);
+      if (useMatch) {
+        const fullName = useMatch[1];
+        const alias = useMatch[2];
+        const shortName = alias ?? fullName.split('\\').pop()!;
+        useImports.set(shortName, fullName);
+        continue;
+      }
+
+      // @method annotations (only before class declaration)
+      const docMatch = DOC_METHOD_RE.exec(line);
+      if (docMatch) {
+        docMethods.push(docMatch[1]);
+        continue;
+      }
+
+      // Class declaration
+      const classMatch = CLASS_RE.exec(line);
+      if (classMatch) {
+        const className = classMatch[1];
+        const kindMatch = KIND_RE.exec(line);
+        const kind = (kindMatch?.[1] ?? 'class') as PhpClassInfo['kind'];
+        const fqcn = namespace ? `${namespace}\\${className}` : className;
+        const nameIndex = line.indexOf(className, line.indexOf(kind) + kind.length);
+        const { parentClass, interfaces } = extractInheritance(lines, i, namespace, useImports);
+
+        classInfo = {
+          namespace, name: className, fqcn, kind,
+          line: i, column: nameIndex, endColumn: nameIndex + className.length,
+          parentClass, interfaces, useImports,
+        };
+      }
+    }
+
+    // Public methods (scan entire file, including after class declaration)
+    const methodMatch = METHOD_RE.exec(line);
+    if (methodMatch) {
+      const name = methodMatch[1];
+      const nameIndex = line.indexOf(name, methodMatch.index + methodMatch[0].indexOf('function') + 9);
+      methods.push({ name, line: i, column: nameIndex, endColumn: nameIndex + name.length });
+    }
+  }
+
+  const declaredMethods = methods.map((m) => m.name);
+  return {
+    classInfo,
+    magicInfo: {
+      hasCall: declaredMethods.includes('__call'),
+      docMethods,
+      declaredMethods,
+    },
+  };
 }

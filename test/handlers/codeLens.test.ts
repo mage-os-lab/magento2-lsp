@@ -85,9 +85,42 @@ describe('handleCodeLens', () => {
     expect(titles).toContain('→ Test\\Foo\\Api\\FooInterface::load');
   });
 
-  it('returns null for classes that are neither targets nor plugins', () => {
+  it('returns null for classes that are neither targets nor plugins nor have magic calls', () => {
     const phpFile = path.join(FIXTURE_ROOT, 'app/code/Custom/Bar/Model/Bar.php');
     const result = handleCodeLens(makeParams(phpFile), getProject);
     expect(result).toBeNull();
+  });
+
+  // --- Magic method code lenses ---
+
+  it('shows → DataObject::getData for interface-gap method calls', () => {
+    const phpFile = path.join(FIXTURE_ROOT, 'vendor/test/module-foo/Model/CustomerSession.php');
+    const result = handleCodeLens(makeParams(phpFile), getProject);
+    expect(result).not.toBeNull();
+    const titles = result!.map((l) => l.command?.title);
+    // $this->storage->getData('customer_id') — StorageInterface has no getData,
+    // but Storage extends DataObject which declares getData
+    expect(titles).toContain('→ DataObject::getData');
+    expect(titles).toContain('→ DataObject::setData');
+  });
+
+  it('shows → SessionManager::__call for true magic method calls', () => {
+    const phpFile = path.join(FIXTURE_ROOT, 'vendor/test/module-foo/Model/CustomerSession.php');
+    const result = handleCodeLens(makeParams(phpFile), getProject);
+    expect(result).not.toBeNull();
+    const titles = result!.map((l) => l.command?.title);
+    // $this->sessionManager->getCustomerId() — SessionManager has __call
+    expect(titles).toContain('→ SessionManager::__call');
+  });
+
+  it('does not show magic method lens for methods declared on the interface', () => {
+    const phpFile = path.join(FIXTURE_ROOT, 'vendor/test/module-foo/Model/CustomerSession.php');
+    const result = handleCodeLens(makeParams(phpFile), getProject);
+    expect(result).not.toBeNull();
+    const titles = result!.map((l) => l.command?.title);
+    // $this->storage->init() — init is declared on StorageInterface, no lens needed
+    expect(titles).not.toContain('→ Storage::init');
+    // $this->sessionManager->start() — start is declared on SessionManager, no lens needed
+    expect(titles).not.toContain('→ SessionManager::start');
   });
 });

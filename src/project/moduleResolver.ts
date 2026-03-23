@@ -30,17 +30,19 @@ export function resolveActiveModules(magentoRoot: string): ModuleInfo[] {
   const configPath = path.join(magentoRoot, 'app', 'etc', 'config.php');
   const content = fs.readFileSync(configPath, 'utf-8');
 
+  // Build a complete module-name -> path map ONCE, then look up each module by name
+  const modulePathMap = buildModulePathMap(magentoRoot);
+
   const modules: ModuleInfo[] = [];
   let match: RegExpExecArray | null;
   let order = 0;
 
   while ((match = MODULE_ENTRY_RE.exec(content)) !== null) {
     const moduleName = match[1];
-    const modulePath = resolveModulePath(magentoRoot, moduleName);
+    const modulePath = modulePathMap.get(moduleName);
     if (modulePath) {
       modules.push({ name: moduleName, path: modulePath, order });
     }
-    // Increment order even for unresolved modules to maintain correct relative ordering
     order++;
   }
 
@@ -48,48 +50,47 @@ export function resolveActiveModules(magentoRoot: string): ModuleInfo[] {
 }
 
 /**
- * Map a module name to its filesystem path.
- * Checks app/code first (local modules), then falls back to vendor/ packages.
+ * Build a map from module name to filesystem path by scanning all sources once:
+ *   1. app/code/Vendor/Module directories
+ *   2. vendor/ packages via installed.json + registration.php
+ *
+ * This is called once instead of per-module, avoiding repeated installed.json reads
+ * and recursive directory scans.
  */
-function resolveModulePath(
-  magentoRoot: string,
-  moduleName: string,
-): string | undefined {
-  // Convention: Vendor_Module -> app/code/Vendor/Module
-  const [vendor, module] = moduleName.split('_');
-  if (vendor && module) {
-    const appCodePath = path.join(magentoRoot, 'app', 'code', vendor, module);
-    if (isDirectory(appCodePath)) {
-      return realpath(appCodePath);
+function buildModulePathMap(magentoRoot: string): Map<string, string> {
+  const map = new Map<string, string>();
+
+  // --- Source 1: app/code convention (Vendor_Module -> app/code/Vendor/Module) ---
+  const appCodePath = path.join(magentoRoot, 'app', 'code');
+  try {
+    const vendors = fs.readdirSync(appCodePath);
+    for (const vendor of vendors) {
+      const vendorPath = path.join(appCodePath, vendor);
+      if (!isDirectory(vendorPath)) continue;
+      const modules = fs.readdirSync(vendorPath);
+      for (const module of modules) {
+        const modulePath = path.join(vendorPath, module);
+        if (!isDirectory(modulePath)) continue;
+        // Read registration.php to get the actual module name
+        const regPath = path.join(modulePath, 'registration.php');
+        const moduleName = extractModuleNameFromRegistration(regPath);
+        if (moduleName) {
+          map.set(moduleName, realpath(modulePath));
+        } else {
+          // Fallback: derive from directory structure
+          map.set(`${vendor}_${module}`, realpath(modulePath));
+        }
+      }
     }
+  } catch {
+    // app/code doesn't exist
   }
 
-  // Fall back to vendor packages via installed.json
-  return resolveFromInstalledJson(magentoRoot, moduleName);
-}
-
-/**
- * Find a module's path by scanning vendor/composer/installed.json for magento2-module packages,
- * then checking each package's registration.php to see if it registers the target module name.
- *
- * This is necessary because Composer package names don't always map predictably to Magento
- * module names (e.g., package "magento/module-store" registers module "Magento_Store").
- */
-function resolveFromInstalledJson(
-  magentoRoot: string,
-  moduleName: string,
-): string | undefined {
-  const installedJsonPath = path.join(
-    magentoRoot,
-    'vendor',
-    'composer',
-    'installed.json',
-  );
-
+  // --- Source 2: vendor packages via installed.json ---
+  const installedJsonPath = path.join(magentoRoot, 'vendor', 'composer', 'installed.json');
   try {
-    const content = fs.readFileSync(installedJsonPath, 'utf-8');
-    const data = JSON.parse(content);
-    // Composer v2 wraps packages in a "packages" key; v1 uses the top-level array directly
+    const ijContent = fs.readFileSync(installedJsonPath, 'utf-8');
+    const data = JSON.parse(ijContent);
     const packages = data.packages ?? data;
 
     for (const pkg of packages) {
@@ -98,26 +99,12 @@ function resolveFromInstalledJson(
       const installPath = pkg['install-path'];
       if (!installPath) continue;
 
-      // install-path is relative to vendor/composer/ — resolve symlinks for consistency
-      const absPath = realpath(path.resolve(
-        magentoRoot,
-        'vendor',
-        'composer',
-        installPath,
-      ));
+      const absPath = realpath(path.resolve(magentoRoot, 'vendor', 'composer', installPath));
 
-      // Find registration.php — it may be at the package root, listed in autoload.files,
-      // or nested in a subdirectory (e.g., src/Module_Name/registration.php for packages
-      // that bundle multiple modules). Check in priority order:
-      //   1. autoload.files entries ending in registration.php
-      //   2. Package root registration.php
-      //   3. Recursive search through subdirectories (max 3 levels deep)
-      //
-      // The module root is the directory containing registration.php, because Magento's
-      // ComponentRegistrar::register() uses __DIR__ to set the module path.
+      // Collect registration.php candidates
       const regCandidates: string[] = [];
 
-      // Check autoload.files entries (e.g., ["src/registration.php"])
+      // Check autoload.files entries
       const autoloadFiles = pkg.autoload?.files;
       if (Array.isArray(autoloadFiles)) {
         for (const f of autoloadFiles) {
@@ -127,30 +114,37 @@ function resolveFromInstalledJson(
         }
       }
 
-      // Also check the package root as fallback
+      // Package root
       regCandidates.push(path.join(absPath, 'registration.php'));
 
-      // Search subdirectories for packages that nest modules (e.g.,
-      // vendor/mollie/magento2-hyva-compatibility/src/Mollie_HyvaCompatibility/registration.php)
+      // Nested modules (e.g., multi-module packages)
       findRegistrationFiles(absPath, 3, regCandidates);
 
+      // Read each registration.php and extract the module name
       for (const registrationPath of regCandidates) {
-        try {
-          const regContent = fs.readFileSync(registrationPath, 'utf-8');
-          if (regContent.includes(`'${moduleName}'`)) {
-            // Module root is the directory of registration.php (it uses __DIR__)
-            return realpath(path.dirname(registrationPath));
-          }
-        } catch {
-          // Not found at this candidate — try next
+        const moduleName = extractModuleNameFromRegistration(registrationPath);
+        if (moduleName && !map.has(moduleName)) {
+          map.set(moduleName, realpath(path.dirname(registrationPath)));
         }
       }
     }
   } catch {
-    // installed.json not found or invalid JSON
+    // installed.json not found or invalid
   }
 
-  return undefined;
+  return map;
+}
+
+/** Extract the Magento module name from a registration.php file (e.g., 'Magento_Store'). */
+function extractModuleNameFromRegistration(registrationPath: string): string | undefined {
+  try {
+    const content = fs.readFileSync(registrationPath, 'utf-8');
+    // Match: ComponentRegistrar::register(..., 'Vendor_Module', ...)
+    const match = /['"](\w+_\w+)['"]/.exec(content);
+    return match?.[1];
+  } catch {
+    return undefined;
+  }
 }
 
 function isDirectory(p: string): boolean {
