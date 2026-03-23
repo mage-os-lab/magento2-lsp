@@ -5,3 +5,7 @@ dist/
 editors/zed/target/
 editors/zed/Cargo.lock
 editors/zed/extension.wasm
+editors/vscode/out/
+editors/vscode/node_modules/
+editors/vscode/package-lock.json
+editors/vscode/*.vsix

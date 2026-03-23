@@ -1,0 +1,38 @@
+{
+  "name": "magento2-lsp",
+  "displayName": "Magento 2 LSP",
+  "description": "Magento 2 Language Server integration for VS Code",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": ["Programming Languages"],
+  "activationEvents": [
+    "onLanguage:php",
+    "onLanguage:xml"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Magento 2 LSP",
+      "properties": {
+        "magento2-lsp.binary.path": {
+          "type": "string",
+          "default": "magento2-lsp",
+          "description": "Path to the magento2-lsp binary. Defaults to finding it on $PATH."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.75.0",
+    "typescript": "^5.5.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch"
+  }
+}
