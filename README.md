@@ -60,6 +60,10 @@ Supports [automatic template overrides](https://docs.hyva.io/hyva-themes/compati
 - **Find References** from a compat module override: shows the original module template, layout XML usages, and other overrides
 
 
+## MCP Server for AI Coding Agents
+
+This project also includes an MCP (Model Context Protocol) server that exposes the same Magento 2 intelligence to AI coding agents. See [README_MCP.md](README_MCP.md) for details.
+
 ## Requirements
 
 - Node.js >= 20

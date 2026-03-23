@@ -217,6 +217,12 @@ export class PluginMethodIndex {
     return this.reverseIndex.get(pluginFqcn)?.get(pluginMethodName);
   }
 
+  /** Get all reverse entries for a plugin class (all methods it intercepts). */
+  getAllReverseEntries(pluginFqcn: string): ReversePluginEntry[] {
+    const map = this.reverseIndex.get(pluginFqcn);
+    return map ? Array.from(map.values()) : [];
+  }
+
   /**
    * Get the total number of unique plugin declarations targeting a class,
    * including inherited plugins from parent classes and interfaces.

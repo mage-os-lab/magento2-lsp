@@ -212,6 +212,19 @@ export class DiIndex {
     }
   }
 
+  /** Get all DI references declared by a given module. */
+  getReferencesByModule(moduleName: string): DiReference[] {
+    const result: DiReference[] = [];
+    for (const refs of this.fileToRefs.values()) {
+      for (const ref of refs) {
+        if (ref.module === moduleName) {
+          result.push(ref);
+        }
+      }
+    }
+    return result;
+  }
+
   /** Number of di.xml files currently indexed. */
   getFileCount(): number {
     return this.fileToRefs.size;

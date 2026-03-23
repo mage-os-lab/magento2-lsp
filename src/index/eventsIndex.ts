@@ -84,6 +84,19 @@ export class EventsIndex {
     return this.eventNameRefs.get(eventName) ?? [];
   }
 
+  /** Get all observer registrations declared by a given module. */
+  getObserversByModule(moduleName: string): ObserverReference[] {
+    const result: ObserverReference[] = [];
+    for (const observers of this.eventToObservers.values()) {
+      for (const obs of observers) {
+        if (obs.module === moduleName) {
+          result.push(obs);
+        }
+      }
+    }
+    return result;
+  }
+
   /** Find which reference the cursor is on at a given position in an events.xml file. */
   getReferenceAtPosition(
     file: string,
