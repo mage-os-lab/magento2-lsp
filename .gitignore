@@ -9,3 +9,4 @@ editors/vscode/out/
 editors/vscode/node_modules/
 editors/vscode/package-lock.json
 editors/vscode/*.vsix
+PLAN-*
