@@ -111,12 +111,29 @@ export async function validateXmlFile(
     catalogCache.set(magentoRoot, catalogPath);
   }
 
+  // If content differs from disk (unsaved changes), write to a temp file for xmllint.
+  let fileToValidate = xmlFilePath;
+  let tempFile: string | undefined;
+  try {
+    const diskContent = fs.readFileSync(xmlFilePath, 'utf-8');
+    if (diskContent !== xmlContent) {
+      tempFile = path.join(os.tmpdir(), `magento2-lsp-validate-${path.basename(xmlFilePath)}`);
+      fs.writeFileSync(tempFile, xmlContent, 'utf-8');
+      fileToValidate = tempFile;
+    }
+  } catch {
+    // File doesn't exist on disk yet — write content to temp
+    tempFile = path.join(os.tmpdir(), `magento2-lsp-validate-${path.basename(xmlFilePath)}`);
+    fs.writeFileSync(tempFile, xmlContent, 'utf-8');
+    fileToValidate = tempFile;
+  }
+
   try {
     await execFileAsync('xmllint', [
       '--noout',
       '--schema', xsdPath,
       '--catalogs',
-      xmlFilePath,
+      fileToValidate,
     ], {
       env: { ...process.env, XML_CATALOG_FILES: catalogPath },
       timeout: 10000,
@@ -131,9 +148,14 @@ export async function validateXmlFile(
 
     // Parse validation errors from stderr
     if (error.stderr) {
-      return parseXmllintErrors(error.stderr, xmlFilePath);
+      return parseXmllintErrors(error.stderr, fileToValidate);
     }
     return [];
+  } finally {
+    // Clean up temp file
+    if (tempFile) {
+      try { fs.unlinkSync(tempFile); } catch { /* ignore */ }
+    }
   }
 }
 

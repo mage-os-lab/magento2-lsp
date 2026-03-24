@@ -192,12 +192,16 @@ const validationTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 /**
  * Validate an XML file against its XSD schema and publish diagnostics.
- * Debounced to avoid thrashing during rapid edits.
+ * Debounced to avoid spawning xmllint too frequently during rapid edits.
+ *
+ * @param delayMs Debounce delay — shorter for save (immediate feedback),
+ *                longer for keystroke changes (avoid excessive spawns).
  */
 function validateAndPublish(
   uri: string,
   content: string,
   project: import('./project/projectManager').ProjectContext,
+  delayMs: number = 300,
 ): void {
   const existing = validationTimers.get(uri);
   if (existing) clearTimeout(existing);
@@ -211,8 +215,22 @@ function validateAndPublish(
     } catch {
       // Don't let validation errors break the LSP
     }
-  }, 300));
+  }, delayMs));
 }
+
+connection.onDidChangeTextDocument((params) => {
+  if (!xmllintEnabled) return;
+  const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
+  if (!filePath.endsWith('.xml')) return;
+  const project = projectManager.getProjectForFile(filePath);
+  if (!project) return;
+
+  // contentChanges with Full sync contains the entire document as a single change
+  const content = params.contentChanges[0]?.text;
+  if (content !== undefined) {
+    validateAndPublish(params.textDocument.uri, content, project, 1500);
+  }
+});
 
 connection.onDidSaveTextDocument((params) => {
   if (!xmllintEnabled) return;
