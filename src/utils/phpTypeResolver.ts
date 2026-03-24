@@ -21,10 +21,15 @@ import { PhpClassInfo, resolveClassName } from './phpNamespace';
  *
  * Returns a map from variable expression (e.g., `$this->storage`, `$product`) to FQCN.
  * The `$this` entry is always included when classInfo is provided.
+ *
+ * When `resolveMethodReturnType` is provided, a second pass detects assignments from
+ * method calls (e.g., `$product = $this->factory->create()`) and resolves the return
+ * type of the called method to determine the variable's type.
  */
 export function resolveVariableTypes(
   content: string,
   classInfo: PhpClassInfo,
+  resolveMethodReturnType?: (fqcn: string, methodName: string) => string | undefined,
 ): Map<string, string> {
   const types = new Map<string, string>();
   const lines = content.split('\n');
@@ -132,6 +137,31 @@ export function resolveVariableTypes(
         if (isBuiltinType(mpm[1])) continue;
         const fqcn = resolve(mpm[1], namespace, useImports);
         types.set(`$${mpm[2]}`, fqcn);
+      }
+    }
+  }
+
+  // Second pass: resolve types from method-call assignments like $var = $expr->method()
+  if (resolveMethodReturnType) {
+    const ASSIGN_RE = /(\$\w+)\s*=\s*(\$[\w]+(?:->[\w]+)*)->([\w]+)\s*\(/g;
+    for (let i = 0; i < lines.length; i++) {
+      let match;
+      ASSIGN_RE.lastIndex = 0;
+      while ((match = ASSIGN_RE.exec(lines[i])) !== null) {
+        const targetVar = match[1];
+        const objectExpr = match[2];
+        const methodName = match[3];
+
+        // Skip if already resolved (e.g., from @var annotation)
+        if (types.has(targetVar)) continue;
+
+        const objectFqcn = types.get(objectExpr);
+        if (!objectFqcn) continue;
+
+        const returnFqcn = resolveMethodReturnType(objectFqcn, methodName);
+        if (returnFqcn) {
+          types.set(targetVar, returnFqcn);
+        }
       }
     }
   }

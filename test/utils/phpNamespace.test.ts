@@ -285,6 +285,95 @@ class EmptyClass {}
 `;
     expect(extractPhpMethods(content)).toHaveLength(0);
   });
+
+  it('extracts return type from method signature', () => {
+    const content = `<?php
+namespace App\\Model;
+
+use App\\Api\\ProductInterface;
+
+class Factory
+{
+    public function create(): ProductInterface {}
+}
+`;
+    const methods = extractPhpMethods(content);
+    expect(methods).toHaveLength(1);
+    expect(methods[0].returnType).toBe('ProductInterface');
+  });
+
+  it('returns undefined returnType when no return type declared', () => {
+    const content = `<?php
+class Foo
+{
+    public function doSomething() {}
+}
+`;
+    const methods = extractPhpMethods(content);
+    expect(methods[0].returnType).toBeUndefined();
+  });
+
+  it('strips nullable ? from return type', () => {
+    const content = `<?php
+class Foo
+{
+    public function find(): ?Product {}
+}
+`;
+    const methods = extractPhpMethods(content);
+    expect(methods[0].returnType).toBe('Product');
+  });
+
+  it('extracts self return type', () => {
+    const content = `<?php
+class Foo
+{
+    public function withName(): self {}
+}
+`;
+    const methods = extractPhpMethods(content);
+    expect(methods[0].returnType).toBe('self');
+  });
+
+  it('extracts fully qualified return type', () => {
+    const content = `<?php
+class Foo
+{
+    public function get(): \\Magento\\Catalog\\Model\\Product {}
+}
+`;
+    const methods = extractPhpMethods(content);
+    expect(methods[0].returnType).toBe('\\Magento\\Catalog\\Model\\Product');
+  });
+
+  it('extracts builtin return types as-is', () => {
+    const content = `<?php
+class Foo
+{
+    public function save(): void {}
+    public function getName(): string {}
+}
+`;
+    const methods = extractPhpMethods(content);
+    expect(methods[0].returnType).toBe('void');
+    expect(methods[1].returnType).toBe('string');
+  });
+
+  it('extracts return type from multi-line method signature', () => {
+    const content = `<?php
+class Foo
+{
+    public function create(
+        string $name,
+        int $id
+    ): Product {
+        return new Product();
+    }
+}
+`;
+    const methods = extractPhpMethods(content);
+    expect(methods[0].returnType).toBe('Product');
+  });
 });
 
 describe('getInterceptedMethodName', () => {

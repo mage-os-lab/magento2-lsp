@@ -15,7 +15,12 @@
 import * as fs from 'fs';
 import { Psr4Map } from '../indexer/types';
 import { resolveClassFile } from '../indexer/phpClassLocator';
-import { extractClassWithMagicInfo, MagicMethodInfo } from '../utils/phpNamespace';
+import { extractClassWithMagicInfo, MagicMethodInfo, resolveClassName } from '../utils/phpNamespace';
+
+const BUILTIN_TYPES = new Set([
+  'int', 'float', 'string', 'bool', 'array', 'object', 'callable',
+  'iterable', 'void', 'never', 'null', 'true', 'false', 'mixed',
+]);
 
 export interface MethodResolution {
   kind: 'declared' | 'magic';
@@ -29,6 +34,8 @@ interface ClassEntry {
   info: MagicMethodInfo;
   parentClass?: string;
   interfaces: string[];
+  namespace: string;
+  useImports: Map<string, string>;
 }
 
 export class MagicMethodIndex {
@@ -95,6 +102,49 @@ export class MagicMethodIndex {
     return undefined;
   }
 
+  /**
+   * Resolve the return type of a method call on a class to a FQCN.
+   *
+   * Finds where the method is declared (walking the ancestor chain), reads its
+   * PHP return type declaration, and resolves it to a fully-qualified class name.
+   * Returns undefined for builtin types, missing return types, or unresolvable methods.
+   */
+  resolveMethodReturnType(
+    fqcn: string,
+    methodName: string,
+    psr4Map: Psr4Map,
+  ): string | undefined {
+    const resolution = this.resolveMethod(fqcn, methodName, psr4Map);
+
+    // Magento auto-generated factory convention: {ClassName}Factory::create() returns {ClassName}.
+    // These factory classes are generated at runtime and don't exist as source files,
+    // so resolveMethod() won't find them.
+    if (!resolution && methodName === 'create' && fqcn.endsWith('Factory')) {
+      return fqcn.slice(0, -'Factory'.length);
+    }
+
+    if (!resolution) return undefined;
+
+    // For declared methods, look up the return type on the declaring class.
+    // For magic (__call), we can't determine the return type.
+    if (resolution.kind !== 'declared') return undefined;
+
+    const entry = this.loadClassEntry(resolution.className, psr4Map);
+    if (!entry) return undefined;
+
+    const rawType = entry.info.methodReturnTypes.get(resolution.methodName);
+    if (!rawType) return undefined;
+
+    // Filter out builtin types before resolving (avoids namespace-qualifying "string" etc.)
+    if (BUILTIN_TYPES.has(rawType.toLowerCase())) return undefined;
+
+    // Resolve self/static to the declaring class
+    if (rawType === 'self' || rawType === 'static') return resolution.className;
+
+    // Resolve the raw type to a FQCN using the declaring file's context
+    return resolveClassName(rawType, entry.namespace, entry.useImports);
+  }
+
   private loadClassEntry(fqcn: string, psr4Map: Psr4Map): ClassEntry | null {
     if (this.classCache.has(fqcn)) return this.classCache.get(fqcn)!;
 
@@ -112,6 +162,8 @@ export class MagicMethodIndex {
         info: magicInfo,
         parentClass: classInfo?.parentClass,
         interfaces: classInfo?.interfaces ?? [],
+        namespace: classInfo?.namespace ?? '',
+        useImports: classInfo?.useImports ?? new Map(),
       };
 
       this.classCache.set(fqcn, entry);

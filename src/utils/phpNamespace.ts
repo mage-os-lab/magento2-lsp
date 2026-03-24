@@ -49,6 +49,8 @@ export interface PhpMethodInfo {
   column: number;
   /** 0-based column where the method name ends. */
   endColumn: number;
+  /** Raw return type from PHP declaration (e.g., "Product", "self"). Nullable ? is stripped. */
+  returnType?: string;
 }
 
 /**
@@ -73,16 +75,53 @@ export function extractPhpMethods(content: string): PhpMethodInfo[] {
       const name = match[1];
       // Find column of method name: skip past "public [static] function "
       const nameIndex = lines[i].indexOf(name, match.index + match[0].indexOf('function') + 9);
+      const returnType = extractMethodReturnType(lines, i);
       methods.push({
         name,
         line: i,
         column: nameIndex,
         endColumn: nameIndex + name.length,
+        returnType,
       });
     }
   }
 
   return methods;
+}
+
+/** Matches ): ?TypeName or ): TypeName after the closing paren of a method signature. */
+const RETURN_TYPE_RE = /\)\s*:\s*\??\s*([\w\\]+)/;
+
+/**
+ * Extract the return type from a method declaration, handling multi-line signatures.
+ * Scans forward from the method line to find the closing `)`, then looks for `: Type`.
+ */
+function extractMethodReturnType(lines: string[], startLine: number): string | undefined {
+  let depth = 0;
+  for (let i = startLine; i < Math.min(startLine + 20, lines.length); i++) {
+    const line = lines[i];
+    for (let c = 0; c < line.length; c++) {
+      if (line[c] === '(') depth++;
+      if (line[c] === ')') {
+        depth--;
+        if (depth <= 0) {
+          // Found the closing paren — check for return type in the rest of this line
+          // and the next line (in case ): Type is split across lines)
+          const rest = line.substring(c);
+          const match = RETURN_TYPE_RE.exec(rest);
+          if (match) return match[1];
+          // Check next line
+          if (i + 1 < lines.length) {
+            const combined = rest + ' ' + lines[i + 1];
+            const match2 = RETURN_TYPE_RE.exec(combined);
+            if (match2) return match2[1];
+          }
+          return undefined;
+        }
+      }
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -263,6 +302,8 @@ export interface MagicMethodInfo {
   docMethods: string[];
   /** All physically declared public method names. */
   declaredMethods: string[];
+  /** Method name → raw return type from PHP declaration. Only for methods with declared return types. */
+  methodReturnTypes: Map<string, string>;
 }
 
 /** Matches @method annotations in PHPDoc blocks. */
@@ -281,6 +322,11 @@ export function extractMagicMethodInfo(content: string): MagicMethodInfo {
   const declaredMethods = methods.map((m) => m.name);
   const hasCall = declaredMethods.includes('__call');
 
+  const methodReturnTypes = new Map<string, string>();
+  for (const m of methods) {
+    if (m.returnType) methodReturnTypes.set(m.name, m.returnType);
+  }
+
   // Parse @method annotations from PHPDoc blocks before the class declaration.
   // We scan all lines before (and including) the class declaration line.
   const lines = content.split('\n');
@@ -295,7 +341,7 @@ export function extractMagicMethodInfo(content: string): MagicMethodInfo {
     }
   }
 
-  return { hasCall, docMethods, declaredMethods };
+  return { hasCall, docMethods, declaredMethods, methodReturnTypes };
 }
 
 // ---------------------------------------------------------------------------
@@ -373,17 +419,23 @@ export function extractClassWithMagicInfo(content: string): ClassWithMagicInfo {
     if (methodMatch) {
       const name = methodMatch[1];
       const nameIndex = line.indexOf(name, methodMatch.index + methodMatch[0].indexOf('function') + 9);
-      methods.push({ name, line: i, column: nameIndex, endColumn: nameIndex + name.length });
+      const returnType = extractMethodReturnType(lines, i);
+      methods.push({ name, line: i, column: nameIndex, endColumn: nameIndex + name.length, returnType });
     }
   }
 
   const declaredMethods = methods.map((m) => m.name);
+  const methodReturnTypes = new Map<string, string>();
+  for (const m of methods) {
+    if (m.returnType) methodReturnTypes.set(m.name, m.returnType);
+  }
   return {
     classInfo,
     magicInfo: {
       hasCall: declaredMethods.includes('__call'),
       docMethods,
       declaredMethods,
+      methodReturnTypes,
     },
   };
 }

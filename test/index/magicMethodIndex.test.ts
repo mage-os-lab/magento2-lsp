@@ -116,4 +116,85 @@ describe('MagicMethodIndex', () => {
     );
     expect(result).toBeUndefined();
   });
+
+  // --- resolveMethodReturnType tests ---
+
+  it('resolves return type of FooFactory::create() to Test\\Foo\\Model\\Foo', () => {
+    const result = index.resolveMethodReturnType(
+      'Test\\Foo\\Model\\FooFactory',
+      'create',
+      psr4Map,
+    );
+    expect(result).toBe('Test\\Foo\\Model\\Foo');
+  });
+
+  it('resolves self return type to the declaring class FQCN', () => {
+    // Foo::load() returns self
+    const result = index.resolveMethodReturnType(
+      'Test\\Foo\\Model\\Foo',
+      'load',
+      psr4Map,
+    );
+    expect(result).toBe('Test\\Foo\\Model\\Foo');
+  });
+
+  it('returns undefined for builtin return types', () => {
+    // Foo::getName() returns string
+    const result = index.resolveMethodReturnType(
+      'Test\\Foo\\Model\\Foo',
+      'getName',
+      psr4Map,
+    );
+    expect(result).toBeUndefined();
+  });
+
+  it('returns undefined for void return type', () => {
+    // Foo::save() returns void
+    const result = index.resolveMethodReturnType(
+      'Test\\Foo\\Model\\Foo',
+      'save',
+      psr4Map,
+    );
+    expect(result).toBeUndefined();
+  });
+
+  it('returns undefined for methods without return type', () => {
+    // DataObject::getData() has no return type declaration
+    const result = index.resolveMethodReturnType(
+      'Test\\Foo\\Model\\DataObject',
+      'getData',
+      psr4Map,
+    );
+    expect(result).toBeUndefined();
+  });
+
+  it('returns undefined for magic methods (__call)', () => {
+    // Calling a method handled by __call — can't determine return type
+    const result = index.resolveMethodReturnType(
+      'Test\\Foo\\Model\\DataObject',
+      'getCustomerId',
+      psr4Map,
+    );
+    expect(result).toBeUndefined();
+  });
+
+  it('resolves auto-generated factory create() via naming convention', () => {
+    // NonExistentFactory doesn't have a source file, but by Magento convention
+    // {ClassName}Factory::create() returns {ClassName}
+    const result = index.resolveMethodReturnType(
+      'Test\\Foo\\Model\\NonExistentFactory',
+      'create',
+      psr4Map,
+    );
+    expect(result).toBe('Test\\Foo\\Model\\NonExistent');
+  });
+
+  it('does not apply factory convention for non-create methods', () => {
+    const result = index.resolveMethodReturnType(
+      'Test\\Foo\\Model\\NonExistentFactory',
+      'get',
+      psr4Map,
+    );
+    expect(result).toBeUndefined();
+  });
 });

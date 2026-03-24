@@ -353,7 +353,9 @@ function computeMagicMethodLenses(
 ): CodeLens[] {
   const lenses: CodeLens[] = [];
   const lines = content.split('\n');
-  const typeMap = resolveVariableTypes(content, classInfo as any);
+  const typeMap = resolveVariableTypes(content, classInfo as any, (fqcn, method) =>
+    project.magicMethodIndex.resolveMethodReturnType(fqcn, method, project.psr4Map),
+  );
 
   // Pre-resolve DI preferences for each unique type (avoids repeated lookups)
   const concreteTypeCache = new Map<string, string>();

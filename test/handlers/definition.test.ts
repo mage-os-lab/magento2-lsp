@@ -86,6 +86,25 @@ describe('handleDefinition', () => {
     expect(result).toBeNull();
   });
 
+  // --- Factory pattern: return type inference ---
+
+  const fooServiceFile = path.join(
+    FIXTURE_ROOT,
+    'vendor/test/module-foo/Model/FooService.php',
+  );
+
+  it('navigates from $foo->save() after factory create() to Foo::save', () => {
+    // FooService.php line 14 (0-based): $foo->save();
+    // $foo is assigned from $this->fooFactory->create() which returns Foo
+    // "save" starts at col 14
+    const result = handleDefinition(makeParams(fooServiceFile, 14, 15), getProject);
+    // save() IS declared on Foo, so our handler returns null (Intelephense handles it)
+    // BUT: Foo is resolved via return type inference — the variable $foo's type comes
+    // from FooFactory::create(): Foo. Since save() is declared on the resolved type,
+    // we return null to let Intelephense handle the normal navigation.
+    expect(result).toBeNull();
+  });
+
   it('returns null when cursor is not on a reference', () => {
     const diXml = path.join(FIXTURE_ROOT, 'vendor/test/module-foo/etc/di.xml');
     // Line 0 is the XML declaration — no references there

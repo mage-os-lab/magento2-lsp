@@ -210,7 +210,9 @@ function handlePhpDefinition(
   const classInfo = extractPhpClass(content);
   if (!classInfo) return null;
 
-  const typeMap = resolveVariableTypes(content, classInfo);
+  const typeMap = resolveVariableTypes(content, classInfo, (fqcn, method) =>
+    project.magicMethodIndex.resolveMethodReturnType(fqcn, method, project.psr4Map),
+  );
   const lines = content.split('\n');
   const line = lines[params.position.line];
   if (!line) return null;
