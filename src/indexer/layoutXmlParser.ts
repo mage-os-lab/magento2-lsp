@@ -59,15 +59,23 @@ export function parseLayoutXml(
   const blockClassStack: string[] = [];
   let pendingArgument: { tagLine: number } | undefined;
   let argumentText = '';
+  // Track the line where `<tagName` starts (before attributes are parsed).
+  // SAX onopentag fires at the closing `>`, so parser.line there may be past
+  // multi-line attributes. onopentagstart fires at `<tagName`.
+  let currentTagStartLine = 0;
+
+  parser.onopentagstart = () => {
+    currentTagStartLine = parser.line ?? 0;
+  };
 
   parser.onopentag = (tag) => {
     const tagLine = parser.line ?? 0;
     const tagName = tag.name.toLowerCase();
 
     if (tagName === 'block') {
-      handleBlock(tag, tagLine, lines, file, references, blockClassStack);
+      handleBlock(tag, tagLine, currentTagStartLine, lines, file, references, blockClassStack);
     } else if (tagName === 'referenceblock') {
-      handleReferenceBlock(tag, tagLine, lines, file, references, blockClassStack);
+      handleReferenceBlock(tag, tagLine, currentTagStartLine, lines, file, references, blockClassStack);
     } else if (tagName === 'argument' || tagName === 'item') {
       const xsiType = getXsiType(tag);
       if (xsiType === 'object') {
@@ -128,6 +136,7 @@ export function parseLayoutXml(
 function handleBlock(
   tag: sax.Tag | sax.QualifiedTag,
   tagLine: number,
+  tagStartLine: number,
   lines: string[],
   file: string,
   references: LayoutReference[],
@@ -143,7 +152,7 @@ function handleBlock(
   // Block class reference
   if (classAttr) {
     const normalized = normalizeFqcn(classAttr);
-    const pos = findAttributeValuePosition(lines, tagLine, 'class');
+    const pos = findAttributeValuePosition(lines, tagLine, 'class', tagStartLine);
     if (pos) {
       references.push({
         kind: 'block-class',
@@ -158,7 +167,7 @@ function handleBlock(
 
   // Template reference
   if (templateAttr) {
-    const pos = findAttributeValuePosition(lines, tagLine, 'template');
+    const pos = findAttributeValuePosition(lines, tagLine, 'template', tagStartLine);
     if (pos) {
       const resolved = resolveTemplateId(templateAttr, blockClass);
       references.push({
@@ -177,6 +186,7 @@ function handleBlock(
 function handleReferenceBlock(
   tag: sax.Tag | sax.QualifiedTag,
   tagLine: number,
+  tagStartLine: number,
   lines: string[],
   file: string,
   references: LayoutReference[],
@@ -185,7 +195,7 @@ function handleReferenceBlock(
   const templateAttr = getAttr(tag, 'template');
 
   if (templateAttr) {
-    const pos = findAttributeValuePosition(lines, tagLine, 'template');
+    const pos = findAttributeValuePosition(lines, tagLine, 'template', tagStartLine);
     if (pos) {
       // For referenceBlock, use the nearest block class from the stack for short paths
       const parentClass = blockClassStack.length > 0

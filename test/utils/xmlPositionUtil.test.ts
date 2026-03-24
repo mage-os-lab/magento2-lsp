@@ -68,6 +68,54 @@ describe('findAttributeValuePosition', () => {
       endColumn: 39,
     });
   });
+
+  it('finds attribute before tagLine when tagStartLine is provided', () => {
+    // SAX reports tagLine at the closing `>` (line 1), but class= is on line 0
+    const lines = [
+      '<block class="Magento\\Catalog\\Block\\Product\\View" name="product.detail.page"',
+      '       template="Magento_Catalog::product/product-detail-page.phtml">',
+    ];
+    const result = findAttributeValuePosition(lines, 1, 'class', 0);
+    expect(result).toEqual({
+      line: 0,
+      column: 14,
+      endColumn: 48,
+    });
+  });
+
+  it('finds attribute on tagLine when tagStartLine is earlier', () => {
+    const lines = [
+      '<block class="Magento\\Catalog\\Block\\Product\\View" name="product.detail.page"',
+      '       template="Magento_Catalog::product/product-detail-page.phtml">',
+    ];
+    const result = findAttributeValuePosition(lines, 1, 'template', 0);
+    expect(result).toEqual({
+      line: 1,
+      column: 17,
+      endColumn: 67,
+    });
+  });
+
+  it('finds attributes on multi-line block with 4+ lines', () => {
+    const lines = [
+      '<block',
+      '    name="catalog.preload.product.gallery"',
+      '    class="Magento\\Catalog\\Block\\Product\\View\\Gallery"',
+      '    template="Magento_Catalog::page/catalog-preload-product-gallery.phtml"',
+      '/>',
+    ];
+    // SAX would report tagLine=4 (the /> line), tagStartLine=0 (the <block line)
+    expect(findAttributeValuePosition(lines, 4, 'class', 0)).toEqual({
+      line: 2,
+      column: 11,
+      endColumn: 53,
+    });
+    expect(findAttributeValuePosition(lines, 4, 'template', 0)).toEqual({
+      line: 3,
+      column: 14,
+      endColumn: 73,
+    });
+  });
 });
 
 describe('findTextContentPosition', () => {

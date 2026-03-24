@@ -18,20 +18,26 @@ export interface AttributePosition {
 /**
  * Find the position of an attribute's value within the raw XML source.
  *
- * Searches from `tagLine` forward (up to 5 lines) because XML attributes may be split
- * across multiple lines in formatted di.xml files.
+ * Searches from `tagStartLine` (or `tagLine` if not provided) forward through `tagLine + 5`
+ * because XML attributes may be split across multiple lines. SAX reports `tagLine` at the
+ * closing `>`, which may be past earlier attributes on multi-line tags. Use `tagStartLine`
+ * (from `onopentagstart`) to search from where `<tagName` begins.
  *
  * @param xmlLines - The full XML file split into lines.
- * @param tagLine  - The 0-based line where the SAX parser reported the opening tag.
+ * @param tagLine  - The 0-based line where the SAX parser reported the closing `>`.
  * @param attributeName - The attribute to find (e.g., 'for', 'type', 'name').
+ * @param tagStartLine - The 0-based line where the opening `<` is (from `onopentagstart`).
  * @returns Position of the value string (inside the quotes), or undefined if not found.
  */
 export function findAttributeValuePosition(
   xmlLines: string[],
   tagLine: number,
   attributeName: string,
+  tagStartLine?: number,
 ): AttributePosition | undefined {
-  for (let i = tagLine; i < Math.min(tagLine + 5, xmlLines.length); i++) {
+  const searchStart = tagStartLine !== undefined ? tagStartLine : tagLine;
+  const searchEnd = Math.min(tagLine + 5, xmlLines.length);
+  for (let i = searchStart; i < searchEnd; i++) {
     const line = xmlLines[i];
     // Match: attributeName="value" or attributeName='value' (with optional whitespace around =)
     const re = new RegExp(`${escapeRegex(attributeName)}\\s*=\\s*(['"])(.*?)\\1`);

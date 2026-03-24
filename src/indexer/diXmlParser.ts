@@ -78,21 +78,27 @@ export function parseDiXml(
   // Tracks the FQCN of the current <type> or <virtualType> element for proper
   // nesting context on child <plugin> elements.
   let currentTypeFqcn: string | undefined;
+  let currentTagStartLine = 0;
+
+  parser.onopentagstart = () => {
+    currentTagStartLine = parser.line ?? 0;
+  };
 
   parser.onopentag = (tag) => {
     const tagLine = (parser.line ?? 0);
+    const tagStartLine = currentTagStartLine;
     const tagName = tag.name.toLowerCase();
 
     if (tagName === 'preference') {
-      handlePreference(tag, tagLine, lines, context, references);
+      handlePreference(tag, tagLine, tagStartLine, lines, context, references);
     } else if (tagName === 'type') {
-      handleType(tag, tagLine, lines, context, references);
+      handleType(tag, tagLine, tagStartLine, lines, context, references);
       currentTypeFqcn = extractTagNameFqcn(tag);
     } else if (tagName === 'virtualtype') {
-      handleVirtualType(tag, tagLine, lines, context, references, virtualTypes);
+      handleVirtualType(tag, tagLine, tagStartLine, lines, context, references, virtualTypes);
       currentTypeFqcn = extractTagNameFqcn(tag);
     } else if (tagName === 'plugin') {
-      handlePlugin(tag, tagLine, lines, context, references, currentTypeFqcn);
+      handlePlugin(tag, tagLine, tagStartLine, lines, context, references, currentTypeFqcn);
     } else if (tagName === 'argument' || tagName === 'item') {
       // Only <argument>/<item> elements with xsi:type="object" contain class references.
       // Others (string, array, number, const, init_parameter) are not PHP classes.
@@ -157,6 +163,7 @@ export function parseDiXml(
 function handlePreference(
   tag: sax.Tag | sax.QualifiedTag,
   tagLine: number,
+  tagStartLine: number,
   lines: string[],
   context: DiXmlParseContext,
   references: DiReference[],
@@ -171,7 +178,7 @@ function handlePreference(
   if (forValue) {
     const normalizedFor = normalizeFqcn(forValue);
     const normalizedType = typeValue ? normalizeFqcn(typeValue) : undefined;
-    const pos = findAttributeValuePosition(lines, tagLine, 'for');
+    const pos = findAttributeValuePosition(lines, tagLine, 'for', tagStartLine);
     if (pos) {
       references.push({
         fqcn: normalizedFor,
@@ -191,7 +198,7 @@ function handlePreference(
   if (typeValue) {
     const normalizedType = normalizeFqcn(typeValue);
     const normalizedFor = forValue ? normalizeFqcn(forValue) : undefined;
-    const pos = findAttributeValuePosition(lines, tagLine, 'type');
+    const pos = findAttributeValuePosition(lines, tagLine, 'type', tagStartLine);
     if (pos) {
       references.push({
         fqcn: normalizedType,
@@ -213,6 +220,7 @@ function handlePreference(
 function handleType(
   tag: sax.Tag | sax.QualifiedTag,
   tagLine: number,
+  tagStartLine: number,
   lines: string[],
   context: DiXmlParseContext,
   references: DiReference[],
@@ -222,7 +230,7 @@ function handleType(
 
   if (nameValue) {
     const normalized = normalizeFqcn(nameValue);
-    const pos = findAttributeValuePosition(lines, tagLine, 'name');
+    const pos = findAttributeValuePosition(lines, tagLine, 'name', tagStartLine);
     if (pos) {
       references.push({
         fqcn: normalized,
@@ -248,6 +256,7 @@ function handleType(
 function handleVirtualType(
   tag: sax.Tag | sax.QualifiedTag,
   tagLine: number,
+  tagStartLine: number,
   lines: string[],
   context: DiXmlParseContext,
   references: DiReference[],
@@ -261,7 +270,7 @@ function handleVirtualType(
 
   if (nameValue) {
     const normalizedName = normalizeFqcn(nameValue);
-    const pos = findAttributeValuePosition(lines, tagLine, 'name');
+    const pos = findAttributeValuePosition(lines, tagLine, 'name', tagStartLine);
     if (pos) {
       references.push({
         fqcn: normalizedName,
@@ -290,7 +299,7 @@ function handleVirtualType(
 
   if (typeValue) {
     const normalized = normalizeFqcn(typeValue);
-    const pos = findAttributeValuePosition(lines, tagLine, 'type');
+    const pos = findAttributeValuePosition(lines, tagLine, 'type', tagStartLine);
     if (pos) {
       references.push({
         fqcn: normalized,
@@ -314,6 +323,7 @@ function handleVirtualType(
 function handlePlugin(
   tag: sax.Tag | sax.QualifiedTag,
   tagLine: number,
+  tagStartLine: number,
   lines: string[],
   context: DiXmlParseContext,
   references: DiReference[],
@@ -324,7 +334,7 @@ function handlePlugin(
 
   if (typeValue) {
     const normalized = normalizeFqcn(typeValue);
-    const pos = findAttributeValuePosition(lines, tagLine, 'type');
+    const pos = findAttributeValuePosition(lines, tagLine, 'type', tagStartLine);
     if (pos) {
       references.push({
         fqcn: normalized,
