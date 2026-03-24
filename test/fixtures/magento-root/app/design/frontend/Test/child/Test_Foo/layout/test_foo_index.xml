@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<page xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <body>
+        <referenceBlock name="foo.list">
+            <action method="setTemplate">
+                <argument name="template" xsi:type="string">Test_Foo::product/list-child.phtml</argument>
+            </action>
+        </referenceBlock>
+    </body>
+</page>

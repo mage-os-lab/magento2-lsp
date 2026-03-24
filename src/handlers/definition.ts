@@ -74,6 +74,40 @@ export function handleDefinition(
     params.position.character,
   );
   if (layoutRef) {
+    if (layoutRef.kind === 'update-handle') {
+      const handle = layoutRef.value;
+      const area = project.themeResolver.getAreaForFile(filePath) ?? 'frontend';
+      const theme = project.themeResolver.getThemeForFile(filePath);
+
+      // Collect files for both handle and hyva_ variant
+      let allFiles = [
+        ...project.layoutIndex.getFilesForHandle(handle),
+        ...project.layoutIndex.getFilesForHandle(`hyva_${handle}`),
+      ];
+
+      // Filter by area (include 'base' as it applies to all areas)
+      allFiles = allFiles.filter((f) => {
+        const fileArea = project.themeResolver.getAreaForFile(f);
+        return fileArea === area || fileArea === 'base';
+      });
+
+      if (allFiles.length === 0) return null;
+
+      // If in a theme context, prioritize theme fallback chain
+      if (theme) {
+        const chain = project.themeResolver.getFallbackChain(theme.code);
+        const themeFiles = allFiles.filter((f) =>
+          chain.some((t) => f.startsWith(t.path + '/')),
+        );
+        if (themeFiles.length > 0) {
+          allFiles = themeFiles;
+        }
+      }
+
+      return allFiles.map((f) =>
+        Location.create(URI.file(f).toString(), Range.create(0, 0, 0, 0)),
+      );
+    }
     if (layoutRef.kind === 'block-template' || layoutRef.kind === 'refblock-template') {
       // Template identifier -> resolve to .phtml file via theme fallback
       const templateId = layoutRef.resolvedTemplateId ?? layoutRef.value;

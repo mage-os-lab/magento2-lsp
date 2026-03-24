@@ -76,6 +76,21 @@ export function parseLayoutXml(
       handleBlock(tag, tagLine, currentTagStartLine, lines, file, references, blockClassStack);
     } else if (tagName === 'referenceblock') {
       handleReferenceBlock(tag, tagLine, currentTagStartLine, lines, file, references, blockClassStack);
+    } else if (tagName === 'update') {
+      const handleAttr = getAttr(tag, 'handle');
+      if (handleAttr) {
+        const pos = findAttributeValuePosition(lines, tagLine, 'handle', currentTagStartLine);
+        if (pos) {
+          references.push({
+            kind: 'update-handle',
+            value: handleAttr,
+            file,
+            line: pos.line,
+            column: pos.column,
+            endColumn: pos.endColumn,
+          });
+        }
+      }
     } else if (tagName === 'argument' || tagName === 'item') {
       const xsiType = getXsiType(tag);
       if (xsiType === 'object') {

@@ -4,9 +4,11 @@
  * Provides lookups for:
  *   - FQCN -> all layout XML references (block classes + argument objects)
  *   - templateId -> all layout XML references using that template
+ *   - handle name -> all layout XML files defining that handle
  *   - file + position -> which reference the cursor is on
  */
 
+import * as path from 'path';
 import { LayoutReference } from '../indexer/types';
 
 export class LayoutIndex {
@@ -16,9 +18,19 @@ export class LayoutIndex {
   private templateToRefs = new Map<string, LayoutReference[]>();
   /** File path -> all references in that file. */
   private fileToRefs = new Map<string, LayoutReference[]>();
+  /** Handle name -> all layout files defining that handle (derived from filename). */
+  private handleToFiles = new Map<string, Set<string>>();
 
   addFile(file: string, refs: LayoutReference[]): void {
     this.fileToRefs.set(file, refs);
+
+    // Index the file by its handle name (filename without .xml)
+    const handle = extractHandleFromPath(file);
+    if (handle) {
+      const existing = this.handleToFiles.get(handle) ?? new Set();
+      existing.add(file);
+      this.handleToFiles.set(handle, existing);
+    }
 
     for (const ref of refs) {
       if (ref.kind === 'block-class' || ref.kind === 'argument-object') {
@@ -37,6 +49,18 @@ export class LayoutIndex {
   removeFile(file: string): void {
     const refs = this.fileToRefs.get(file);
     if (!refs) return;
+
+    // Remove from handle map
+    const handle = extractHandleFromPath(file);
+    if (handle) {
+      const files = this.handleToFiles.get(handle);
+      if (files) {
+        files.delete(file);
+        if (files.size === 0) {
+          this.handleToFiles.delete(handle);
+        }
+      }
+    }
 
     for (const ref of refs) {
       if (ref.kind === 'block-class' || ref.kind === 'argument-object') {
@@ -60,6 +84,12 @@ export class LayoutIndex {
     return this.templateToRefs.get(templateId) ?? [];
   }
 
+  /** Get all layout XML files that define a given handle name. */
+  getFilesForHandle(handle: string): string[] {
+    const files = this.handleToFiles.get(handle);
+    return files ? Array.from(files) : [];
+  }
+
   /** Find which reference the cursor is on in a layout XML file. */
   getReferenceAtPosition(
     file: string,
@@ -81,6 +111,7 @@ export class LayoutIndex {
     this.fqcnToRefs.clear();
     this.templateToRefs.clear();
     this.fileToRefs.clear();
+    this.handleToFiles.clear();
   }
 
   private removeFromList(
@@ -97,4 +128,16 @@ export class LayoutIndex {
       map.delete(key);
     }
   }
+}
+
+/**
+ * Extract the layout handle name from a file path.
+ * Returns the filename without .xml if the parent directory is layout or page_layout.
+ */
+function extractHandleFromPath(filePath: string): string | undefined {
+  const dir = path.basename(path.dirname(filePath));
+  if (dir !== 'layout' && dir !== 'page_layout') return undefined;
+  const filename = path.basename(filePath);
+  if (!filename.endsWith('.xml')) return undefined;
+  return filename.slice(0, -4);
 }

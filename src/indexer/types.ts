@@ -180,7 +180,8 @@ export type LayoutReferenceKind =
   | 'block-class'         // <block class="Magento\Catalog\Block\Product\View">
   | 'block-template'      // <block template="Magento_Catalog::product/view.phtml">
   | 'refblock-template'   // <referenceBlock template="...">
-  | 'argument-object';    // <argument xsi:type="object">ClassName</argument>
+  | 'argument-object'     // <argument xsi:type="object">ClassName</argument>
+  | 'update-handle';      // <update handle="checkout_cart_index"/>
 
 /**
  * A reference found in a layout or page_layout XML file.
