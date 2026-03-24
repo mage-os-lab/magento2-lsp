@@ -84,11 +84,11 @@ export class PluginMethodIndex {
   build(diIndex: DiIndex, psr4Map: Psr4Map): void {
     this.classMethodPlugins.clear();
     this.reverseIndex.clear();
-    this.hierarchy = new ClassHierarchy();
 
     // Collect all plugin-type refs grouped by their target class
+    const allPluginEntries = [...diIndex.getAllPluginRefsWithTargets()];
     const pluginsByTarget = new Map<string, DiReference[]>();
-    for (const entry of diIndex.getAllPluginRefsWithTargets()) {
+    for (const entry of allPluginEntries) {
       const existing = pluginsByTarget.get(entry.targetFqcn) ?? [];
       existing.push(entry.pluginRef);
       pluginsByTarget.set(entry.targetFqcn, existing);
@@ -98,7 +98,7 @@ export class PluginMethodIndex {
     // This lets us resolve inherited plugins: a plugin on an interface also
     // applies to all classes implementing that interface.
     const allTypeNames = new Set<string>();
-    for (const entry of diIndex.getAllPluginRefsWithTargets()) {
+    for (const entry of allPluginEntries) {
       allTypeNames.add(entry.targetFqcn);
     }
     // Also scan all type-name refs (classes configured in di.xml) since they
@@ -257,5 +257,10 @@ export class PluginMethodIndex {
   /** Get all ancestor FQCNs (parent classes + interfaces) for a class. */
   getAncestors(classFqcn: string): string[] {
     return this.hierarchy.getAncestors(classFqcn);
+  }
+
+  /** Invalidate hierarchy data for a class (e.g., when its PHP file changes). */
+  invalidateHierarchy(fqcn: string): void {
+    this.hierarchy.invalidateClass(fqcn);
   }
 }

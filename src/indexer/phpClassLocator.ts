@@ -118,6 +118,27 @@ export function resolveClassFile(
   return undefined;
 }
 
+/**
+ * Reverse PSR-4 lookup: resolve a PHP file path to its FQCN.
+ * Returns undefined if the file doesn't match any PSR-4 entry.
+ */
+export function resolveFileToFqcn(filePath: string, psr4Map: Psr4Map): string | undefined {
+  const normalized = path.resolve(filePath);
+  if (!normalized.endsWith('.php')) return undefined;
+  // Find the most specific (longest path) matching PSR-4 entry
+  let best: { path: string; prefix: string } | undefined;
+  for (const entry of psr4Map) {
+    if (normalized.startsWith(entry.path) && (!best || entry.path.length > best.path.length)) {
+      best = entry;
+    }
+  }
+  if (!best) return undefined;
+  const base = best.path.endsWith(path.sep) ? best.path : best.path + path.sep;
+  const relative = normalized.slice(base.length);
+  const withoutExt = relative.slice(0, -4);
+  return best.prefix + withoutExt.split(path.sep).join('\\');
+}
+
 function fileExists(p: string): boolean {
   try {
     return fs.statSync(p).isFile();

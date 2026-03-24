@@ -26,12 +26,35 @@ const MODULE_URN_RE = /^urn:magento:module:(\w+_\w+):(.+)$/;
 const FRAMEWORK_URN_RE = /^urn:magento:(framework[A-Za-z-]*):(.+)$/;
 const SETUP_URN_RE = /^urn:magento:(setup[A-Za-z-]*):(.+)$/;
 
+/** Cache of resolved URN paths, keyed by "magentoRoot\0urn". */
+const urnCache = new Map<string, string | undefined>();
+
 /**
  * Resolve a Magento URN to an absolute filesystem path.
  *
  * Returns undefined if the URN format is unrecognized or the resolved file doesn't exist.
  */
 export function resolveXmlUrn(
+  urn: string,
+  magentoRoot: string,
+  modules: ModuleInfo[],
+): string | undefined {
+  const cacheKey = `${magentoRoot}\0${urn}`;
+  if (urnCache.has(cacheKey)) return urnCache.get(cacheKey);
+
+  const result = resolveXmlUrnUncached(urn, magentoRoot, modules);
+  urnCache.set(cacheKey, result);
+  return result;
+}
+
+/**
+ * Invalidate the URN resolution cache (e.g., after reindexing when modules change).
+ */
+export function invalidateUrnCache(): void {
+  urnCache.clear();
+}
+
+function resolveXmlUrnUncached(
   urn: string,
   magentoRoot: string,
   modules: ModuleInfo[],

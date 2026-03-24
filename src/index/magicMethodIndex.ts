@@ -45,6 +45,21 @@ export class MagicMethodIndex {
   private resolutionCache = new Map<string, MethodResolution | null>();
 
   /**
+   * Invalidate cached data for a class (e.g., when its PHP file changes).
+   * Clears the class entry and any resolution cache entries that involve this class.
+   */
+  invalidateClass(fqcn: string): void {
+    this.classCache.delete(fqcn);
+
+    // Clear resolution cache entries for this class (as subject or as resolved target)
+    for (const [key, value] of this.resolutionCache) {
+      if (key.startsWith(fqcn + '::') || value?.className === fqcn) {
+        this.resolutionCache.delete(key);
+      }
+    }
+  }
+
+  /**
    * Resolve a method call on a class.
    *
    * Walks the class and its ancestor chain to find where the method is handled.

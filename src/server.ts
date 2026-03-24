@@ -36,6 +36,7 @@ import { discoverDiXmlFiles, discoverEventsXmlFiles } from './project/moduleReso
 import { parseDiXml, DiXmlParseContext } from './indexer/diXmlParser';
 import { parseEventsXml, EventsXmlParseContext } from './indexer/eventsXmlParser';
 import { parseLayoutXml } from './indexer/layoutXmlParser';
+import { resolveFileToFqcn } from './indexer/phpClassLocator';
 import { realpath } from './utils/realpath';
 import { validateXmlFile, isXmllintAvailable, invalidateCatalogCache } from './validation/xsdValidator';
 import * as fs from 'fs';
@@ -242,7 +243,7 @@ connection.onDidSaveTextDocument((params) => {
   // Re-read file content on save
   try {
     const content = fs.readFileSync(filePath, 'utf-8');
-    validateAndPublish(params.textDocument.uri, content, project);
+    validateAndPublish(params.textDocument.uri, content, project, 0);
   } catch {
     // File unreadable
   }
@@ -439,6 +440,27 @@ function setupFileWatchers(project: import('./project/projectManager').ProjectCo
   });
   layoutWatcher.watch(layoutWatchPatterns);
   watchers.push(layoutWatcher);
+
+  // --- PHP file watcher ---
+  // Invalidates MagicMethodIndex and ClassHierarchy caches when PHP files change.
+  const phpWatchPatterns: string[] = [];
+  for (const entry of project.psr4Map) {
+    phpWatchPatterns.push(path.join(entry.path, '**', '*.php'));
+  }
+
+  function invalidatePhpClass(filePath: string): void {
+    const fqcn = resolveFileToFqcn(filePath, project.psr4Map);
+    if (!fqcn) return;
+    project.magicMethodIndex.invalidateClass(fqcn);
+    project.pluginMethodIndex.invalidateHierarchy(fqcn);
+  }
+
+  const phpWatcher = new FileWatcher({
+    onFileChange: invalidatePhpClass,
+    onFileRemove: invalidatePhpClass,
+  });
+  phpWatcher.watch(phpWatchPatterns);
+  watchers.push(phpWatcher);
 }
 
 // --- Shutdown ---

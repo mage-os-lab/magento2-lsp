@@ -27,6 +27,17 @@ export class ClassHierarchy {
   private scanned = new Set<string>();
 
   /**
+   * Invalidate cached data for a class (e.g., when its PHP file changes).
+   * Removes the class from scanned, parentMap, and interfacesMap so it will
+   * be re-read on the next buildForClasses call.
+   */
+  invalidateClass(fqcn: string): void {
+    this.scanned.delete(fqcn);
+    this.parentMap.delete(fqcn);
+    this.interfacesMap.delete(fqcn);
+  }
+
+  /**
    * Scan a set of FQCNs to discover their inheritance relationships.
    * Reads each class's PHP file to find extends/implements declarations.
    *

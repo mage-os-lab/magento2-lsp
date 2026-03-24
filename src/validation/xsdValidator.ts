@@ -82,7 +82,7 @@ export function extractSchemaUrn(xmlContent: string): string | undefined {
   return match?.[1];
 }
 
-/** Cached catalog file paths per project root. */
+/** Cached catalog file paths per project root + root XSD path. */
 const catalogCache = new Map<string, string>();
 
 /**
@@ -102,28 +102,29 @@ export async function validateXmlFile(
   const xsdPath = resolveXmlUrn(urn, magentoRoot, modules);
   if (!xsdPath) return [];
 
-  // Generate or reuse catalog
-  let catalogPath = catalogCache.get(magentoRoot);
+  // Generate or reuse catalog — keyed by root + XSD so different schemas get their own catalog
+  const catalogKey = `${magentoRoot}:${xsdPath}`;
+  let catalogPath = catalogCache.get(catalogKey);
   if (!catalogPath || !fileExists(catalogPath)) {
     const catalogContent = generateXsdCatalog(xsdPath, magentoRoot, modules);
-    catalogPath = path.join(os.tmpdir(), `magento2-lsp-catalog-${hashString(magentoRoot)}.xml`);
+    catalogPath = path.join(os.tmpdir(), `magento2-lsp-catalog-${hashString(catalogKey)}.xml`);
     fs.writeFileSync(catalogPath, catalogContent, 'utf-8');
-    catalogCache.set(magentoRoot, catalogPath);
+    catalogCache.set(catalogKey, catalogPath);
   }
 
   // If content differs from disk (unsaved changes), write to a temp file for xmllint.
   let fileToValidate = xmlFilePath;
   let tempFile: string | undefined;
   try {
-    const diskContent = fs.readFileSync(xmlFilePath, 'utf-8');
+    const diskContent = await fs.promises.readFile(xmlFilePath, 'utf-8');
     if (diskContent !== xmlContent) {
-      tempFile = path.join(os.tmpdir(), `magento2-lsp-validate-${path.basename(xmlFilePath)}`);
+      tempFile = path.join(os.tmpdir(), `magento2-lsp-validate-${hashString(xmlFilePath)}-${path.basename(xmlFilePath)}`);
       fs.writeFileSync(tempFile, xmlContent, 'utf-8');
       fileToValidate = tempFile;
     }
   } catch {
     // File doesn't exist on disk yet — write content to temp
-    tempFile = path.join(os.tmpdir(), `magento2-lsp-validate-${path.basename(xmlFilePath)}`);
+    tempFile = path.join(os.tmpdir(), `magento2-lsp-validate-${hashString(xmlFilePath)}-${path.basename(xmlFilePath)}`);
     fs.writeFileSync(tempFile, xmlContent, 'utf-8');
     fileToValidate = tempFile;
   }
@@ -197,14 +198,15 @@ export async function isXmllintAvailable(): Promise<boolean> {
  * Invalidate the catalog cache for a project (e.g., after reindexing).
  */
 export function invalidateCatalogCache(magentoRoot: string): void {
-  const cached = catalogCache.get(magentoRoot);
-  if (cached) {
-    try {
-      fs.unlinkSync(cached);
-    } catch {
-      // Ignore cleanup errors
+  for (const [key, filePath] of catalogCache) {
+    if (key.startsWith(magentoRoot + ':')) {
+      try {
+        fs.unlinkSync(filePath);
+      } catch {
+        // Ignore cleanup errors
+      }
+      catalogCache.delete(key);
     }
-    catalogCache.delete(magentoRoot);
   }
 }
 

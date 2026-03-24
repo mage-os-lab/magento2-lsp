@@ -9,7 +9,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { ProjectContext, ProjectManager } from '../project/projectManager';
 import { detectMagentoRoot } from '../project/detector';
-import { resolveClassFile } from '../indexer/phpClassLocator';
+import { resolveClassFile, resolveFileToFqcn } from '../indexer/phpClassLocator';
 import { Psr4Map, ModuleInfo } from '../indexer/types';
 
 // ---------------------------------------------------------------------------
@@ -47,22 +47,6 @@ function relPath(absPath: string, root: string): string {
 }
 
 /** Reverse PSR-4 lookup: resolve a .php file path to its FQCN (longest-prefix-match). */
-function resolveFileToFqcn(filePath: string, psr4Map: Psr4Map): string | undefined {
-  const normalized = path.resolve(filePath);
-  if (!normalized.endsWith('.php')) return undefined;
-  // Find the most specific (longest path) matching PSR-4 entry
-  let best: { path: string; prefix: string } | undefined;
-  for (const entry of psr4Map) {
-    if (normalized.startsWith(entry.path) && (!best || entry.path.length > best.path.length)) {
-      best = entry;
-    }
-  }
-  if (!best) return undefined;
-  const base = best.path.endsWith(path.sep) ? best.path : best.path + path.sep;
-  const relative = normalized.slice(base.length);
-  const withoutExt = relative.slice(0, -4);
-  return best.prefix + withoutExt.split(path.sep).join('\\');
-}
 
 /** Find which module a file belongs to by matching against module paths. */
 function findModuleForFile(filePath: string, modules: ModuleInfo[]): ModuleInfo | undefined {
