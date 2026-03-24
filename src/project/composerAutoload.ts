@@ -21,50 +21,26 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Psr4Map } from '../indexer/types';
 import { realpath } from '../utils/realpath';
+import { isDirectory } from '../utils/fsHelpers';
+import { readComposerPackages } from '../utils/composerPackages';
 
 export function buildPsr4Map(magentoRoot: string): Psr4Map {
   const map: Psr4Map = [];
 
   // --- Source 1: vendor/composer/installed.json ---
-  const installedJsonPath = path.join(
-    magentoRoot,
-    'vendor',
-    'composer',
-    'installed.json',
-  );
-
-  try {
-    const content = fs.readFileSync(installedJsonPath, 'utf-8');
-    const data = JSON.parse(content);
-    // Composer v2 wraps in "packages"; v1 is a top-level array
-    const packages = data.packages ?? data;
-
-    for (const pkg of packages) {
-      const installPath = pkg['install-path'];
-      if (!installPath) continue;
-
-      // install-path is relative to vendor/composer/ — resolve symlinks for consistency
-      const absBasePath = realpath(path.resolve(
-        magentoRoot,
-        'vendor',
-        'composer',
-        installPath,
-      ));
-
-      // PSR-4 can map a prefix to one or more directories
-      const psr4 = pkg.autoload?.['psr-4'];
-      if (psr4 && typeof psr4 === 'object') {
-        for (const [prefix, dirs] of Object.entries(psr4)) {
-          const dirList = Array.isArray(dirs) ? dirs : [dirs];
-          for (const dir of dirList) {
-            const fullPath = realpath(path.join(absBasePath, dir as string));
-            map.push({ prefix: normalizePrefix(prefix), path: fullPath });
-          }
+  for (const pkg of readComposerPackages(magentoRoot)) {
+    // PSR-4 can map a prefix to one or more directories
+    const autoload = pkg.raw.autoload as Record<string, unknown> | undefined;
+    const psr4 = autoload?.['psr-4'];
+    if (psr4 && typeof psr4 === 'object') {
+      for (const [prefix, dirs] of Object.entries(psr4 as Record<string, unknown>)) {
+        const dirList = Array.isArray(dirs) ? dirs : [dirs];
+        for (const dir of dirList) {
+          const fullPath = realpath(path.join(pkg.absPath, dir as string));
+          map.push({ prefix: normalizePrefix(prefix), path: fullPath });
         }
       }
     }
-  } catch {
-    // installed.json not found or invalid — vendor packages won't be resolvable
   }
 
   // --- Source 2: app/code convention ---
@@ -105,10 +81,3 @@ function normalizePrefix(prefix: string): string {
   return prefix;
 }
 
-function isDirectory(p: string): boolean {
-  try {
-    return fs.statSync(p).isDirectory();
-  } catch {
-    return false;
-  }
-}

@@ -16,6 +16,7 @@ import * as sax from 'sax';
 import { EventReference, ObserverReference } from './types';
 import { normalizeFqcn } from '../utils/fqcnNormalize';
 import { findAttributeValuePosition } from '../utils/xmlPositionUtil';
+import { getAttr, installErrorHandler } from '../utils/saxHelpers';
 
 export interface EventsXmlParseContext {
   file: string;
@@ -53,8 +54,7 @@ export function parseEventsXml(
     const tagName = tag.name.toLowerCase();
 
     if (tagName === 'event') {
-      const nameAttr = tag.attributes['name'] ?? tag.attributes['NAME'];
-      const nameValue = typeof nameAttr === 'string' ? nameAttr : nameAttr?.value;
+      const nameValue = getAttr(tag, 'name');
 
       if (nameValue) {
         currentEventName = nameValue;
@@ -74,11 +74,8 @@ export function parseEventsXml(
         }
       }
     } else if (tagName === 'observer' && currentEventName) {
-      const instanceAttr = tag.attributes['instance'] ?? tag.attributes['INSTANCE'];
-      const nameAttr = tag.attributes['name'] ?? tag.attributes['NAME'];
-
-      const instanceValue = typeof instanceAttr === 'string' ? instanceAttr : instanceAttr?.value;
-      const nameValue = typeof nameAttr === 'string' ? nameAttr : nameAttr?.value;
+      const instanceValue = getAttr(tag, 'instance');
+      const nameValue = getAttr(tag, 'name');
 
       if (instanceValue) {
         const normalized = normalizeFqcn(instanceValue);
@@ -106,10 +103,7 @@ export function parseEventsXml(
     }
   };
 
-  parser.onerror = () => {
-    parser.error = null as unknown as Error;
-    parser.resume();
-  };
+  installErrorHandler(parser);
 
   parser.write(xmlContent).close();
 

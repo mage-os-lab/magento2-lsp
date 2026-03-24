@@ -18,6 +18,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ModuleInfo } from '../indexer/types';
 import { realpath } from '../utils/realpath';
+import { fileExists, isDirectory } from '../utils/fsHelpers';
+import { readComposerPackages } from '../utils/composerPackages';
 
 /** Matches 'Vendor_Module' => 1 entries in config.php. */
 const MODULE_ENTRY_RE = /['"](\w+_\w+)['"]\s*=>\s*1/g;
@@ -87,49 +89,36 @@ function buildModulePathMap(magentoRoot: string): Map<string, string> {
   }
 
   // --- Source 2: vendor packages via installed.json ---
-  const installedJsonPath = path.join(magentoRoot, 'vendor', 'composer', 'installed.json');
-  try {
-    const ijContent = fs.readFileSync(installedJsonPath, 'utf-8');
-    const data = JSON.parse(ijContent);
-    const packages = data.packages ?? data;
+  for (const pkg of readComposerPackages(magentoRoot)) {
+    if (pkg.type !== 'magento2-module') continue;
 
-    for (const pkg of packages) {
-      if (pkg.type !== 'magento2-module') continue;
+    // Collect registration.php candidates
+    const regCandidates: string[] = [];
 
-      const installPath = pkg['install-path'];
-      if (!installPath) continue;
-
-      const absPath = realpath(path.resolve(magentoRoot, 'vendor', 'composer', installPath));
-
-      // Collect registration.php candidates
-      const regCandidates: string[] = [];
-
-      // Check autoload.files entries
-      const autoloadFiles = pkg.autoload?.files;
-      if (Array.isArray(autoloadFiles)) {
-        for (const f of autoloadFiles) {
-          if (typeof f === 'string' && f.endsWith('registration.php')) {
-            regCandidates.push(path.join(absPath, f));
-          }
-        }
-      }
-
-      // Package root
-      regCandidates.push(path.join(absPath, 'registration.php'));
-
-      // Nested modules (e.g., multi-module packages)
-      findRegistrationFiles(absPath, 3, regCandidates);
-
-      // Read each registration.php and extract the module name
-      for (const registrationPath of regCandidates) {
-        const moduleName = extractModuleNameFromRegistration(registrationPath);
-        if (moduleName && !map.has(moduleName)) {
-          map.set(moduleName, realpath(path.dirname(registrationPath)));
+    // Check autoload.files entries
+    const autoload = pkg.raw.autoload as Record<string, unknown> | undefined;
+    const autoloadFiles = autoload?.files;
+    if (Array.isArray(autoloadFiles)) {
+      for (const f of autoloadFiles) {
+        if (typeof f === 'string' && f.endsWith('registration.php')) {
+          regCandidates.push(path.join(pkg.absPath, f));
         }
       }
     }
-  } catch {
-    // installed.json not found or invalid
+
+    // Package root
+    regCandidates.push(path.join(pkg.absPath, 'registration.php'));
+
+    // Nested modules (e.g., multi-module packages)
+    findRegistrationFiles(pkg.absPath, 3, regCandidates);
+
+    // Read each registration.php and extract the module name
+    for (const registrationPath of regCandidates) {
+      const moduleName = extractModuleNameFromRegistration(registrationPath);
+      if (moduleName && !map.has(moduleName)) {
+        map.set(moduleName, realpath(path.dirname(registrationPath)));
+      }
+    }
   }
 
   return map;
@@ -144,14 +133,6 @@ function extractModuleNameFromRegistration(registrationPath: string): string | u
     return match?.[1];
   } catch {
     return undefined;
-  }
-}
-
-function isDirectory(p: string): boolean {
-  try {
-    return fs.statSync(p).isDirectory();
-  } catch {
-    return false;
   }
 }
 
@@ -253,10 +234,3 @@ function findRegistrationFiles(dir: string, maxDepth: number, candidates: string
   }
 }
 
-function fileExists(p: string): boolean {
-  try {
-    return fs.statSync(p).isFile();
-  } catch {
-    return false;
-  }
-}

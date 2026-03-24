@@ -10,6 +10,7 @@
 
 import * as path from 'path';
 import { LayoutReference } from '../indexer/types';
+import { removeFromMap, findReferenceAtPosition } from '../utils/indexHelpers';
 
 export class LayoutIndex {
   /** FQCN -> all layout refs for that class (block-class + argument-object). */
@@ -64,10 +65,10 @@ export class LayoutIndex {
 
     for (const ref of refs) {
       if (ref.kind === 'block-class' || ref.kind === 'argument-object') {
-        this.removeFromList(this.fqcnToRefs, ref.value, file);
+        removeFromMap(this.fqcnToRefs, ref.value, file);
       } else if (ref.kind === 'block-template' || ref.kind === 'refblock-template') {
         const key = ref.resolvedTemplateId ?? ref.value;
-        this.removeFromList(this.templateToRefs, key, file);
+        removeFromMap(this.templateToRefs, key, file);
       }
     }
 
@@ -96,11 +97,7 @@ export class LayoutIndex {
     line: number,
     col: number,
   ): LayoutReference | undefined {
-    const refs = this.fileToRefs.get(file);
-    if (!refs) return undefined;
-    return refs.find(
-      (r) => r.line === line && col >= r.column && col < r.endColumn,
-    );
+    return findReferenceAtPosition(this.fileToRefs.get(file), line, col);
   }
 
   getFileCount(): number {
@@ -114,20 +111,6 @@ export class LayoutIndex {
     this.handleToFiles.clear();
   }
 
-  private removeFromList(
-    map: Map<string, LayoutReference[]>,
-    key: string,
-    file: string,
-  ): void {
-    const existing = map.get(key);
-    if (!existing) return;
-    const filtered = existing.filter((r) => r.file !== file);
-    if (filtered.length > 0) {
-      map.set(key, filtered);
-    } else {
-      map.delete(key);
-    }
-  }
 }
 
 /**

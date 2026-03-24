@@ -22,6 +22,7 @@ import {
   findAttributeValuePosition,
   findTextContentPosition,
 } from '../utils/xmlPositionUtil';
+import { getAttr, getXsiType, installErrorHandler } from '../utils/saxHelpers';
 
 export interface LayoutXmlParseResult {
   references: LayoutReference[];
@@ -138,10 +139,7 @@ export function parseLayoutXml(
     }
   };
 
-  parser.onerror = () => {
-    parser.error = null as unknown as Error;
-    parser.resume();
-  };
+  installErrorHandler(parser);
 
   parser.write(xmlContent).close();
 
@@ -247,19 +245,3 @@ function resolveTemplateId(templateAttr: string, blockClass: string): string {
   return templateAttr;
 }
 
-function getAttr(tag: sax.Tag | sax.QualifiedTag, name: string): string | undefined {
-  const attr = tag.attributes[name] ?? tag.attributes[name.toUpperCase()];
-  if (!attr) return undefined;
-  const value = typeof attr === 'string' ? attr : attr.value;
-  return value || undefined;
-}
-
-function getXsiType(tag: sax.Tag | sax.QualifiedTag): string | undefined {
-  const attr =
-    tag.attributes['xsi:type'] ??
-    tag.attributes['XSI:TYPE'] ??
-    tag.attributes['xsi:Type'];
-  if (!attr) return undefined;
-  const value = typeof attr === 'string' ? attr : attr.value;
-  return value?.toLowerCase();
-}

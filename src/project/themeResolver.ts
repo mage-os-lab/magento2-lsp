@@ -24,6 +24,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ModuleInfo } from '../indexer/types';
 import { realpath } from '../utils/realpath';
+import { fileExists, isDirectory } from '../utils/fsHelpers';
+import { readComposerPackages } from '../utils/composerPackages';
 
 export interface ThemeInfo {
   /** Full theme code: "frontend/Hyva/default", "adminhtml/Magento/backend". */
@@ -246,44 +248,30 @@ export class ThemeResolver {
   }
 
   private discoverFromInstalledJson(magentoRoot: string): void {
-    const installedJsonPath = path.join(magentoRoot, 'vendor', 'composer', 'installed.json');
+    for (const pkg of readComposerPackages(magentoRoot)) {
+      if (pkg.type !== 'magento2-theme') continue;
 
-    try {
-      const content = fs.readFileSync(installedJsonPath, 'utf-8');
-      const data = JSON.parse(content);
-      const packages = data.packages ?? data;
-
-      for (const pkg of packages) {
-        if (pkg.type !== 'magento2-theme') continue;
-
-        const installPath = pkg['install-path'];
-        if (!installPath) continue;
-
-        const absPath = realpath(path.resolve(magentoRoot, 'vendor', 'composer', installPath));
-
-        // Find registration.php — check autoload.files first, then root
-        const regCandidates: string[] = [];
-        const autoloadFiles = pkg.autoload?.files;
-        if (Array.isArray(autoloadFiles)) {
-          for (const f of autoloadFiles) {
-            if (typeof f === 'string' && f.endsWith('registration.php')) {
-              regCandidates.push(path.join(absPath, f));
-            }
-          }
-        }
-        regCandidates.push(path.join(absPath, 'registration.php'));
-
-        for (const regPath of regCandidates) {
-          const theme = this.parseThemeRegistration(regPath);
-          if (theme) {
-            this.themes.set(theme.code, theme);
-            this.pathToTheme.set(theme.path, theme);
-            break;
+      // Find registration.php — check autoload.files first, then root
+      const regCandidates: string[] = [];
+      const autoload = pkg.raw.autoload as Record<string, unknown> | undefined;
+      const autoloadFiles = autoload?.files;
+      if (Array.isArray(autoloadFiles)) {
+        for (const f of autoloadFiles) {
+          if (typeof f === 'string' && f.endsWith('registration.php')) {
+            regCandidates.push(path.join(pkg.absPath, f));
           }
         }
       }
-    } catch {
-      // installed.json not found or invalid
+      regCandidates.push(path.join(pkg.absPath, 'registration.php'));
+
+      for (const regPath of regCandidates) {
+        const theme = this.parseThemeRegistration(regPath);
+        if (theme) {
+          this.themes.set(theme.code, theme);
+          this.pathToTheme.set(theme.path, theme);
+          break;
+        }
+      }
     }
   }
 
@@ -353,18 +341,3 @@ export class ThemeResolver {
   }
 }
 
-function fileExists(p: string): boolean {
-  try {
-    return fs.statSync(p).isFile();
-  } catch {
-    return false;
-  }
-}
-
-function isDirectory(p: string): boolean {
-  try {
-    return fs.statSync(p).isDirectory();
-  } catch {
-    return false;
-  }
-}

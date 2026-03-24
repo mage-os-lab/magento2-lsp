@@ -11,8 +11,8 @@
  */
 
 import * as path from 'path';
-import * as fs from 'fs';
 import { ModuleInfo } from '../indexer/types';
+import { fileExists } from './fsHelpers';
 
 /**
  * URN patterns — order matters (module must be checked before the framework fallback).
@@ -69,6 +69,7 @@ function resolveXmlUrnUncached(
     const mod = modules.find((m) => m.name === moduleName);
     if (!mod) return undefined;
     const resolved = path.join(mod.path, relativePath);
+    if (!isContainedIn(resolved, mod.path)) return undefined;
     return fileExists(resolved) ? resolved : undefined;
   }
 
@@ -77,7 +78,9 @@ function resolveXmlUrnUncached(
   if (match) {
     const packageName = match[1];
     const relativePath = match[2];
-    const resolved = path.join(magentoRoot, 'vendor', 'magento', packageName, relativePath);
+    const baseDir = path.join(magentoRoot, 'vendor', 'magento', packageName);
+    const resolved = path.join(baseDir, relativePath);
+    if (!isContainedIn(resolved, baseDir)) return undefined;
     return fileExists(resolved) ? resolved : undefined;
   }
 
@@ -86,17 +89,17 @@ function resolveXmlUrnUncached(
   if (match) {
     const packageName = match[1];
     const relativePath = match[2];
-    const resolved = path.join(magentoRoot, 'vendor', 'magento', packageName, relativePath);
+    const baseDir = path.join(magentoRoot, 'vendor', 'magento', packageName);
+    const resolved = path.join(baseDir, relativePath);
+    if (!isContainedIn(resolved, baseDir)) return undefined;
     return fileExists(resolved) ? resolved : undefined;
   }
 
   return undefined;
 }
 
-function fileExists(p: string): boolean {
-  try {
-    return fs.statSync(p).isFile();
-  } catch {
-    return false;
-  }
+/** Guard against path traversal: resolved must stay within baseDir. */
+function isContainedIn(resolved: string, baseDir: string): boolean {
+  return resolved.startsWith(baseDir + path.sep) || resolved === baseDir;
 }
+

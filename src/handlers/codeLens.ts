@@ -33,6 +33,11 @@ import { ProjectContext } from '../project/projectManager';
 import { extractPhpClass, extractPhpMethods } from '../utils/phpNamespace';
 import { resolveVariableTypes } from '../utils/phpTypeResolver';
 import { realpath } from '../utils/realpath';
+import {
+  reverseResolveThemeOverrideTemplateId,
+  reverseResolveModuleTemplateId,
+} from '../utils/templateId';
+import { resolveConcreteType, CALL_RE } from '../utils/diPreference';
 import * as fs from 'fs';
 
 /** Custom command ID that the client uses to trigger "find references". */
@@ -96,7 +101,7 @@ function handlePhtmlCodeLens(
 
   if (theme) {
     // File is a theme override — show "overrides Module::path" lens
-    templateId = reverseResolveThemeOverrideTemplateId(filePath, theme);
+    templateId = reverseResolveThemeOverrideTemplateId(filePath, { path: theme.path });
     if (templateId) {
       const original = project.themeResolver.getOriginalModuleTemplate(filePath, project.modules);
       if (original) {
@@ -130,7 +135,7 @@ function handlePhtmlCodeLens(
     }
   } else {
     // File is a module template — show theme override counts
-    templateId = reverseResolveModuleTemplateId(filePath, project);
+    templateId = reverseResolveModuleTemplateId(filePath, project.modules);
     if (templateId) {
       const area = project.themeResolver.getAreaForFile(filePath) ?? 'frontend';
       const themeOverrides = project.themeResolver.findOverrides(templateId, area);
@@ -172,48 +177,6 @@ function handlePhtmlCodeLens(
   }
 
   return lenses.length > 0 ? lenses : null;
-}
-
-/**
- * Reverse-resolve a theme override file to its template identifier.
- *
- * Given: {themePath}/Module_Name/templates/path/to/file.phtml
- * Returns: "Module_Name::path/to/file.phtml"
- */
-function reverseResolveThemeOverrideTemplateId(
-  filePath: string,
-  theme: { path: string },
-): string | undefined {
-  const relToTheme = filePath.substring(theme.path.length + 1);
-  const parts = relToTheme.split('/');
-  if (parts.length < 3 || parts[1] !== 'templates') return undefined;
-  const moduleName = parts[0];
-  const templatePath = parts.slice(2).join('/');
-  return `${moduleName}::${templatePath}`;
-}
-
-/**
- * Reverse-resolve a module template file to its template identifier.
- *
- * Given: {modulePath}/view/frontend/templates/path/to/file.phtml
- * Returns: "Module_Name::path/to/file.phtml"
- */
-function reverseResolveModuleTemplateId(
-  filePath: string,
-  project: ProjectContext,
-): string | undefined {
-  for (const mod of project.modules) {
-    if (filePath.startsWith(mod.path)) {
-      const relToModule = filePath.substring(mod.path.length + 1);
-      // relToModule: "view/frontend/templates/path/to/file.phtml"
-      const templatesIdx = relToModule.indexOf('/templates/');
-      if (templatesIdx !== -1) {
-        const templatePath = relToModule.substring(templatesIdx + '/templates/'.length);
-        return `${mod.name}::${templatePath}`;
-      }
-    }
-  }
-  return undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -361,17 +324,10 @@ function computeMagicMethodLenses(
   const concreteTypeCache = new Map<string, string>();
   function getConcreteType(fqcn: string): string {
     if (concreteTypeCache.has(fqcn)) return concreteTypeCache.get(fqcn)!;
-    const prefRef =
-      project.index.getEffectivePreferenceType(fqcn, 'frontend') ??
-      project.index.getEffectivePreferenceType(fqcn, 'adminhtml') ??
-      project.index.getEffectivePreferenceType(fqcn, 'global');
-    const concrete = prefRef ? prefRef.fqcn : fqcn;
+    const concrete = resolveConcreteType(fqcn, project.index);
     concreteTypeCache.set(fqcn, concrete);
     return concrete;
   }
-
-  // Match method calls: $var->method( or $this->prop->method(
-  const CALL_RE = /(\$[\w]+(?:->[\w]+)*)->([\w]+)\s*\(/g;
 
   for (let i = 0; i < lines.length; i++) {
     if (token?.isCancellationRequested) return lenses;

@@ -30,6 +30,7 @@ import { MagicMethodIndex } from '../index/magicMethodIndex';
 import { CompatModuleIndex } from '../index/compatModuleIndex';
 import { parseCompatModuleRegistrations } from '../indexer/compatModuleParser';
 import { ModuleInfo, Psr4Map } from '../indexer/types';
+import { fileExists } from '../utils/fsHelpers';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -331,14 +332,6 @@ export class ProjectManager {
 
   removeProject(root: string): void {
     this.projects.delete(root);
-  }
-}
-
-function fileExists(p: string): boolean {
-  try {
-    return fs.statSync(p).isFile();
-  } catch {
-    return false;
   }
 }
 

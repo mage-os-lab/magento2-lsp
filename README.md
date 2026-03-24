@@ -34,6 +34,7 @@ Language Server for navigating Magento 2 XML configuration and PHP classes. Work
 - **Go to Definition** from a `class` attribute on `<block>` elements: jump to the PHP class file
 - **Go to Definition** from `<argument xsi:type="object">` values (ViewModels, etc.): jump to the PHP class file
 - **Go to Definition** from a `template` attribute on `<block>` or `<referenceBlock>`: jump to the `.phtml` file, resolved through the theme fallback hierarchy
+- **Go to Definition** from `<update handle="..."/>`: jump to the layout XML files that define that handle (including Hyvä `hyva_` prefixed variants), filtered by area and theme fallback chain
 - **Find References** from a class name in layout XML: shows all layout XML and `di.xml` locations referencing that class
 - **Find References** from a template identifier in layout XML: shows all layout XML files using that template
 - **Find References** from a PHP class declaration: includes layout XML references (block classes and object arguments)
@@ -48,6 +49,18 @@ Language Server for navigating Magento 2 XML configuration and PHP classes. Work
 - **Go to Definition** from a theme override template: jump to the original module template
 - **Find References** from a module template: shows layout XML usages and all theme override files
 - **Find References** from a theme override template: shows layout XML usages, the original module template, and other theme overrides
+
+### PHP Navigation (Magic Methods)
+
+- **Go to Definition** from a method call on a typed variable: when the method isn't declared on the variable's type but exists on the concrete class (resolved via DI preference), jumps to the method on the concrete class. For example, `$this->storage->getData()` where `StorageInterface` has no `getData()` but the DI preference `Storage extends DataObject` does.
+- **Go to Definition** for methods resolved via `__call` or `@method` PHPDoc annotations
+- **Code Lens** on magic method calls: shows `→ ClassName::methodName` (or `→ ClassName::__call` for `__call`-dispatched methods)
+- Walks ancestor chains (parent classes, interfaces, traits) and resolves return types through method call chains
+
+### XSD Validation and URN Navigation
+
+- **XML Validation** against declared XSD schemas: diagnostics are published on file open, save, and edit (requires `xmllint` on `$PATH`)
+- **Go to Definition** from XSD URN references in XML and XSD files: jump to the resolved `.xsd` file (e.g., `urn:magento:framework:ObjectManager/etc/config.xsd` → the actual XSD file)
 
 ### Hover Information
 

@@ -46,6 +46,7 @@ import { extractPhpClass } from '../utils/phpNamespace';
 import { resolveVariableTypes } from '../utils/phpTypeResolver';
 import { realpath } from '../utils/realpath';
 import { resolveXmlUrn } from '../utils/xmlUrnResolver';
+import { resolveConcreteType, CALL_RE } from '../utils/diPreference';
 import * as fs from 'fs';
 
 export function handleDefinition(
@@ -309,9 +310,8 @@ function handlePhpDefinition(
   const line = lines[params.position.line];
   if (!line) return null;
 
-  // Match method calls: $var->method( or $this->prop->method(
-  const CALL_RE = /(\$[\w]+(?:->[\w]+)*)->([\w]+)\s*\(/g;
   let match;
+  CALL_RE.lastIndex = 0;
   while ((match = CALL_RE.exec(line)) !== null) {
     const methodStart = match.index + match[1].length + 2; // +2 for "->"
     const methodEnd = methodStart + match[2].length;
@@ -334,11 +334,7 @@ function handlePhpDefinition(
     if (originalResolution?.kind === 'declared') return null;
 
     // Resolve DI preference: interface → concrete class
-    const prefRef =
-      project.index.getEffectivePreferenceType(originalFqcn, 'frontend') ??
-      project.index.getEffectivePreferenceType(originalFqcn, 'adminhtml') ??
-      project.index.getEffectivePreferenceType(originalFqcn, 'global');
-    const concreteFqcn = prefRef ? prefRef.fqcn : originalFqcn;
+    const concreteFqcn = resolveConcreteType(originalFqcn, project.index);
 
     const resolution = concreteFqcn !== originalFqcn
       ? project.magicMethodIndex.resolveMethod(concreteFqcn, methodName, project.psr4Map)

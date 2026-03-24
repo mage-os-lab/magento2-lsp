@@ -21,6 +21,7 @@
  */
 
 import * as sax from 'sax';
+import { getAttr, installErrorHandler } from '../utils/saxHelpers';
 
 export interface CompatModuleMapping {
   originalModule: string;
@@ -57,13 +58,13 @@ export function parseCompatModuleRegistrations(
     const tagName = tag.name.toLowerCase();
 
     if (state === 0 && tagName === 'type') {
-      const name = getAttrValue(tag, 'name');
+      const name = getAttr(tag, 'name');
       // Match on suffix to handle both full FQCN and short name
       if (name && name.endsWith('CompatModuleRegistry')) {
         state = 1;
       }
     } else if (state === 1 && tagName === 'argument') {
-      const name = getAttrValue(tag, 'name');
+      const name = getAttr(tag, 'name');
       if (name === 'compatModules') {
         state = 2;
       }
@@ -73,7 +74,7 @@ export function parseCompatModuleRegistrations(
       currentMapping = {};
     } else if (state === 3 && tagName === 'item') {
       // Inner <item name="original_module|compat_module"> with string value
-      const name = getAttrValue(tag, 'name');
+      const name = getAttr(tag, 'name');
       if (name === 'original_module' || name === 'compat_module') {
         state = 4;
         currentItemName = name;
@@ -122,21 +123,10 @@ export function parseCompatModuleRegistrations(
     }
   };
 
-  parser.onerror = () => {
-    parser.error = null as unknown as Error;
-    parser.resume();
-  };
+  installErrorHandler(parser);
 
   parser.write(xmlContent).close();
 
   return results;
 }
 
-function getAttrValue(
-  tag: sax.Tag | sax.QualifiedTag,
-  attrName: string,
-): string | undefined {
-  const attr = tag.attributes[attrName] ?? tag.attributes[attrName.toUpperCase()];
-  if (!attr) return undefined;
-  return typeof attr === 'string' ? attr : attr.value;
-}

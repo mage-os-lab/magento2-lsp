@@ -28,6 +28,7 @@ import {
   findAttributeValuePosition,
   findTextContentPosition,
 } from '../utils/xmlPositionUtil';
+import { getAttr, getXsiType, installErrorHandler } from '../utils/saxHelpers';
 
 /** Metadata about the di.xml file being parsed — propagated into every DiReference. */
 export interface DiXmlParseContext {
@@ -142,12 +143,7 @@ export function parseDiXml(
     }
   };
 
-  parser.onerror = () => {
-    // On parse errors (malformed XML), reset the error and continue.
-    // This gives us best-effort results — we get references from the valid portion.
-    parser.error = null as unknown as Error;
-    parser.resume();
-  };
+  installErrorHandler(parser);
 
   parser.write(xmlContent).close();
 
@@ -168,12 +164,8 @@ function handlePreference(
   context: DiXmlParseContext,
   references: DiReference[],
 ): void {
-  const forAttr = tag.attributes['for'] ?? tag.attributes['FOR'];
-  const typeAttr = tag.attributes['type'] ?? tag.attributes['TYPE'];
-
-  // sax may return attributes as strings or as {value, ...} objects depending on mode
-  const forValue = typeof forAttr === 'string' ? forAttr : forAttr?.value;
-  const typeValue = typeof typeAttr === 'string' ? typeAttr : typeAttr?.value;
+  const forValue = getAttr(tag, 'for');
+  const typeValue = getAttr(tag, 'type');
 
   if (forValue) {
     const normalizedFor = normalizeFqcn(forValue);
@@ -225,8 +217,7 @@ function handleType(
   context: DiXmlParseContext,
   references: DiReference[],
 ): void {
-  const nameAttr = tag.attributes['name'] ?? tag.attributes['NAME'];
-  const nameValue = typeof nameAttr === 'string' ? nameAttr : nameAttr?.value;
+  const nameValue = getAttr(tag, 'name');
 
   if (nameValue) {
     const normalized = normalizeFqcn(nameValue);
@@ -262,11 +253,8 @@ function handleVirtualType(
   references: DiReference[],
   virtualTypeDecls: VirtualTypeDecl[],
 ): void {
-  const nameAttr = tag.attributes['name'] ?? tag.attributes['NAME'];
-  const typeAttr = tag.attributes['type'] ?? tag.attributes['TYPE'];
-
-  const nameValue = typeof nameAttr === 'string' ? nameAttr : nameAttr?.value;
-  const typeValue = typeof typeAttr === 'string' ? typeAttr : typeAttr?.value;
+  const nameValue = getAttr(tag, 'name');
+  const typeValue = getAttr(tag, 'type');
 
   if (nameValue) {
     const normalizedName = normalizeFqcn(nameValue);
@@ -329,8 +317,7 @@ function handlePlugin(
   references: DiReference[],
   parentTypeFqcn: string | undefined,
 ): void {
-  const typeAttr = tag.attributes['type'] ?? tag.attributes['TYPE'];
-  const typeValue = typeof typeAttr === 'string' ? typeAttr : typeAttr?.value;
+  const typeValue = getAttr(tag, 'type');
 
   if (typeValue) {
     const normalized = normalizeFqcn(typeValue);
@@ -383,24 +370,8 @@ function handleArgumentObject(
   }
 }
 
-/**
- * Extract the xsi:type attribute value from a tag.
- * Handles case variations since XML attribute names are case-sensitive but
- * some Magento modules may use inconsistent casing.
- */
 /** Extract and normalize the name attribute from a <type> or <virtualType> tag. */
 function extractTagNameFqcn(tag: sax.Tag | sax.QualifiedTag): string | undefined {
-  const nameAttr = tag.attributes['name'] ?? tag.attributes['NAME'];
-  const nameValue = typeof nameAttr === 'string' ? nameAttr : nameAttr?.value;
+  const nameValue = getAttr(tag, 'name');
   return nameValue ? normalizeFqcn(nameValue) : undefined;
-}
-
-function getXsiType(tag: sax.Tag | sax.QualifiedTag): string | undefined {
-  const attr =
-    tag.attributes['xsi:type'] ??
-    tag.attributes['XSI:TYPE'] ??
-    tag.attributes['xsi:Type'];
-  if (!attr) return undefined;
-  const value = typeof attr === 'string' ? attr : attr.value;
-  return value?.toLowerCase();
 }

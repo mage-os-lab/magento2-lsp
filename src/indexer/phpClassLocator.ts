@@ -20,6 +20,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Psr4Map } from './types';
 import { extractPhpMethods } from '../utils/phpNamespace';
+import { fileExists } from '../utils/fsHelpers';
 
 export interface PhpClassLocation {
   file: string;
@@ -139,10 +140,3 @@ export function resolveFileToFqcn(filePath: string, psr4Map: Psr4Map): string | 
   return best.prefix + withoutExt.split(path.sep).join('\\');
 }
 
-function fileExists(p: string): boolean {
-  try {
-    return fs.statSync(p).isFile();
-  } catch {
-    return false;
-  }
-}

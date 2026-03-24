@@ -17,9 +17,9 @@
  * and provides methods to find override files and reverse-resolve them.
  */
 
-import * as fs from 'fs';
 import * as path from 'path';
 import { ModuleInfo } from '../indexer/types';
+import { fileExists } from '../utils/fsHelpers';
 
 export interface CompatModuleEntry {
   /** Magento module name of the compat module (e.g., "Hyva_Catalog"). */
@@ -227,10 +227,3 @@ export class CompatModuleIndex {
   }
 }
 
-function fileExists(p: string): boolean {
-  try {
-    return fs.statSync(p).isFile();
-  } catch {
-    return false;
-  }
-}

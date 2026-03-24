@@ -32,6 +32,7 @@ import { extractPhpClass, extractPhpMethods } from '../utils/phpNamespace';
 import { locatePhpClass } from '../indexer/phpClassLocator';
 import { isObserverReference } from '../index/eventsIndex';
 import { realpath } from '../utils/realpath';
+import { reverseResolveTemplateId } from '../utils/templateId';
 import * as fs from 'fs';
 
 export function handleReferences(
@@ -288,7 +289,12 @@ function handlePhtmlReferences(
   filePath: string,
   project: ProjectContext,
 ): Location[] | null {
-  const templateId = reverseResolveTemplateId(filePath, project);
+  const templateId = reverseResolveTemplateId(
+    filePath,
+    project.modules,
+    project.themeResolver,
+    project.compatModuleIndex,
+  );
   if (!templateId) return null;
 
   const locations: Location[] = [];
@@ -352,53 +358,6 @@ function handlePhtmlReferences(
   }
 
   return locations.length > 0 ? locations : null;
-}
-
-/**
- * Reverse-resolve a .phtml file path to its template identifier (Module_Name::path).
- *
- * Handles three cases:
- *   1. Theme override: {themePath}/{ModuleName}/templates/{path}
- *   2. Hyvä compat module override: detected via compatModuleIndex
- *   3. Module template: {modulePath}/view/{area}/templates/{path}
- */
-function reverseResolveTemplateId(
-  filePath: string,
-  project: ProjectContext,
-): string | undefined {
-  // Check if the file is in a theme: {themePath}/{ModuleName}/templates/{path}
-  const theme = project.themeResolver.getThemeForFile(filePath);
-  if (theme) {
-    const relToTheme = filePath.substring(theme.path.length + 1);
-    // relToTheme: "Module_Name/templates/path/to/file.phtml"
-    const parts = relToTheme.split('/');
-    if (parts.length >= 3 && parts[1] === 'templates') {
-      const moduleName = parts[0];
-      const templatePath = parts.slice(2).join('/');
-      return `${moduleName}::${templatePath}`;
-    }
-  }
-
-  // Check if the file is in a Hyvä compat module
-  const compatInfo = project.compatModuleIndex.getCompatModuleForFile(filePath);
-  if (compatInfo) {
-    return compatInfo.templateId;
-  }
-
-  // Check if the file is in a module: {modulePath}/view/{area}/templates/{path}
-  for (const mod of project.modules) {
-    if (filePath.startsWith(mod.path)) {
-      const relToModule = filePath.substring(mod.path.length + 1);
-      // relToModule: "view/frontend/templates/path/to/file.phtml"
-      const templatesIdx = relToModule.indexOf('/templates/');
-      if (templatesIdx !== -1) {
-        const templatePath = relToModule.substring(templatesIdx + '/templates/'.length);
-        return `${mod.name}::${templatePath}`;
-      }
-    }
-  }
-
-  return undefined;
 }
 
 /** Convert a list of references to LSP Locations, returning null if empty. */

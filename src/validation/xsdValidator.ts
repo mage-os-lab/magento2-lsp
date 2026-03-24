@@ -20,6 +20,7 @@ import { Diagnostic, DiagnosticSeverity, Range } from 'vscode-languageserver';
 import { ModuleInfo } from '../indexer/types';
 import { resolveXmlUrn } from '../utils/xmlUrnResolver';
 import { generateXsdCatalog } from './xsdCatalogGenerator';
+import { fileExists } from '../utils/fsHelpers';
 
 const execFileAsync = promisify(execFile);
 
@@ -210,10 +211,3 @@ export function invalidateCatalogCache(magentoRoot: string): void {
   }
 }
 
-function fileExists(p: string): boolean {
-  try {
-    return fs.statSync(p).isFile();
-  } catch {
-    return false;
-  }
-}

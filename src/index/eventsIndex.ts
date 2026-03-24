@@ -9,6 +9,7 @@
  */
 
 import { EventReference, ObserverReference } from '../indexer/types';
+import { removeFromMap, findReferenceAtPosition } from '../utils/indexHelpers';
 
 /** Union type for anything positioned in an events.xml file. */
 export type EventsXmlReference = EventReference | ObserverReference;
@@ -59,10 +60,10 @@ export class EventsIndex {
 
     for (const ref of refs) {
       if (isObserverReference(ref)) {
-        this.removeFromList(this.eventToObservers, ref.eventName, file);
-        this.removeFromList(this.fqcnToObservers, ref.fqcn, file);
+        removeFromMap(this.eventToObservers, ref.eventName, file);
+        removeFromMap(this.fqcnToObservers, ref.fqcn, file);
       } else {
-        this.removeFromList(this.eventNameRefs, ref.eventName, file);
+        removeFromMap(this.eventNameRefs, ref.eventName, file);
       }
     }
 
@@ -103,12 +104,7 @@ export class EventsIndex {
     line: number,
     col: number,
   ): EventsXmlReference | undefined {
-    const refs = this.fileToRefs.get(file);
-    if (!refs) return undefined;
-
-    return refs.find(
-      (r) => r.line === line && col >= r.column && col < r.endColumn,
-    );
+    return findReferenceAtPosition(this.fileToRefs.get(file), line, col);
   }
 
   /** Iterate all event names in the index. */
@@ -128,18 +124,4 @@ export class EventsIndex {
     this.fileToRefs.clear();
   }
 
-  private removeFromList<T extends { file: string }>(
-    map: Map<string, T[]>,
-    key: string,
-    file: string,
-  ): void {
-    const existing = map.get(key);
-    if (!existing) return;
-    const filtered = existing.filter((r) => r.file !== file);
-    if (filtered.length > 0) {
-      map.set(key, filtered);
-    } else {
-      map.delete(key);
-    }
-  }
 }
