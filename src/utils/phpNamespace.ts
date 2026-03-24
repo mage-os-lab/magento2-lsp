@@ -309,41 +309,6 @@ export interface MagicMethodInfo {
 /** Matches @method annotations in PHPDoc blocks. */
 const DOC_METHOD_RE = /@method\s+(?:static\s+)?(?:[\w\\|$]+\s+)?(\w+)\s*\(/;
 
-/**
- * Extract magic method information from a PHP file.
- *
- * Detects:
- *   1. Whether the class has a public `__call` method
- *   2. Method names declared via `@method` PHPDoc annotations above the class
- *   3. All physically declared public method names
- */
-export function extractMagicMethodInfo(content: string): MagicMethodInfo {
-  const methods = extractPhpMethods(content);
-  const declaredMethods = methods.map((m) => m.name);
-  const hasCall = declaredMethods.includes('__call');
-
-  const methodReturnTypes = new Map<string, string>();
-  for (const m of methods) {
-    if (m.returnType) methodReturnTypes.set(m.name, m.returnType);
-  }
-
-  // Parse @method annotations from PHPDoc blocks before the class declaration.
-  // We scan all lines before (and including) the class declaration line.
-  const lines = content.split('\n');
-  const classInfo = extractPhpClass(content);
-  const classLine = classInfo?.line ?? lines.length;
-
-  const docMethods: string[] = [];
-  for (let i = 0; i < classLine; i++) {
-    const match = DOC_METHOD_RE.exec(lines[i]);
-    if (match) {
-      docMethods.push(match[1]);
-    }
-  }
-
-  return { hasCall, docMethods, declaredMethods, methodReturnTypes };
-}
-
 // ---------------------------------------------------------------------------
 // Combined single-pass extraction (for MagicMethodIndex performance)
 // ---------------------------------------------------------------------------

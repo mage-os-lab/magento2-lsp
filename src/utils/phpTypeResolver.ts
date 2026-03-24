@@ -54,7 +54,7 @@ export function resolveVariableTypes(
     // Track @var annotations: /** @var Product $product */
     const varMatch = /@var\s+([\w\\]+)\s+\$(\w+)/.exec(line);
     if (varMatch) {
-      const fqcn = resolve(varMatch[1], namespace, useImports);
+      const fqcn = resolveClassName(varMatch[1], namespace, useImports);
       types.set(`$${varMatch[2]}`, fqcn);
       continue;
     }
@@ -62,7 +62,7 @@ export function resolveVariableTypes(
     // Track typed property declarations (non-constructor)
     const propMatch = PROPERTY_RE.exec(line);
     if (propMatch && !inConstructorParams) {
-      const fqcn = resolve(propMatch[2], namespace, useImports);
+      const fqcn = resolveClassName(propMatch[2], namespace, useImports);
       types.set(`$this->${propMatch[3]}`, fqcn);
       continue;
     }
@@ -91,7 +91,7 @@ export function resolveVariableTypes(
       const promotedRe = /(?:private|protected|public)\s+(?:readonly\s+)?(\??)([\w\\]+)\s+\$(\w+)/g;
       let pm;
       while ((pm = promotedRe.exec(line)) !== null) {
-        const fqcn = resolve(pm[2], namespace, useImports);
+        const fqcn = resolveClassName(pm[2], namespace, useImports);
         types.set(`$this->${pm[3]}`, fqcn);
         types.set(`$${pm[3]}`, fqcn);
       }
@@ -106,7 +106,7 @@ export function resolveVariableTypes(
         if (/(?:private|protected|public)(?:\s+readonly)?$/.test(prefix)) continue;
         // Skip PHP built-in types
         if (isBuiltinType(prm[1])) continue;
-        const fqcn = resolve(prm[1], namespace, useImports);
+        const fqcn = resolveClassName(prm[1], namespace, useImports);
         types.set(`$${prm[2]}`, fqcn);
       }
     }
@@ -135,7 +135,7 @@ export function resolveVariableTypes(
         const prefix = paramSection.substring(0, mpm.index).trim();
         if (/(?:private|protected|public)(?:\s+readonly)?$/.test(prefix)) continue;
         if (isBuiltinType(mpm[1])) continue;
-        const fqcn = resolve(mpm[1], namespace, useImports);
+        const fqcn = resolveClassName(mpm[1], namespace, useImports);
         types.set(`$${mpm[2]}`, fqcn);
       }
     }
@@ -186,14 +186,6 @@ function extractParamSection(lines: string[], startLine: number): string {
     }
   }
   return result;
-}
-
-function resolve(
-  name: string,
-  namespace: string,
-  useImports: Map<string, string>,
-): string {
-  return resolveClassName(name, namespace, useImports);
 }
 
 const BUILTIN_TYPES = new Set([

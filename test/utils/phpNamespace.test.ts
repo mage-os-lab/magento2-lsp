@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractPhpClass, extractPhpMethods, getInterceptedMethodName, extractMagicMethodInfo, extractClassWithMagicInfo } from '../../src/utils/phpNamespace';
+import { extractPhpClass, extractPhpMethods, getInterceptedMethodName, extractClassWithMagicInfo } from '../../src/utils/phpNamespace';
 
 describe('extractPhpClass', () => {
   it('extracts a simple class with namespace', () => {
@@ -430,7 +430,7 @@ class Foo extends DataObject implements Store
   });
 });
 
-describe('extractMagicMethodInfo', () => {
+describe('extractClassWithMagicInfo', () => {
   it('detects __call method', () => {
     const content = `<?php
 namespace App\\Model;
@@ -441,10 +441,10 @@ class Foo
     public function save(): void {}
 }
 `;
-    const info = extractMagicMethodInfo(content);
-    expect(info.hasCall).toBe(true);
-    expect(info.declaredMethods).toContain('__call');
-    expect(info.declaredMethods).toContain('save');
+    const { magicInfo } = extractClassWithMagicInfo(content);
+    expect(magicInfo.hasCall).toBe(true);
+    expect(magicInfo.declaredMethods).toContain('__call');
+    expect(magicInfo.declaredMethods).toContain('save');
   });
 
   it('parses @method annotations', () => {
@@ -461,10 +461,10 @@ class Foo
     public function save(): void {}
 }
 `;
-    const info = extractMagicMethodInfo(content);
-    expect(info.hasCall).toBe(false);
-    expect(info.docMethods).toEqual(['getName', 'setName', 'create']);
-    expect(info.declaredMethods).toEqual(['save']);
+    const { magicInfo } = extractClassWithMagicInfo(content);
+    expect(magicInfo.hasCall).toBe(false);
+    expect(magicInfo.docMethods).toEqual(['getName', 'setName', 'create']);
+    expect(magicInfo.declaredMethods).toEqual(['save']);
   });
 
   it('returns empty for class without magic methods', () => {
@@ -476,10 +476,10 @@ class Foo
     public function save(): void {}
 }
 `;
-    const info = extractMagicMethodInfo(content);
-    expect(info.hasCall).toBe(false);
-    expect(info.docMethods).toEqual([]);
-    expect(info.declaredMethods).toEqual(['save']);
+    const { magicInfo } = extractClassWithMagicInfo(content);
+    expect(magicInfo.hasCall).toBe(false);
+    expect(magicInfo.docMethods).toEqual([]);
+    expect(magicInfo.declaredMethods).toEqual(['save']);
   });
 
   it('detects both __call and @method', () => {
@@ -495,15 +495,13 @@ class SessionManager
     public function start(): void {}
 }
 `;
-    const info = extractMagicMethodInfo(content);
-    expect(info.hasCall).toBe(true);
-    expect(info.docMethods).toEqual(['getCustomerId']);
-    expect(info.declaredMethods).toContain('__call');
-    expect(info.declaredMethods).toContain('start');
+    const { magicInfo } = extractClassWithMagicInfo(content);
+    expect(magicInfo.hasCall).toBe(true);
+    expect(magicInfo.docMethods).toEqual(['getCustomerId']);
+    expect(magicInfo.declaredMethods).toContain('__call');
+    expect(magicInfo.declaredMethods).toContain('start');
   });
-});
 
-describe('extractClassWithMagicInfo', () => {
   it('extracts class info and magic info in a single pass', () => {
     const content = `<?php
 namespace App\\Model;
@@ -535,7 +533,7 @@ class Foo extends DataObject
     expect(magicInfo.declaredMethods).toContain('save');
   });
 
-  it('produces same results as separate functions', () => {
+  it('produces same classInfo as extractPhpClass', () => {
     const content = `<?php
 namespace App\\Model;
 
@@ -549,12 +547,8 @@ class SessionManager
 }
 `;
     const combined = extractClassWithMagicInfo(content);
-    const separate = extractMagicMethodInfo(content);
     const classInfo = extractPhpClass(content);
 
-    expect(combined.magicInfo.hasCall).toBe(separate.hasCall);
-    expect(combined.magicInfo.docMethods).toEqual(separate.docMethods);
-    expect(combined.magicInfo.declaredMethods).toEqual(separate.declaredMethods);
     expect(combined.classInfo?.fqcn).toBe(classInfo?.fqcn);
     expect(combined.classInfo?.parentClass).toBe(classInfo?.parentClass);
   });

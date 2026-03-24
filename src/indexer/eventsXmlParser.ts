@@ -41,7 +41,6 @@ export function parseEventsXml(
 
   // Track the current event name so we can associate observers with their event
   let currentEventName = '';
-  let currentEventLine = 0;
   let currentTagStartLine = 0;
 
   parser.onopentagstart = () => {
@@ -58,7 +57,6 @@ export function parseEventsXml(
 
       if (nameValue) {
         currentEventName = nameValue;
-        currentEventLine = tagLine;
 
         const pos = findAttributeValuePosition(lines, tagLine, 'name', tagStartLine);
         if (pos) {
