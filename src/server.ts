@@ -37,12 +37,14 @@ import { parseDiXml, DiXmlParseContext } from './indexer/diXmlParser';
 import { parseEventsXml, EventsXmlParseContext } from './indexer/eventsXmlParser';
 import { parseLayoutXml } from './indexer/layoutXmlParser';
 import { realpath } from './utils/realpath';
+import { validateXmlFile, isXmllintAvailable, invalidateCatalogCache } from './validation/xsdValidator';
 import * as fs from 'fs';
 import * as path from 'path';
 
 const connection = createConnection(ProposedFeatures.all);
 const projectManager = new ProjectManager();
 const watchers: FileWatcher[] = [];
+let xmllintEnabled = false;
 
 function log(msg: string): void {
   process.stderr.write(`[magento2-lsp] ${msg}\n`);
@@ -56,7 +58,9 @@ connection.onInitialize((_params: InitializeParams): InitializeResult => {
 });
 
 connection.onInitialized(async () => {
-  // No eager initialization — projects are set up lazily in onDidOpenTextDocument.
+  // Detect xmllint availability for XSD validation
+  xmllintEnabled = await isXmllintAvailable();
+  log(`xmllint available: ${xmllintEnabled}`);
 });
 
 // --- LSP feature handlers ---
@@ -106,6 +110,10 @@ connection.onDidOpenTextDocument(async (params) => {
   const existing = projectManager.getProjectForFile(filePath);
   if (existing) {
     log(`  project already initialized: ${existing.root} (${existing.index.getFileCount()} files)`);
+    // Validate on open if it's an XML file
+    if (xmllintEnabled && filePath.endsWith('.xml')) {
+      validateAndPublish(params.textDocument.uri, params.textDocument.text, existing);
+    }
     return;
   }
   log('  initializing new project...');
@@ -169,6 +177,67 @@ connection.onDidOpenTextDocument(async (params) => {
 
   if (project) {
     setupFileWatchers(project);
+
+    // Validate on initial open if it's an XML file
+    if (xmllintEnabled && filePath.endsWith('.xml')) {
+      validateAndPublish(params.textDocument.uri, params.textDocument.text, project);
+    }
+  }
+});
+
+// --- XSD validation ---
+
+/** Debounce timers for validation, keyed by file URI. */
+const validationTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+/**
+ * Validate an XML file against its XSD schema and publish diagnostics.
+ * Debounced to avoid thrashing during rapid edits.
+ */
+function validateAndPublish(
+  uri: string,
+  content: string,
+  project: import('./project/projectManager').ProjectContext,
+): void {
+  const existing = validationTimers.get(uri);
+  if (existing) clearTimeout(existing);
+
+  validationTimers.set(uri, setTimeout(async () => {
+    validationTimers.delete(uri);
+    try {
+      const filePath = realpath(URI.parse(uri).fsPath);
+      const diagnostics = await validateXmlFile(filePath, content, project.root, project.modules);
+      connection.sendDiagnostics({ uri, diagnostics });
+    } catch {
+      // Don't let validation errors break the LSP
+    }
+  }, 300));
+}
+
+connection.onDidSaveTextDocument((params) => {
+  if (!xmllintEnabled) return;
+  const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
+  if (!filePath.endsWith('.xml')) return;
+  const project = projectManager.getProjectForFile(filePath);
+  if (!project) return;
+
+  // Re-read file content on save
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    validateAndPublish(params.textDocument.uri, content, project);
+  } catch {
+    // File unreadable
+  }
+});
+
+connection.onDidCloseTextDocument((params) => {
+  // Clear diagnostics when file is closed
+  connection.sendDiagnostics({ uri: params.textDocument.uri, diagnostics: [] });
+  // Cancel any pending validation
+  const timer = validationTimers.get(params.textDocument.uri);
+  if (timer) {
+    clearTimeout(timer);
+    validationTimers.delete(params.textDocument.uri);
   }
 });
 

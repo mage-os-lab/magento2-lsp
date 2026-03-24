@@ -164,4 +164,47 @@ describe('handleDefinition', () => {
     expect(vt).toBeDefined();
     expect(vt!.parentType).toBe('Test\\Foo\\Model\\Foo');
   });
+
+  // --- URN go-to-definition tests ---
+
+  it('navigates from xsi:noNamespaceSchemaLocation URN to XSD file', () => {
+    const diXml = path.join(FIXTURE_ROOT, 'vendor/test/module-foo/etc/di.xml');
+    // Line 1 has: xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd"
+    // The URN starts after the opening quote. Find the column:
+    const fs = require('fs');
+    const content = fs.readFileSync(diXml, 'utf-8');
+    const line1 = content.split('\n')[1];
+    const urnStart = line1.indexOf('urn:magento:');
+    expect(urnStart).toBeGreaterThan(0);
+
+    const result = handleDefinition(makeParams(diXml, 1, urnStart + 5), getProject);
+    expect(result).not.toBeNull();
+    const loc = result as { uri: string };
+    expect(URI.parse(loc.uri).fsPath).toContain('ObjectManager/etc/config.xsd');
+  });
+
+  it('navigates from schemaLocation URN in XSD file', () => {
+    const xsdFile = path.join(
+      FIXTURE_ROOT,
+      'vendor/magento/framework/ObjectManager/etc/config.xsd',
+    );
+    // Line 2 has: <xs:redefine schemaLocation="urn:magento:framework:Data/etc/argument/types.xsd">
+    const fs = require('fs');
+    const content = fs.readFileSync(xsdFile, 'utf-8');
+    const line2 = content.split('\n')[2];
+    const urnStart = line2.indexOf('urn:magento:');
+    expect(urnStart).toBeGreaterThan(0);
+
+    const result = handleDefinition(makeParams(xsdFile, 2, urnStart + 5), getProject);
+    expect(result).not.toBeNull();
+    const loc = result as { uri: string };
+    expect(URI.parse(loc.uri).fsPath).toContain('Data/etc/argument/types.xsd');
+  });
+
+  it('returns null when cursor is not on a URN in XML file', () => {
+    const diXml = path.join(FIXTURE_ROOT, 'vendor/test/module-foo/etc/di.xml');
+    // Line 0 is the XML declaration — no URN there
+    const result = handleDefinition(makeParams(diXml, 0, 5), getProject);
+    expect(result).toBeNull();
+  });
 });

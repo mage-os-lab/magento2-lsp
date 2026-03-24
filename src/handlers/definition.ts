@@ -25,6 +25,11 @@
  *   - gd on a theme override template jumps to the original module template.
  *     e.g., app/design/frontend/Hyva/default/Magento_Catalog/templates/product/view.phtml
  *     -> vendor/magento/module-catalog/view/frontend/templates/product/view.phtml
+ *
+ * From any XML/XSD file:
+ *   - URN reference -> resolved XSD file
+ *     e.g., urn:magento:framework:ObjectManager/etc/config.xsd
+ *     -> vendor/magento/framework/ObjectManager/etc/config.xsd
  */
 
 import {
@@ -40,6 +45,7 @@ import { isObserverReference } from '../index/eventsIndex';
 import { extractPhpClass } from '../utils/phpNamespace';
 import { resolveVariableTypes } from '../utils/phpTypeResolver';
 import { realpath } from '../utils/realpath';
+import { resolveXmlUrn } from '../utils/xmlUrnResolver';
 import * as fs from 'fs';
 
 export function handleDefinition(
@@ -59,13 +65,20 @@ export function handleDefinition(
     return handlePhpDefinition(filePath, params, getProject);
   }
 
-  // Beyond .phtml and .php above, only XML files are handled.
-  if (!filePath.endsWith('.xml')) {
+  // Beyond .phtml and .php above, only XML and XSD files are handled.
+  if (!filePath.endsWith('.xml') && !filePath.endsWith('.xsd')) {
     return null;
   }
 
   const project = getProject(filePath);
   if (!project) return null;
+
+  // --- Try URN navigation (works in both .xml and .xsd files) ---
+  const urnResult = handleUrnDefinition(filePath, params, project);
+  if (urnResult) return urnResult;
+
+  // XSD files only support URN navigation (above), not Magento index lookups.
+  if (filePath.endsWith('.xsd')) return null;
 
   // --- Try layout XML ---
   const layoutRef = project.layoutIndex.getReferenceAtPosition(
@@ -211,6 +224,51 @@ export function handleDefinition(
       URI.file(loc.file).toString(),
       Range.create(loc.line, loc.column, loc.line, loc.column),
     );
+  }
+
+  return null;
+}
+
+/** Regex matching a Magento URN anywhere on a line. */
+const URN_RE = /urn:magento:[^\s"']+/g;
+
+/**
+ * Handle "go to definition" when cursor is on a Magento URN.
+ *
+ * Works in both XML files (xsi:noNamespaceSchemaLocation attribute) and
+ * XSD files (xs:include/xs:redefine schemaLocation attributes).
+ */
+function handleUrnDefinition(
+  filePath: string,
+  params: DefinitionParams,
+  project: ProjectContext,
+): Location | null {
+  let content: string;
+  try {
+    content = fs.readFileSync(filePath, 'utf-8');
+  } catch {
+    return null;
+  }
+
+  const lines = content.split('\n');
+  const line = lines[params.position.line];
+  if (!line) return null;
+
+  URN_RE.lastIndex = 0;
+  let match;
+  while ((match = URN_RE.exec(line)) !== null) {
+    const start = match.index;
+    const end = start + match[0].length;
+    if (params.position.character >= start && params.position.character <= end) {
+      const resolved = resolveXmlUrn(match[0], project.root, project.modules);
+      if (resolved) {
+        return Location.create(
+          URI.file(resolved).toString(),
+          Range.create(0, 0, 0, 0),
+        );
+      }
+      return null;
+    }
   }
 
   return null;

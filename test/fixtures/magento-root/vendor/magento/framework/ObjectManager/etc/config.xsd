@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+    <xs:redefine schemaLocation="urn:magento:framework:Data/etc/argument/types.xsd">
+        <xs:complexType name="argumentType">
+            <xs:complexContent>
+                <xs:extension base="argumentType" />
+            </xs:complexContent>
+        </xs:complexType>
+    </xs:redefine>
+    <xs:element name="config" />
+</xs:schema>

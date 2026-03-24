@@ -7,4 +7,4 @@ description = "Magento 2 Language Server integration for Zed"
 
 [language_servers.magento2-lsp]
 name = "magento2-lsp"
-languages = ["PHP", "XML"]
+languages = ["PHP", "XML", "XSD"]

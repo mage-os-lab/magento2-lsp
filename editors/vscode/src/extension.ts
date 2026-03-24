@@ -20,6 +20,7 @@ export async function activate(context: ExtensionContext) {
     documentSelector: [
       { scheme: 'file', language: 'php' },
       { scheme: 'file', language: 'xml' },
+      { scheme: 'file', language: 'xsd' },
     ],
   };
 
