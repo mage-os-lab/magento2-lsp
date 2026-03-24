@@ -26,9 +26,63 @@ describe('handleDefinition', () => {
     };
   }
 
-  it('returns null for PHP files', () => {
+  it('returns null for PHP files without magic method calls at cursor', () => {
     const phpFile = path.join(FIXTURE_ROOT, 'vendor/test/module-foo/Model/Foo.php');
     const result = handleDefinition(makeParams(phpFile, 4, 6), getProject);
+    expect(result).toBeNull();
+  });
+
+  // --- PHP magic method definition tests (CustomerSession.php) ---
+
+  const customerSessionFile = path.join(
+    FIXTURE_ROOT,
+    'vendor/test/module-foo/Model/CustomerSession.php',
+  );
+
+  it('navigates from $this->storage->getData() to DataObject::getData', () => {
+    // Line 22 (0-based): $customerId = $this->storage->getData('customer_id');
+    // "getData" starts at col 38
+    const result = handleDefinition(makeParams(customerSessionFile, 22, 40), getProject);
+    expect(result).not.toBeNull();
+    const loc = result as { uri: string; range: { start: { line: number; character: number } } };
+    expect(URI.parse(loc.uri).fsPath).toContain('DataObject.php');
+    // getData is declared at line 6
+    expect(loc.range.start.line).toBe(6);
+  });
+
+  it('navigates from $this->storage->setData() to DataObject::setData', () => {
+    // Line 16 (0-based): $this->storage->setData('customer_id', $id);
+    // "setData" starts at col 24
+    const result = handleDefinition(makeParams(customerSessionFile, 16, 26), getProject);
+    expect(result).not.toBeNull();
+    const loc = result as { uri: string; range: { start: { line: number; character: number } } };
+    expect(URI.parse(loc.uri).fsPath).toContain('DataObject.php');
+    // setData is declared at line 11
+    expect(loc.range.start.line).toBe(11);
+  });
+
+  it('navigates from $this->sessionManager->getCustomerId() to SessionManager::__call', () => {
+    // Line 28 (0-based): return $this->sessionManager->getCustomerId();
+    // "getCustomerId" starts at col 38
+    const result = handleDefinition(makeParams(customerSessionFile, 28, 40), getProject);
+    expect(result).not.toBeNull();
+    const loc = result as { uri: string; range: { start: { line: number; character: number } } };
+    expect(URI.parse(loc.uri).fsPath).toContain('SessionManager.php');
+    // __call is declared at line 10
+    expect(loc.range.start.line).toBe(10);
+  });
+
+  it('returns null for $this->storage->init() (declared on StorageInterface)', () => {
+    // Line 33 (0-based): $this->storage->init();
+    // "init" starts at col 24
+    const result = handleDefinition(makeParams(customerSessionFile, 33, 25), getProject);
+    expect(result).toBeNull();
+  });
+
+  it('returns null for $this->sessionManager->start() (declared on SessionManager)', () => {
+    // Line 34 (0-based): $this->sessionManager->start();
+    // "start" starts at col 30
+    const result = handleDefinition(makeParams(customerSessionFile, 34, 31), getProject);
     expect(result).toBeNull();
   });
 

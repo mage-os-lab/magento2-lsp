@@ -19,6 +19,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Psr4Map } from './types';
+import { extractPhpMethods } from '../utils/phpNamespace';
 
 export interface PhpClassLocation {
   file: string;
@@ -60,6 +61,31 @@ export function locatePhpClass(
 
     // File exists but no declaration found (unusual) — return start of file
     return { file: filePath, line: 0, column: 0 };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Resolve a FQCN + method name to the method's location in the PHP source file.
+ * Falls back to the class declaration if the method is not found.
+ */
+export function locatePhpMethod(
+  fqcn: string,
+  methodName: string,
+  psr4Map: Psr4Map,
+): PhpClassLocation | undefined {
+  const filePath = resolveClassFile(fqcn, psr4Map);
+  if (!filePath) return undefined;
+
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const methods = extractPhpMethods(content);
+    const method = methods.find(m => m.name === methodName);
+    if (method) {
+      return { file: filePath, line: method.line, column: method.column };
+    }
+    return locatePhpClass(fqcn, psr4Map);
   } catch {
     return undefined;
   }

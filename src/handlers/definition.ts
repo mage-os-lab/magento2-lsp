@@ -1,8 +1,12 @@
 /**
  * LSP "textDocument/definition" handler.
  *
- * Handles "go to definition" requests from XML files and .phtml templates.
- * PHP definition is left to Intelephense.
+ * Handles "go to definition" requests from XML files, .phtml templates, and PHP files.
+ *
+ * From PHP files:
+ *   - Magic method calls -> resolved method on the concrete class (via DI preference)
+ *     e.g., $this->storage->getData() where StorageInterface has no getData()
+ *     but the DI preference concrete class (Storage extends DataObject) does.
  *
  * From di.xml:
  *   - VirtualType reference -> <virtualType> declaration in di.xml
@@ -31,9 +35,12 @@ import {
 } from 'vscode-languageserver';
 import { URI } from 'vscode-uri';
 import { ProjectContext } from '../project/projectManager';
-import { locatePhpClass } from '../indexer/phpClassLocator';
+import { locatePhpClass, locatePhpMethod } from '../indexer/phpClassLocator';
 import { isObserverReference } from '../index/eventsIndex';
+import { extractPhpClass } from '../utils/phpNamespace';
+import { resolveVariableTypes } from '../utils/phpTypeResolver';
 import { realpath } from '../utils/realpath';
+import * as fs from 'fs';
 
 export function handleDefinition(
   params: DefinitionParams,
@@ -47,7 +54,12 @@ export function handleDefinition(
     return handlePhtmlDefinition(filePath, getProject);
   }
 
-  // This LSP only provides definitions from XML files (beyond .phtml above).
+  // Magic method calls in PHP files -> resolved method on the concrete class
+  if (filePath.endsWith('.php')) {
+    return handlePhpDefinition(filePath, params, getProject);
+  }
+
+  // Beyond .phtml and .php above, only XML files are handled.
   if (!filePath.endsWith('.xml')) {
     return null;
   }
@@ -161,6 +173,87 @@ export function handleDefinition(
   // Default: FQCN -> PHP file
   const loc = locatePhpClass(ref.fqcn, project.psr4Map);
   if (loc) {
+    return Location.create(
+      URI.file(loc.file).toString(),
+      Range.create(loc.line, loc.column, loc.line, loc.column),
+    );
+  }
+
+  return null;
+}
+
+/**
+ * Handle "go to definition" from a PHP file.
+ *
+ * Detects magic method calls — method calls on typed variables where the method
+ * is not declared on the variable's type but is available on the concrete class
+ * (via DI preference resolution) or via __call/@method magic.
+ *
+ * Returns null for regular method calls (declared on the original type) so that
+ * Intelephense can handle them with its richer PHP understanding.
+ */
+function handlePhpDefinition(
+  filePath: string,
+  params: DefinitionParams,
+  getProject: (uri: string) => ProjectContext | undefined,
+): Location | null {
+  const project = getProject(filePath);
+  if (!project) return null;
+
+  let content: string;
+  try {
+    content = fs.readFileSync(filePath, 'utf-8');
+  } catch {
+    return null;
+  }
+
+  const classInfo = extractPhpClass(content);
+  if (!classInfo) return null;
+
+  const typeMap = resolveVariableTypes(content, classInfo);
+  const lines = content.split('\n');
+  const line = lines[params.position.line];
+  if (!line) return null;
+
+  // Match method calls: $var->method( or $this->prop->method(
+  const CALL_RE = /(\$[\w]+(?:->[\w]+)*)->([\w]+)\s*\(/g;
+  let match;
+  while ((match = CALL_RE.exec(line)) !== null) {
+    const methodStart = match.index + match[1].length + 2; // +2 for "->"
+    const methodEnd = methodStart + match[2].length;
+
+    if (params.position.character < methodStart || params.position.character > methodEnd) {
+      continue;
+    }
+
+    const objectExpr = match[1];
+    const methodName = match[2];
+    if (methodName.startsWith('__')) return null;
+
+    const originalFqcn = typeMap.get(objectExpr);
+    if (!originalFqcn) return null;
+
+    // If the method is declared on the original type, let Intelephense handle it.
+    const originalResolution = project.magicMethodIndex.resolveMethod(
+      originalFqcn, methodName, project.psr4Map,
+    );
+    if (originalResolution?.kind === 'declared') return null;
+
+    // Resolve DI preference: interface → concrete class
+    const prefRef =
+      project.index.getEffectivePreferenceType(originalFqcn, 'frontend') ??
+      project.index.getEffectivePreferenceType(originalFqcn, 'adminhtml') ??
+      project.index.getEffectivePreferenceType(originalFqcn, 'global');
+    const concreteFqcn = prefRef ? prefRef.fqcn : originalFqcn;
+
+    const resolution = concreteFqcn !== originalFqcn
+      ? project.magicMethodIndex.resolveMethod(concreteFqcn, methodName, project.psr4Map)
+      : originalResolution;
+    if (!resolution) return null;
+
+    const loc = locatePhpMethod(resolution.className, resolution.methodName, project.psr4Map);
+    if (!loc) return null;
+
     return Location.create(
       URI.file(loc.file).toString(),
       Range.create(loc.line, loc.column, loc.line, loc.column),
