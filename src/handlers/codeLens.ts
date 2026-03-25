@@ -291,6 +291,33 @@ function handlePhpCodeLens(
     }
   }
 
+  // --- Service interface: show "GET /V1/..." on methods referenced in webapi.xml ---
+  // Check both direct class and implemented interfaces
+  const webapiClassRefs = [
+    ...project.webapiIndex.getRefsForFqcn(classInfo.fqcn),
+    ...classInfo.interfaces.flatMap((iface) => project.webapiIndex.getRefsForFqcn(iface)),
+  ];
+  if (webapiClassRefs.length > 0) {
+    const allMethodsForWebapi = extractPhpMethods(content);
+    for (const method of allMethodsForWebapi) {
+      const methodRefs = webapiClassRefs.filter(
+        (r) => r.kind === 'service-method' && r.methodName === method.name,
+      );
+      for (const route of methodRefs) {
+        lenses.push({
+          range: Range.create(method.line, method.column, method.line, method.endColumn),
+          command: Command.create(
+            `${route.httpMethod} ${route.routeUrl}`,
+            SHOW_PLUGIN_REFERENCES_COMMAND,
+            params.textDocument.uri,
+            method.line,
+            method.column,
+          ),
+        });
+      }
+    }
+  }
+
   // --- Magic method calls: show "→ ClassName::method" or "→ ClassName::__call" ---
   const magicLenses = computeMagicMethodLenses(content, classInfo, params, project, token);
   lenses.push(...magicLenses);

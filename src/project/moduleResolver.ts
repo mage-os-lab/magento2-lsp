@@ -20,6 +20,7 @@ import { ModuleInfo } from '../indexer/types';
 import { DiXmlParseContext } from '../indexer/diXmlParser';
 import { EventsXmlParseContext } from '../indexer/eventsXmlParser';
 import { SystemXmlParseContext } from '../indexer/systemXmlParser';
+import { WebapiXmlParseContext } from '../indexer/webapiXmlParser';
 import { realpath } from '../utils/realpath';
 import { fileExists, isDirectory } from '../utils/fsHelpers';
 import { readComposerPackages } from '../utils/composerPackages';
@@ -192,6 +193,16 @@ export function discoverDiXmlFiles(
 }
 
 /**
+ * Discover all webapi.xml files for a given module.
+ * Checks etc/webapi.xml (global) and etc/{area}/webapi.xml for each area.
+ */
+export function discoverWebapiXmlFiles(
+  modulePath: string,
+): { file: string; area: string }[] {
+  return discoverModuleXmlFiles(modulePath, 'webapi.xml');
+}
+
+/**
  * Discover all events.xml files for a given module.
  * Checks etc/events.xml (global) and etc/{area}/events.xml for each area.
  */
@@ -277,6 +288,28 @@ export function deriveSystemXmlContext(
 
   for (const mod of modules) {
     if (filePath.startsWith(mod.path)) {
+      return { file: filePath, module: mod.name };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Derive the webapi.xml parse context for a file.
+ * Handles etc/webapi.xml (global) and etc/{area}/webapi.xml (scoped).
+ * Returns undefined if the file is not a webapi.xml within a known module.
+ */
+export function deriveWebapiXmlContext(
+  filePath: string,
+  modules: ModuleInfo[],
+): WebapiXmlParseContext | undefined {
+  if (!filePath.endsWith('/webapi.xml')) return undefined;
+
+  for (const mod of modules) {
+    if (!filePath.startsWith(mod.path)) continue;
+    const relPath = path.relative(mod.path, filePath);
+    const parts = relPath.split(path.sep);
+    if (parts[0] === 'etc' && parts[parts.length - 1] === 'webapi.xml') {
       return { file: filePath, module: mod.name };
     }
   }

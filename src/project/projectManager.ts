@@ -15,6 +15,7 @@ import {
   resolveActiveModules,
   discoverDiXmlFiles,
   discoverEventsXmlFiles,
+  discoverWebapiXmlFiles,
 } from './moduleResolver';
 import { buildPsr4Map } from './composerAutoload';
 import { ThemeResolver } from './themeResolver';
@@ -29,8 +30,10 @@ import { PluginMethodIndex } from '../index/pluginMethodIndex';
 import { MagicMethodIndex } from '../index/magicMethodIndex';
 import { CompatModuleIndex } from '../index/compatModuleIndex';
 import { SystemConfigIndex } from '../index/systemConfigIndex';
+import { WebapiIndex } from '../index/webapiIndex';
 import { parseCompatModuleRegistrations } from '../indexer/compatModuleParser';
 import { parseSystemXml } from '../indexer/systemXmlParser';
+import { parseWebapiXml } from '../indexer/webapiXmlParser';
 import { ModuleInfo, Psr4Map } from '../indexer/types';
 import { fileExists } from '../utils/fsHelpers';
 import * as fs from 'fs';
@@ -60,6 +63,8 @@ export interface ProjectContext {
   compatModuleIndex: CompatModuleIndex;
   /** In-memory system.xml config path index for this project. */
   systemConfigIndex: SystemConfigIndex;
+  /** In-memory webapi.xml route/service index for this project. */
+  webapiIndex: WebapiIndex;
   /** Disk cache for this project's parse results. */
   cache: IndexCache;
   /** True once the initial indexing pass is complete. */
@@ -253,6 +258,38 @@ export class ProjectManager {
     const t3b = Date.now();
     console.error(`[magento2-lsp]   system.xml (${allSystemConfigFiles.length} files, ${systemConfigCacheHits} cached): ${t3b - t3}ms`);
 
+    // --- Index webapi.xml files (cached) ---
+    const webapiIndex = new WebapiIndex();
+    const allWebapiFiles: string[] = [];
+    let webapiCacheHits = 0;
+
+    for (const mod of modules) {
+      const webapiFiles = discoverWebapiXmlFiles(mod.path);
+      for (const f of webapiFiles) {
+        allWebapiFiles.push(f.file);
+        try {
+          const stat = fs.statSync(f.file);
+          const cached = cache.getWebapiEntry(f.file, stat.mtimeMs);
+
+          if (cached) {
+            webapiCacheHits++;
+            webapiIndex.addFile(f.file, cached.references);
+          } else {
+            const content = fs.readFileSync(f.file, 'utf-8');
+            const result = parseWebapiXml(content, { file: f.file, module: mod.name });
+            webapiIndex.addFile(f.file, result.references);
+            cache.setWebapiEntry(f.file, stat.mtimeMs, result.references);
+          }
+        } catch {
+          // Skip unreadable files
+        }
+      }
+    }
+
+    cache.pruneWebapiFiles(new Set(allWebapiFiles));
+    const t3c = Date.now();
+    console.error(`[magento2-lsp]   webapi.xml (${allWebapiFiles.length} files, ${webapiCacheHits} cached): ${t3c - t3b}ms`);
+
     // --- Discover themes and index layout XML files (cached) ---
     const themeResolver = new ThemeResolver();
     themeResolver.discover(root);
@@ -362,6 +399,7 @@ export class ProjectManager {
       themeResolver,
       compatModuleIndex,
       systemConfigIndex,
+      webapiIndex,
       cache,
       indexingComplete: true,
     };

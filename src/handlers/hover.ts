@@ -132,6 +132,33 @@ export function handleHover(
     return { contents: { kind: MarkupKind.Markdown, value }, range };
   }
 
+  // --- Try webapi.xml ---
+  const webapiRef = project.webapiIndex.getReferenceAtPosition(filePath, line, character);
+  if (webapiRef) {
+    const range = Range.create(webapiRef.line, webapiRef.column, webapiRef.line, webapiRef.endColumn);
+    let value: string;
+    switch (webapiRef.kind) {
+      case 'service-class':
+        value = `**REST Service**\n\n\`${webapiRef.httpMethod} ${webapiRef.routeUrl}\`\n\nClass: \`${webapiRef.value}\``;
+        break;
+      case 'service-method':
+        value = `**REST Method**\n\n\`${webapiRef.httpMethod} ${webapiRef.routeUrl}\`\n\nMethod: \`${webapiRef.fqcn}::${webapiRef.value}\``;
+        break;
+      case 'resource-ref':
+        if (webapiRef.value === 'self') {
+          value = `**ACL** \`self\` — requires authenticated customer\n\nRoute: \`${webapiRef.httpMethod} ${webapiRef.routeUrl}\``;
+        } else if (webapiRef.value === 'anonymous') {
+          value = `**ACL** \`anonymous\` — no authentication required\n\nRoute: \`${webapiRef.httpMethod} ${webapiRef.routeUrl}\``;
+        } else {
+          value = `**ACL Resource** \`${webapiRef.value}\`\n\nRoute: \`${webapiRef.httpMethod} ${webapiRef.routeUrl}\``;
+        }
+        break;
+      default:
+        return null;
+    }
+    return { contents: { kind: MarkupKind.Markdown, value }, range };
+  }
+
   // --- Try events.xml ---
   const eventsRef = project.eventsIndex.getReferenceAtPosition(filePath, line, character);
   if (eventsRef) {

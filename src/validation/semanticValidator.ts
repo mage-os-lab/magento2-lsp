@@ -23,11 +23,13 @@ import { parseDiXml, DiXmlParseContext } from '../indexer/diXmlParser';
 import { parseEventsXml, EventsXmlParseContext } from '../indexer/eventsXmlParser';
 import { parseLayoutXml } from '../indexer/layoutXmlParser';
 import { parseSystemXml } from '../indexer/systemXmlParser';
-import { extractPhpClass } from '../utils/phpNamespace';
+import { parseWebapiXml } from '../indexer/webapiXmlParser';
+import { extractPhpClass, extractPhpMethods } from '../utils/phpNamespace';
 import {
   deriveDiXmlContext,
   deriveEventsXmlContext,
   deriveSystemXmlContext,
+  deriveWebapiXmlContext,
 } from '../project/moduleResolver';
 import type { ProjectContext } from '../project/projectManager';
 import type { DiReference, LayoutReference, Psr4Map, ModuleInfo } from '../indexer/types';
@@ -63,6 +65,11 @@ export function validateSemantics(
 
   if (isLayoutXml(filePath)) {
     return validateLayoutXml(content, filePath, project);
+  }
+
+  const webapiContext = deriveWebapiXmlContext(filePath, project.modules);
+  if (webapiContext) {
+    return validateWebapiXml(content, webapiContext, project, includeExpensiveChecks);
   }
 
   const systemConfigContext = deriveSystemXmlContext(filePath, project.modules);
@@ -298,6 +305,51 @@ function validateSystemConfigXml(
           `${label} class "${ref.fqcn}" not found`,
           DiagnosticSeverity.Error,
         ));
+      }
+    }
+  }
+
+  return diagnostics;
+}
+
+// --- webapi.xml validation ---
+
+function validateWebapiXml(
+  content: string,
+  context: import('../indexer/webapiXmlParser').WebapiXmlParseContext,
+  project: ProjectContext,
+  includeExpensiveChecks: boolean,
+): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  const { references } = parseWebapiXml(content, context);
+
+  for (const ref of references) {
+    if (ref.kind === 'service-class') {
+      if (!classOrVirtualTypeExists(ref.value, project.psr4Map, project.index, new Set())) {
+        diagnostics.push(makeDiagnostic(
+          ref.line, ref.column, ref.endColumn,
+          `Service class "${ref.value}" not found`,
+          DiagnosticSeverity.Error,
+        ));
+      }
+    }
+
+    if (ref.kind === 'service-method' && ref.fqcn && includeExpensiveChecks) {
+      const classFile = resolveClassFile(ref.fqcn, project.psr4Map);
+      if (classFile) {
+        try {
+          const phpContent = fs.readFileSync(classFile, 'utf-8');
+          const methods = extractPhpMethods(phpContent);
+          if (!methods.some((m) => m.name === ref.value)) {
+            diagnostics.push(makeDiagnostic(
+              ref.line, ref.column, ref.endColumn,
+              `Method "${ref.value}" not found on "${ref.fqcn}"`,
+              DiagnosticSeverity.Warning,
+            ));
+          }
+        } catch {
+          // Can't read PHP file — don't warn
+        }
       }
     }
   }

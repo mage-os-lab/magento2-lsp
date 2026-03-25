@@ -31,18 +31,21 @@ import { handleReferences } from './handlers/references';
 import { handleCodeLens } from './handlers/codeLens';
 import { handleHover } from './handlers/hover';
 import { handleWorkspaceSymbol } from './handlers/workspaceSymbol';
-import { FileWatcher } from './watcher/fileWatcher';
+import { FileWatcher, createXmlWatcher } from './watcher/fileWatcher';
 import {
   discoverDiXmlFiles,
   discoverEventsXmlFiles,
+  discoverWebapiXmlFiles,
   deriveDiXmlContext,
   deriveEventsXmlContext,
   deriveSystemXmlContext,
+  deriveWebapiXmlContext,
 } from './project/moduleResolver';
 import { parseDiXml, DiXmlParseContext } from './indexer/diXmlParser';
 import { parseEventsXml, EventsXmlParseContext } from './indexer/eventsXmlParser';
 import { parseLayoutXml } from './indexer/layoutXmlParser';
 import { parseSystemXml, SystemXmlParseContext } from './indexer/systemXmlParser';
+import { parseWebapiXml, WebapiXmlParseContext } from './indexer/webapiXmlParser';
 import { resolveFileToFqcn } from './indexer/phpClassLocator';
 import { realpath } from './utils/realpath';
 import { validateXmlFile, isXmllintAvailable, invalidateCatalogCache } from './validation/xsdValidator';
@@ -354,31 +357,22 @@ function setupFileWatchers(project: import('./project/projectManager').ProjectCo
     }, 500);
   }
 
-  const diWatcher = new FileWatcher({
-    onFileChange(filePath) {
-      const context = getDiContext(filePath);
-      if (!context) return;
-      try {
-        const content = fs.readFileSync(filePath, 'utf-8');
-        const stat = fs.statSync(filePath);
-        const result = parseDiXml(content, context);
-        project.index.removeFile(filePath);
-        project.index.addFile(filePath, result.references, result.virtualTypes);
-        project.cache.setDiEntry(filePath, stat.mtimeMs, result.references, result.virtualTypes);
-        project.cache.save();
-        schedulePluginRebuild();
-      } catch {
-        // File might be temporarily unreadable during write
-      }
+  const diWatcher = createXmlWatcher({
+    patterns: diWatchPatterns,
+    resolveContext: getDiContext,
+    parse: parseDiXml,
+    onParsed(file, mtimeMs, result) {
+      project.index.removeFile(file);
+      project.index.addFile(file, result.references, result.virtualTypes);
+      project.cache.setDiEntry(file, mtimeMs, result.references, result.virtualTypes);
     },
-    onFileRemove(filePath) {
-      project.index.removeFile(filePath);
-      project.cache.removeEntry(filePath);
-      project.cache.save();
-      schedulePluginRebuild();
+    onRemoved(file) {
+      project.index.removeFile(file);
+      project.cache.removeEntry(file);
     },
+    saveCache: () => project.cache.save(),
+    afterChange: schedulePluginRebuild,
   });
-  diWatcher.watch(diWatchPatterns);
   watchers.push(diWatcher);
 
   // --- events.xml watcher ---
@@ -403,29 +397,21 @@ function setupFileWatchers(project: import('./project/projectManager').ProjectCo
     return ctx;
   }
 
-  const eventsWatcher = new FileWatcher({
-    onFileChange(filePath) {
-      const context = getEventsContext(filePath);
-      if (!context) return;
-      try {
-        const content = fs.readFileSync(filePath, 'utf-8');
-        const stat = fs.statSync(filePath);
-        const result = parseEventsXml(content, context);
-        project.eventsIndex.removeFile(filePath);
-        project.eventsIndex.addFile(filePath, result.events, result.observers);
-        project.cache.setEventsEntry(filePath, stat.mtimeMs, result.events, result.observers);
-        project.cache.save();
-      } catch {
-        // File might be temporarily unreadable during write
-      }
+  const eventsWatcher = createXmlWatcher({
+    patterns: eventsWatchPatterns,
+    resolveContext: getEventsContext,
+    parse: parseEventsXml,
+    onParsed(file, mtimeMs, result) {
+      project.eventsIndex.removeFile(file);
+      project.eventsIndex.addFile(file, result.events, result.observers);
+      project.cache.setEventsEntry(file, mtimeMs, result.events, result.observers);
     },
-    onFileRemove(filePath) {
-      project.eventsIndex.removeFile(filePath);
-      project.cache.removeEventsEntry(filePath);
-      project.cache.save();
+    onRemoved(file) {
+      project.eventsIndex.removeFile(file);
+      project.cache.removeEventsEntry(file);
     },
+    saveCache: () => project.cache.save(),
   });
-  eventsWatcher.watch(eventsWatchPatterns);
   watchers.push(eventsWatcher);
 
   // --- layout XML watcher ---
@@ -443,27 +429,21 @@ function setupFileWatchers(project: import('./project/projectManager').ProjectCo
     layoutWatchPatterns.push(path.join(theme.path, '*', 'page_layout', '*.xml'));
   }
 
-  const layoutWatcher = new FileWatcher({
-    onFileChange(filePath) {
-      try {
-        const content = fs.readFileSync(filePath, 'utf-8');
-        const stat = fs.statSync(filePath);
-        const result = parseLayoutXml(content, filePath);
-        project.layoutIndex.removeFile(filePath);
-        project.layoutIndex.addFile(filePath, result.references);
-        project.cache.setLayoutEntry(filePath, stat.mtimeMs, result.references);
-        project.cache.save();
-      } catch {
-        // File might be temporarily unreadable during write
-      }
+  const layoutWatcher = createXmlWatcher<string, { references: import('./indexer/types').LayoutReference[] }>({
+    patterns: layoutWatchPatterns,
+    resolveContext: (file) => file,
+    parse: (content, filePath) => parseLayoutXml(content, filePath),
+    onParsed(file, mtimeMs, result) {
+      project.layoutIndex.removeFile(file);
+      project.layoutIndex.addFile(file, result.references);
+      project.cache.setLayoutEntry(file, mtimeMs, result.references);
     },
-    onFileRemove(filePath) {
-      project.layoutIndex.removeFile(filePath);
-      project.cache.removeLayoutEntry(filePath);
-      project.cache.save();
+    onRemoved(file) {
+      project.layoutIndex.removeFile(file);
+      project.cache.removeLayoutEntry(file);
     },
+    saveCache: () => project.cache.save(),
   });
-  layoutWatcher.watch(layoutWatchPatterns);
   watchers.push(layoutWatcher);
 
   // --- system.xml watcher ---
@@ -486,30 +466,61 @@ function setupFileWatchers(project: import('./project/projectManager').ProjectCo
     return ctx;
   }
 
-  const systemConfigWatcher = new FileWatcher({
-    onFileChange(filePath) {
-      const context = getSystemConfigContext(filePath);
-      if (!context) return;
-      try {
-        const content = fs.readFileSync(filePath, 'utf-8');
-        const stat = fs.statSync(filePath);
-        const result = parseSystemXml(content, context);
-        project.systemConfigIndex.removeFile(filePath);
-        project.systemConfigIndex.addFile(filePath, result.references);
-        project.cache.setSystemConfigEntry(filePath, stat.mtimeMs, result.references);
-        project.cache.save();
-      } catch {
-        // File might be temporarily unreadable during write
-      }
+  const systemConfigWatcher = createXmlWatcher({
+    patterns: systemConfigWatchPatterns,
+    resolveContext: getSystemConfigContext,
+    parse: parseSystemXml,
+    onParsed(file, mtimeMs, result) {
+      project.systemConfigIndex.removeFile(file);
+      project.systemConfigIndex.addFile(file, result.references);
+      project.cache.setSystemConfigEntry(file, mtimeMs, result.references);
     },
-    onFileRemove(filePath) {
-      project.systemConfigIndex.removeFile(filePath);
-      project.cache.removeSystemConfigEntry(filePath);
-      project.cache.save();
+    onRemoved(file) {
+      project.systemConfigIndex.removeFile(file);
+      project.cache.removeSystemConfigEntry(file);
     },
+    saveCache: () => project.cache.save(),
   });
-  systemConfigWatcher.watch(systemConfigWatchPatterns);
   watchers.push(systemConfigWatcher);
+
+  // --- webapi.xml watcher ---
+  const webapiWatchPatterns: string[] = [];
+  const webapiContextMap = new Map<string, WebapiXmlParseContext>();
+
+  for (const mod of project.modules) {
+    const files = discoverWebapiXmlFiles(mod.path);
+    for (const f of files) {
+      webapiWatchPatterns.push(f.file);
+      webapiContextMap.set(f.file, { file: f.file, module: mod.name });
+    }
+    // Also watch for new webapi.xml files
+    webapiWatchPatterns.push(path.join(mod.path, 'etc', '**', 'webapi.xml'));
+  }
+
+  function getWebapiContext(file: string): WebapiXmlParseContext | undefined {
+    const cached = webapiContextMap.get(file);
+    if (cached) return cached;
+    const ctx = deriveWebapiXmlContext(file, project.modules);
+    if (ctx) webapiContextMap.set(file, ctx);
+    return ctx;
+  }
+
+  const webapiWatcher = createXmlWatcher({
+    patterns: webapiWatchPatterns,
+    resolveContext: getWebapiContext,
+    parse: parseWebapiXml,
+    onParsed(file, mtimeMs, result) {
+      project.webapiIndex.removeFile(file);
+      project.webapiIndex.addFile(file, result.references);
+      project.cache.setWebapiEntry(file, mtimeMs, result.references);
+    },
+    onRemoved(file) {
+      project.webapiIndex.removeFile(file);
+      project.cache.removeWebapiEntry(file);
+    },
+    saveCache: () => project.cache.save(),
+  });
+  watchers.push(webapiWatcher);
 
   // --- PHP file watcher ---
   // Invalidates MagicMethodIndex and ClassHierarchy caches when PHP files change.

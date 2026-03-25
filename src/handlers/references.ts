@@ -103,6 +103,22 @@ async function handleXmlReferences(
     return refsToLocations([...pathRefs, ...phpUsages]);
   }
 
+  // --- Try webapi.xml ---
+  const webapiRef = project.webapiIndex.getReferenceAtPosition(filePath, line, character);
+  if (webapiRef) {
+    if (webapiRef.kind === 'service-class') {
+      const webapiRefs = project.webapiIndex.getRefsForFqcn(webapiRef.value);
+      const diRefs = project.index.getReferencesForFqcn(webapiRef.value);
+      return refsToLocations([...webapiRefs, ...diRefs]);
+    }
+    if (webapiRef.kind === 'service-method' && webapiRef.fqcn && webapiRef.methodName) {
+      return refsToLocations(project.webapiIndex.getRefsForMethod(webapiRef.fqcn, webapiRef.methodName));
+    }
+    if (webapiRef.kind === 'resource-ref') {
+      return refsToLocations(project.webapiIndex.getRefsForResource(webapiRef.value));
+    }
+  }
+
   // --- Try events.xml ---
   const eventsRef = project.eventsIndex.getReferenceAtPosition(filePath, line, character);
   if (eventsRef) {
@@ -152,16 +168,18 @@ async function handlePhpReferences(
     character >= classInfo.column &&
     character < classInfo.endColumn
   ) {
-    // Include di.xml, events.xml, layout XML, and system.xml refs for this class,
-    // plus inherited di.xml refs from ancestor classes/interfaces.
+    // Include di.xml, events.xml, layout XML, system.xml, and webapi.xml refs for this class,
+    // plus inherited di.xml/webapi refs from ancestor classes/interfaces.
     const allRefs: { file: string; line: number; column: number; endColumn: number }[] = [
       ...project.index.getReferencesForFqcn(classInfo.fqcn),
       ...project.eventsIndex.getObserversForFqcn(classInfo.fqcn),
       ...project.layoutIndex.getReferencesForFqcn(classInfo.fqcn),
       ...project.systemConfigIndex.getRefsForFqcn(classInfo.fqcn),
+      ...project.webapiIndex.getRefsForFqcn(classInfo.fqcn).filter((r) => r.kind === 'service-class'),
     ];
     for (const ancestor of project.pluginMethodIndex.getAncestors(classInfo.fqcn)) {
       allRefs.push(...project.index.getReferencesForFqcn(ancestor));
+      allRefs.push(...project.webapiIndex.getRefsForFqcn(ancestor).filter((r) => r.kind === 'service-class'));
     }
     return refsToLocations(allRefs);
   }
@@ -233,6 +251,17 @@ async function handlePhpReferences(
         if (observerRefs.length > 0) {
           return refsToLocations(observerRefs);
         }
+      }
+
+      // --- Case B2: Service interface method -> webapi.xml routes ---
+      const webapiMethodRefs: { file: string; line: number; column: number; endColumn: number }[] = [
+        ...project.webapiIndex.getRefsForMethod(classInfo.fqcn, method.name),
+      ];
+      for (const iface of classInfo.interfaces) {
+        webapiMethodRefs.push(...project.webapiIndex.getRefsForMethod(iface, method.name));
+      }
+      if (webapiMethodRefs.length > 0) {
+        return refsToLocations(webapiMethodRefs);
       }
 
       // --- Case C: This is a target class and the method is intercepted by plugins ---

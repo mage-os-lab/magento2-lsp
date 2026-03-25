@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Webapi:etc/webapi.xsd">
+    <route url="/V1/test/items/:itemId" method="GET">
+        <service class="Test\ModuleFoo\Api\ItemRepositoryInterface" method="getById"/>
+        <resources>
+            <resource ref="Test_ModuleFoo::items"/>
+        </resources>
+    </route>
+    <route url="/V1/test/items" method="POST">
+        <service class="Test\ModuleFoo\Api\ItemRepositoryInterface" method="save"/>
+        <resources>
+            <resource ref="Test_ModuleFoo::items"/>
+        </resources>
+    </route>
+    <route url="/V1/test/items/me" method="GET">
+        <service class="Test\ModuleFoo\Api\ItemRepositoryInterface" method="getById"/>
+        <resources>
+            <resource ref="self"/>
+        </resources>
+    </route>
+    <route url="/V1/test/public" method="GET">
+        <service class="Test\ModuleFoo\Api\PublicInterface" method="getData"/>
+        <resources>
+            <resource ref="anonymous"/>
+        </resources>
+    </route>
+</routes>

@@ -176,6 +176,35 @@ export function handleDefinition(
     return null;
   }
 
+  // --- Try webapi.xml ---
+  const webapiRef = project.webapiIndex.getReferenceAtPosition(
+    filePath,
+    params.position.line,
+    params.position.character,
+  );
+  if (webapiRef) {
+    if (webapiRef.kind === 'service-class') {
+      const loc = locatePhpClass(webapiRef.value, project.psr4Map);
+      if (loc) {
+        return Location.create(
+          URI.file(loc.file).toString(),
+          Range.create(loc.line, loc.column, loc.line, loc.column),
+        );
+      }
+    }
+    if (webapiRef.kind === 'service-method' && webapiRef.fqcn) {
+      const loc = locatePhpMethod(webapiRef.fqcn, webapiRef.value, project.psr4Map);
+      if (loc) {
+        return Location.create(
+          URI.file(loc.file).toString(),
+          Range.create(loc.line, loc.column, loc.line, loc.column),
+        );
+      }
+    }
+    // resource-ref: no navigation (future: acl.xml Feature #8)
+    return null;
+  }
+
   // --- Try events.xml ---
   const eventsRef = project.eventsIndex.getReferenceAtPosition(
     filePath,

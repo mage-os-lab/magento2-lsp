@@ -15,10 +15,10 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { DiReference, VirtualTypeDecl, EventReference, ObserverReference, LayoutReference, SystemConfigReference } from '../indexer/types';
+import { DiReference, VirtualTypeDecl, EventReference, ObserverReference, LayoutReference, SystemConfigReference, WebapiReference } from '../indexer/types';
 
 /** Bump this when entry formats change to invalidate old caches. */
-const CACHE_VERSION = 5;
+const CACHE_VERSION = 6;
 const CACHE_FILENAME = '.magento2-lsp-cache.json';
 
 /** Cached parse results for a single di.xml file. */
@@ -47,6 +47,12 @@ export interface SystemConfigCacheEntry {
   references: SystemConfigReference[];
 }
 
+/** Cached parse results for a single webapi.xml file. */
+export interface WebapiCacheEntry {
+  mtimeMs: number;
+  references: WebapiReference[];
+}
+
 /** Top-level structure of the cache file on disk. */
 export interface CacheFile {
   version: number;
@@ -54,6 +60,7 @@ export interface CacheFile {
   eventsFiles: Record<string, EventsCacheEntry>;
   layoutFiles: Record<string, LayoutCacheEntry>;
   systemConfigFiles: Record<string, SystemConfigCacheEntry>;
+  webapiFiles: Record<string, WebapiCacheEntry>;
 }
 
 export class IndexCache {
@@ -62,7 +69,7 @@ export class IndexCache {
 
   constructor(magentoRoot: string) {
     this.cachePath = path.join(magentoRoot, CACHE_FILENAME);
-    this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {}, systemConfigFiles: {} };
+    this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {}, systemConfigFiles: {}, webapiFiles: {} };
   }
 
   /**
@@ -74,7 +81,7 @@ export class IndexCache {
       const raw = fs.readFileSync(this.cachePath, 'utf-8');
       const parsed = JSON.parse(raw) as CacheFile;
       if (parsed.version !== CACHE_VERSION) {
-        this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {}, systemConfigFiles: {} };
+        this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {}, systemConfigFiles: {}, webapiFiles: {} };
         return false;
       }
       // Ensure all sections exist (forward-compat for caches without new sections)
@@ -82,10 +89,11 @@ export class IndexCache {
       parsed.eventsFiles ??= {};
       parsed.layoutFiles ??= {};
       parsed.systemConfigFiles ??= {};
+      parsed.webapiFiles ??= {};
       this.data = parsed;
       return true;
     } catch {
-      this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {}, systemConfigFiles: {} };
+      this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {}, systemConfigFiles: {}, webapiFiles: {} };
       return false;
     }
   }
@@ -188,6 +196,26 @@ export class IndexCache {
   /** Remove a single system.xml entry from the cache. */
   removeSystemConfigEntry(filePath: string): void {
     delete this.data.systemConfigFiles[filePath];
+  }
+
+  // --- webapi.xml ---
+
+  getWebapiEntry(filePath: string, currentMtimeMs: number): WebapiCacheEntry | undefined {
+    const entry = this.data.webapiFiles[filePath];
+    return entry && entry.mtimeMs === currentMtimeMs ? entry : undefined;
+  }
+
+  setWebapiEntry(filePath: string, mtimeMs: number, references: WebapiReference[]): void {
+    this.data.webapiFiles[filePath] = { mtimeMs, references };
+  }
+
+  pruneWebapiFiles(existingFiles: Set<string>): void {
+    this.pruneSection(this.data.webapiFiles, existingFiles);
+  }
+
+  /** Remove a single webapi.xml entry from the cache. */
+  removeWebapiEntry(filePath: string): void {
+    delete this.data.webapiFiles[filePath];
   }
 
   /** List all di.xml file paths that have cached entries. */

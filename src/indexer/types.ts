@@ -265,3 +265,50 @@ export interface SystemConfigReference {
   /** Magento module name in Vendor_Module format. */
   module: string;
 }
+
+// ---- webapi.xml types ----
+
+/**
+ * Identifies which kind of webapi.xml element a reference comes from.
+ *
+ * Example webapi.xml entries and their corresponding kinds:
+ *   <service class="Magento\Customer\Api\CustomerRepositoryInterface" method="getById"/>
+ *     -> 'service-class' (the PHP interface) and 'service-method' (the method name)
+ *   <resource ref="Magento_Customer::manage"/>
+ *     -> 'resource-ref' (the ACL resource identifier)
+ */
+export type WebapiReferenceKind = 'service-class' | 'service-method' | 'resource-ref';
+
+/**
+ * A reference found in a webapi.xml file.
+ *
+ * webapi.xml maps REST API endpoints to PHP service interface methods:
+ *   <route url="/V1/customers/:customerId" method="GET">
+ *     <service class="Magento\Customer\Api\CustomerRepositoryInterface" method="getById"/>
+ *     <resources><resource ref="Magento_Customer::manage"/></resources>
+ *   </route>
+ */
+export interface WebapiReference {
+  /** Which webapi.xml element this reference comes from. */
+  kind: WebapiReferenceKind;
+  /** service-class: the FQCN. service-method: the method name. resource-ref: the ACL resource ID. */
+  value: string;
+  /** For service-class and service-method: the PHP service class FQCN. */
+  fqcn?: string;
+  /** For service-method: the method name. */
+  methodName?: string;
+  /** Route URL (e.g., "/V1/customers/:customerId"). */
+  routeUrl: string;
+  /** HTTP method: GET, POST, PUT, DELETE. */
+  httpMethod: string;
+  /** Absolute filesystem path to the webapi.xml file. */
+  file: string;
+  /** 0-based line number. */
+  line: number;
+  /** 0-based column where the value starts. */
+  column: number;
+  /** 0-based column where the value ends. */
+  endColumn: number;
+  /** Magento module name in Vendor_Module format. */
+  module: string;
+}
