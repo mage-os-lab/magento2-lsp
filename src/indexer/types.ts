@@ -69,6 +69,11 @@ export interface DiReference {
    * this plugin is nested in. Set during SAX parsing from proper nesting context.
    */
   parentTypeFqcn?: string;
+  /**
+   * For plugin-type refs: the plugin name attribute (e.g., <plugin name="my_plugin">).
+   * Used by semantic validation to detect duplicate plugin names.
+   */
+  pluginName?: string;
 }
 
 /**

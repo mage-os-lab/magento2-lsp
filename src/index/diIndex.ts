@@ -251,6 +251,11 @@ export class DiIndex {
     return this.virtualTypeDecls.keys();
   }
 
+  /** Return all references in a single file (for per-file validation). */
+  getRefsForFile(file: string): DiReference[] {
+    return this.fileToRefs.get(file) ?? [];
+  }
+
   /** Number of di.xml files currently indexed. */
   getFileCount(): number {
     return this.fileToRefs.size;

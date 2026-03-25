@@ -100,6 +100,11 @@ export class LayoutIndex {
     return findReferenceAtPosition(this.fileToRefs.get(file), line, col);
   }
 
+  /** Return all references in a single file (for per-file validation). */
+  getRefsForFile(file: string): LayoutReference[] {
+    return this.fileToRefs.get(file) ?? [];
+  }
+
   getFileCount(): number {
     return this.fileToRefs.size;
   }

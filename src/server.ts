@@ -39,6 +39,7 @@ import { parseLayoutXml } from './indexer/layoutXmlParser';
 import { resolveFileToFqcn } from './indexer/phpClassLocator';
 import { realpath } from './utils/realpath';
 import { validateXmlFile, isXmllintAvailable, invalidateCatalogCache } from './validation/xsdValidator';
+import { validateSemantics } from './validation/semanticValidator';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -112,8 +113,8 @@ connection.onDidOpenTextDocument(async (params) => {
   if (existing) {
     log(`  project already initialized: ${existing.root} (${existing.index.getFileCount()} files)`);
     // Validate on open if it's an XML file
-    if (xmllintEnabled && filePath.endsWith('.xml')) {
-      validateAndPublish(params.textDocument.uri, params.textDocument.text, existing);
+    if (filePath.endsWith('.xml')) {
+      validateAndPublish(params.textDocument.uri, params.textDocument.text, existing, 300, true);
     }
     return;
   }
@@ -180,8 +181,8 @@ connection.onDidOpenTextDocument(async (params) => {
     setupFileWatchers(project);
 
     // Validate on initial open if it's an XML file
-    if (xmllintEnabled && filePath.endsWith('.xml')) {
-      validateAndPublish(params.textDocument.uri, params.textDocument.text, project);
+    if (filePath.endsWith('.xml')) {
+      validateAndPublish(params.textDocument.uri, params.textDocument.text, project, 300, true);
     }
   }
 });
@@ -203,6 +204,7 @@ function validateAndPublish(
   content: string,
   project: import('./project/projectManager').ProjectContext,
   delayMs: number = 300,
+  includeExpensiveChecks: boolean = false,
 ): void {
   const existing = validationTimers.get(uri);
   if (existing) clearTimeout(existing);
@@ -211,8 +213,16 @@ function validateAndPublish(
     validationTimers.delete(uri);
     try {
       const filePath = realpath(URI.parse(uri).fsPath);
-      const diagnostics = await validateXmlFile(filePath, content, project.root, project.modules);
-      connection.sendDiagnostics({ uri, diagnostics });
+
+      // XSD diagnostics (requires xmllint)
+      const xsdDiags = xmllintEnabled
+        ? await validateXmlFile(filePath, content, project.root, project.modules)
+        : [];
+
+      // Semantic diagnostics (always available)
+      const semanticDiags = validateSemantics(filePath, content, project, includeExpensiveChecks);
+
+      connection.sendDiagnostics({ uri, diagnostics: [...xsdDiags, ...semanticDiags] });
     } catch {
       // Don't let validation errors break the LSP
     }
@@ -220,7 +230,6 @@ function validateAndPublish(
 }
 
 connection.onDidChangeTextDocument((params) => {
-  if (!xmllintEnabled) return;
   const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
   if (!filePath.endsWith('.xml')) return;
   const project = projectManager.getProjectForFile(filePath);
@@ -234,7 +243,6 @@ connection.onDidChangeTextDocument((params) => {
 });
 
 connection.onDidSaveTextDocument((params) => {
-  if (!xmllintEnabled) return;
   const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
   if (!filePath.endsWith('.xml')) return;
   const project = projectManager.getProjectForFile(filePath);
@@ -243,7 +251,7 @@ connection.onDidSaveTextDocument((params) => {
   // Re-read file content on save
   try {
     const content = fs.readFileSync(filePath, 'utf-8');
-    validateAndPublish(params.textDocument.uri, content, project, 0);
+    validateAndPublish(params.textDocument.uri, content, project, 0, true);
   } catch {
     // File unreadable
   }

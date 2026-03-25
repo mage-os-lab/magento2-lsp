@@ -318,6 +318,7 @@ function handlePlugin(
   parentTypeFqcn: string | undefined,
 ): void {
   const typeValue = getAttr(tag, 'type');
+  const pluginName = getAttr(tag, 'name');
 
   if (typeValue) {
     const normalized = normalizeFqcn(typeValue);
@@ -334,6 +335,7 @@ function handlePlugin(
         module: context.module,
         moduleOrder: context.moduleOrder,
         parentTypeFqcn,
+        pluginName: pluginName || undefined,
       });
     }
   }

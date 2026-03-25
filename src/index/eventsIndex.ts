@@ -107,6 +107,11 @@ export class EventsIndex {
     return findReferenceAtPosition(this.fileToRefs.get(file), line, col);
   }
 
+  /** Return all references in a single file (for per-file validation). */
+  getRefsForFile(file: string): EventsXmlReference[] {
+    return this.fileToRefs.get(file) ?? [];
+  }
+
   /** Iterate all event names in the index. */
   getAllEventNames(): IterableIterator<string> {
     return this.eventNameRefs.keys();
