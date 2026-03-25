@@ -546,20 +546,17 @@ describe('MCP tools', () => {
 
   describe('magento_reindex', () => {
     it('rebuilds the project and returns a summary', async () => {
-      const { project: newProject, summary } = await handleReindex(pm, { filePath: FIXTURE_FILE }) as { project: { indexingComplete: boolean }; summary: unknown };
-      expect(newProject).toBeDefined();
-      expect(newProject.indexingComplete).toBe(true);
-
-      const s = summary as {
+      const result = await handleReindex(pm, { filePath: FIXTURE_FILE }) as {
+        projectRoot: string;
         moduleCount: number;
         diXmlFiles: number;
         eventsXmlFiles: number;
         layoutXmlFiles: number;
         themes: number;
       };
-      expect(s.moduleCount).toBeGreaterThan(0);
-      expect(s.diXmlFiles).toBeGreaterThan(0);
-      expect(s.eventsXmlFiles).toBeGreaterThan(0);
+      expect(result.moduleCount).toBeGreaterThan(0);
+      expect(result.diXmlFiles).toBeGreaterThan(0);
+      expect(result.eventsXmlFiles).toBeGreaterThan(0);
     });
   });
 });

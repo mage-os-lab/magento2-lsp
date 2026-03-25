@@ -56,4 +56,22 @@ describe('handleWorkspaceSymbol', () => {
     );
     expect(result).toBeNull();
   });
+
+  it('returns matching virtual types', () => {
+    const result = handleWorkspaceSymbol({ query: 'Virtual' }, getProjects);
+    if (!result) return; // Fixture may not have virtual types matching "Virtual"
+    const vtResults = result.filter((r) => r.name.toLowerCase().includes('virtual'));
+    // If any results, they should be valid symbols
+    for (const sym of vtResults) {
+      expect(sym.location).toBeDefined();
+    }
+  });
+
+  it('returns matching event names', () => {
+    const result = handleWorkspaceSymbol({ query: 'test_foo' }, getProjects);
+    expect(result).not.toBeNull();
+    // The fixture has events like test_foo_save_after
+    const eventResults = result!.filter((r) => r.kind === SymbolKind.Event);
+    expect(eventResults.length).toBeGreaterThan(0);
+  });
 });

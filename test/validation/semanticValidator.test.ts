@@ -324,6 +324,138 @@ describe('semanticValidator', () => {
     });
   });
 
+  describe('system.xml validation', () => {
+    const SYSTEM_FILE = `${MODULE_PATH}/etc/adminhtml/system.xml`;
+
+    function systemXml(body: string): string {
+      return `<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Config:etc/system_file.xsd">
+  <system>
+    <section id="payment">
+      <group id="account">
+${body}
+      </group>
+    </section>
+  </system>
+</config>`;
+    }
+
+    it('reports error for broken source_model class', () => {
+      const content = systemXml(
+        '        <field id="active"><source_model>Missing\\Source\\Model</source_model></field>',
+      );
+      const project = makeProject();
+
+      const diags = validateSemantics(SYSTEM_FILE, content, project, false);
+      expect(diags).toHaveLength(1);
+      expect(diags[0].severity).toBe(DiagnosticSeverity.Error);
+      expect(diags[0].message).toContain('Source model');
+      expect(diags[0].message).toContain('not found');
+    });
+
+    it('reports error for broken backend_model class', () => {
+      const content = systemXml(
+        '        <field id="active"><backend_model>Missing\\Backend\\Model</backend_model></field>',
+      );
+      const project = makeProject();
+
+      const diags = validateSemantics(SYSTEM_FILE, content, project, false);
+      expect(diags).toHaveLength(1);
+      expect(diags[0].message).toContain('Backend model');
+    });
+
+    it('reports error for broken frontend_model class', () => {
+      const content = systemXml(
+        '        <field id="active"><frontend_model>Missing\\Frontend\\Model</frontend_model></field>',
+      );
+      const project = makeProject();
+
+      const diags = validateSemantics(SYSTEM_FILE, content, project, false);
+      expect(diags).toHaveLength(1);
+      expect(diags[0].message).toContain('Frontend model');
+    });
+
+    it('does not report error for existing model class', () => {
+      const content = systemXml(
+        '        <field id="active"><source_model>Vendor\\Module\\Model\\Existing</source_model></field>',
+      );
+      const project = makeProject();
+
+      const diags = validateSemantics(SYSTEM_FILE, content, project, false);
+      expect(diags).toHaveLength(0);
+    });
+
+    it('does not flag section/group/field IDs as class errors', () => {
+      const content = systemXml('        <field id="active"></field>');
+      const project = makeProject();
+
+      const diags = validateSemantics(SYSTEM_FILE, content, project, false);
+      expect(diags).toHaveLength(0);
+    });
+  });
+
+  describe('generated class suffixes (Proxy/Factory)', () => {
+    it('does not flag \\Proxy suffix when base class exists', () => {
+      const content = diXml(`
+  <type name="Vendor\\Module\\Model\\Existing">
+    <arguments>
+      <argument name="dep" xsi:type="object">Vendor\\Module\\Model\\Existing\\Proxy</argument>
+    </arguments>
+  </type>`);
+      const project = makeProject();
+
+      const diags = validateSemantics(DI_FILE, content, project, false);
+      expect(diags).toHaveLength(0);
+    });
+
+    it('does not flag Factory suffix when base class exists', () => {
+      const content = diXml(`
+  <type name="Vendor\\Module\\Model\\Existing">
+    <arguments>
+      <argument name="factory" xsi:type="object">Vendor\\Module\\Model\\ExistingFactory</argument>
+    </arguments>
+  </type>`);
+      const project = makeProject();
+
+      const diags = validateSemantics(DI_FILE, content, project, false);
+      expect(diags).toHaveLength(0);
+    });
+
+    it('flags \\Proxy suffix when base class does not exist', () => {
+      const content = diXml(`
+  <type name="Vendor\\Module\\Model\\Existing">
+    <arguments>
+      <argument name="dep" xsi:type="object">Missing\\Class\\Proxy</argument>
+    </arguments>
+  </type>`);
+      const project = makeProject();
+
+      const diags = validateSemantics(DI_FILE, content, project, false);
+      expect(diags).toHaveLength(1);
+      expect(diags[0].message).toContain('not found');
+    });
+  });
+
+  describe('unknown vendor namespace handling', () => {
+    it('does not flag class when vendor namespace is not in PSR-4 map', () => {
+      // Adyen is not in the PSR-4 map, so we can't verify if the class exists
+      const content = diXml('  <type name="Adyen\\Payment\\Model\\SomeClass" />');
+      const project = makeProject();
+
+      const diags = validateSemantics(DI_FILE, content, project, false);
+      expect(diags).toHaveLength(0);
+    });
+
+    it('flags class when vendor namespace IS known in PSR-4 map', () => {
+      // "Vendor\" is known via the PSR-4 entry "Vendor\Module\"
+      const content = diXml('  <type name="Vendor\\Module\\Model\\NonExistent" />');
+      const project = makeProject();
+
+      const diags = validateSemantics(DI_FILE, content, project, false);
+      expect(diags).toHaveLength(1);
+    });
+  });
+
   describe('edge cases', () => {
     it('returns empty when indexing not complete', () => {
       const content = diXml('  <type name="Vendor\\Module\\Model\\NonExistent" />');
