@@ -312,3 +312,44 @@ export interface WebapiReference {
   /** Magento module name in Vendor_Module format. */
   module: string;
 }
+
+// ---- acl.xml types ----
+
+/**
+ * A resource definition found in an acl.xml file.
+ *
+ * acl.xml defines a hierarchical tree of ACL (access control) resources:
+ *   <config><acl><resources>
+ *     <resource id="Magento_Backend::admin" title="...">
+ *       <resource id="Magento_Customer::customer" title="Customer">
+ *         <resource id="Magento_Customer::manage" title="All Customers"/>
+ *       </resource>
+ *     </resource>
+ *   </resources></acl></config>
+ *
+ * These resource IDs are referenced from webapi.xml (<resource ref="..."/>),
+ * menu.xml (resource="..."), system.xml (<resource>...</resource>), and
+ * PHP controllers (const ADMIN_RESOURCE = '...').
+ */
+export interface AclResource {
+  /** The resource ID (e.g., "Magento_Customer::manage"). */
+  id: string;
+  /** Human-readable title from the title attribute. */
+  title: string;
+  /** Parent resource ID, or undefined for top-level resources. */
+  parentId?: string;
+  /** Full hierarchy path from root to this resource (array of resource IDs). */
+  hierarchyPath: string[];
+  /** sortOrder attribute value, if present. */
+  sortOrder?: number;
+  /** Absolute filesystem path to the acl.xml file. */
+  file: string;
+  /** 0-based line number of the id attribute value. */
+  line: number;
+  /** 0-based column where the id value starts. */
+  column: number;
+  /** 0-based column where the id value ends. */
+  endColumn: number;
+  /** Magento module name in Vendor_Module format. */
+  module: string;
+}

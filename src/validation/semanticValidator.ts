@@ -334,6 +334,18 @@ function validateWebapiXml(
       }
     }
 
+    // Warn when a resource-ref points to an ACL resource not defined in any acl.xml.
+    // "self" and "anonymous" are special Magento built-in values, not ACL resource IDs.
+    if (ref.kind === 'resource-ref' && ref.value !== 'self' && ref.value !== 'anonymous') {
+      if (project.aclIndex.getAllResources(ref.value).length === 0) {
+        diagnostics.push(makeDiagnostic(
+          ref.line, ref.column, ref.endColumn,
+          `ACL resource "${ref.value}" not defined in any acl.xml`,
+          DiagnosticSeverity.Warning,
+        ));
+      }
+    }
+
     if (ref.kind === 'service-method' && ref.fqcn && includeExpensiveChecks) {
       const classFile = resolveClassFile(ref.fqcn, project.psr4Map);
       if (classFile) {

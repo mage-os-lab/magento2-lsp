@@ -36,16 +36,19 @@ import {
   discoverDiXmlFiles,
   discoverEventsXmlFiles,
   discoverWebapiXmlFiles,
+  discoverAclXmlFiles,
   deriveDiXmlContext,
   deriveEventsXmlContext,
   deriveSystemXmlContext,
   deriveWebapiXmlContext,
+  deriveAclXmlContext,
 } from './project/moduleResolver';
 import { parseDiXml, DiXmlParseContext } from './indexer/diXmlParser';
 import { parseEventsXml, EventsXmlParseContext } from './indexer/eventsXmlParser';
 import { parseLayoutXml } from './indexer/layoutXmlParser';
 import { parseSystemXml, SystemXmlParseContext } from './indexer/systemXmlParser';
 import { parseWebapiXml, WebapiXmlParseContext } from './indexer/webapiXmlParser';
+import { parseAclXml, AclXmlParseContext } from './indexer/aclXmlParser';
 import { resolveFileToFqcn } from './indexer/phpClassLocator';
 import { realpath } from './utils/realpath';
 import { validateXmlFile, isXmllintAvailable, invalidateCatalogCache } from './validation/xsdValidator';
@@ -521,6 +524,45 @@ function setupFileWatchers(project: import('./project/projectManager').ProjectCo
     saveCache: () => project.cache.save(),
   });
   watchers.push(webapiWatcher);
+
+  // --- acl.xml watcher ---
+  const aclWatchPatterns: string[] = [];
+  const aclContextMap = new Map<string, AclXmlParseContext>();
+
+  for (const mod of project.modules) {
+    const files = discoverAclXmlFiles(mod.path);
+    for (const f of files) {
+      aclWatchPatterns.push(f.file);
+      aclContextMap.set(f.file, { file: f.file, module: mod.name });
+    }
+    // Also watch for new acl.xml files
+    aclWatchPatterns.push(path.join(mod.path, 'etc', 'acl.xml'));
+  }
+
+  function getAclContext(file: string): AclXmlParseContext | undefined {
+    const cached = aclContextMap.get(file);
+    if (cached) return cached;
+    const ctx = deriveAclXmlContext(file, project.modules);
+    if (ctx) aclContextMap.set(file, ctx);
+    return ctx;
+  }
+
+  const aclWatcher = createXmlWatcher({
+    patterns: aclWatchPatterns,
+    resolveContext: getAclContext,
+    parse: parseAclXml,
+    onParsed(file, mtimeMs, result) {
+      project.aclIndex.removeFile(file);
+      project.aclIndex.addFile(file, result.resources);
+      project.cache.setAclEntry(file, mtimeMs, result.resources);
+    },
+    onRemoved(file) {
+      project.aclIndex.removeFile(file);
+      project.cache.removeAclEntry(file);
+    },
+    saveCache: () => project.cache.save(),
+  });
+  watchers.push(aclWatcher);
 
   // --- PHP file watcher ---
   // Invalidates MagicMethodIndex and ClassHierarchy caches when PHP files change.

@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<config>
+    <acl>
+        <resources>
+            <resource id="Magento_Backend::admin" title="Magento Admin">
+                <resource id="Test_ModuleFoo::items" title="Items" sortOrder="30">
+                    <resource id="Test_ModuleFoo::items_view" title="View Items" sortOrder="10"/>
+                    <resource id="Test_ModuleFoo::items_manage" title="Manage Items" sortOrder="20"/>
+                </resource>
+            </resource>
+        </resources>
+    </acl>
+</config>

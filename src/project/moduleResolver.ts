@@ -21,6 +21,7 @@ import { DiXmlParseContext } from '../indexer/diXmlParser';
 import { EventsXmlParseContext } from '../indexer/eventsXmlParser';
 import { SystemXmlParseContext } from '../indexer/systemXmlParser';
 import { WebapiXmlParseContext } from '../indexer/webapiXmlParser';
+import { AclXmlParseContext } from '../indexer/aclXmlParser';
 import { realpath } from '../utils/realpath';
 import { fileExists, isDirectory } from '../utils/fsHelpers';
 import { readComposerPackages } from '../utils/composerPackages';
@@ -310,6 +311,39 @@ export function deriveWebapiXmlContext(
     const relPath = path.relative(mod.path, filePath);
     const parts = relPath.split(path.sep);
     if (parts[0] === 'etc' && parts[parts.length - 1] === 'webapi.xml') {
+      return { file: filePath, module: mod.name };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Discover the acl.xml file for a module, if it exists.
+ *
+ * Unlike di.xml or events.xml, acl.xml has no area scoping — it only lives
+ * at etc/acl.xml (never under etc/frontend/, etc/adminhtml/, etc.).
+ */
+export function discoverAclXmlFiles(
+  modulePath: string,
+): { file: string }[] {
+  const aclFile = path.join(modulePath, 'etc', 'acl.xml');
+  return fileExists(aclFile) ? [{ file: aclFile }] : [];
+}
+
+/**
+ * Derive the acl.xml parse context for a file.
+ * Returns undefined if the file is not an acl.xml within a known module.
+ */
+export function deriveAclXmlContext(
+  filePath: string,
+  modules: ModuleInfo[],
+): AclXmlParseContext | undefined {
+  if (!filePath.endsWith('/acl.xml')) return undefined;
+
+  for (const mod of modules) {
+    if (!filePath.startsWith(mod.path)) continue;
+    const relPath = path.relative(mod.path, filePath);
+    if (relPath === path.join('etc', 'acl.xml')) {
       return { file: filePath, module: mod.name };
     }
   }

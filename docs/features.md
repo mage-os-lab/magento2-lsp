@@ -74,13 +74,19 @@ Complete list of LSP features provided by magento2-lsp.
 - **Go to Definition** from `method` attribute on `<service>`: jump to the specific method on the PHP service interface
 - **Find References** from a service class in `webapi.xml`: shows all `webapi.xml` routes and `di.xml` references for that class
 - **Find References** from a service method in `webapi.xml`: shows all routes using that method on the same interface
-- **Find References** from a `<resource ref="...">` in `webapi.xml`: shows all routes using that ACL resource
+- **Find References** from a `<resource ref="...">` in `webapi.xml`: shows all routes using that ACL resource plus the acl.xml definition
 - **Find References** from a PHP class declaration: includes `webapi.xml` service class references (checks implemented interfaces)
 - **Find References** from a PHP method declaration: shows `webapi.xml` routes that map to that method (checks the class itself and its interfaces)
 - **Code Lens** on PHP service interface methods: shows the REST route (e.g., `GET /V1/customers/:customerId`) for each method referenced in `webapi.xml`
 - **Hover** on service class: shows REST route URL, HTTP method, and class name
 - **Hover** on service method: shows REST route URL, HTTP method, and fully qualified method reference
-- **Hover** on `<resource ref="...">`: shows ACL resource with route context; special explanations for `self` (requires authenticated customer) and `anonymous` (no authentication required)
+- **Hover** on `<resource ref="...">`: shows ACL resource with title, hierarchy path, and route context; special explanations for `self` (requires authenticated customer) and `anonymous` (no authentication required)
+
+## acl.xml Navigation
+
+- **Go to Definition** from `<resource ref="...">` in `webapi.xml`: jump to the `<resource>` declaration in acl.xml
+- **Find References** from a `<resource>` in `acl.xml`: shows all `webapi.xml` routes that reference that ACL resource
+- **Hover** on `<resource>` in `acl.xml`: shows resource title, hierarchy path (e.g., `Magento Admin > Customers > All Customers`), module, and webapi.xml usage count
 
 ## Semantic Diagnostics
 
@@ -91,6 +97,7 @@ Complete list of LSP features provided by magento2-lsp.
 - **Broken model references** in `system.xml`: error when a `source_model`, `backend_model`, or `frontend_model` FQCN doesn't resolve to a PHP file
 - **Broken service class references** in `webapi.xml`: error when a `<service class="..."/>` FQCN doesn't resolve to a PHP file
 - **Missing service methods** in `webapi.xml`: warning when a `<service method="..."/>` method is not found on the service class (checked on save)
+- **Undefined ACL resource** in `webapi.xml`: warning when a `<resource ref="...">` value (other than `self`/`anonymous`) is not defined in any acl.xml file
 
 Diagnostics update on every keystroke (debounced). Expensive checks (duplicate plugins, ObserverInterface) also run on file open and save.
 
@@ -107,6 +114,7 @@ Diagnostics update on every keystroke (debounced). Expensive checks (duplicate p
 - **Hover** on class and template references in layout XML: shows block class info and template resolution paths
 - **Hover** on `system.xml` elements: shows config path, label, module, and model class info
 - **Hover** on `webapi.xml` elements: shows REST route, HTTP method, service class/method, and ACL resource info
+- **Hover** on `acl.xml` resources: shows resource title, hierarchy path, module, and webapi.xml usage count
 
 ## Workspace Symbol Search
 

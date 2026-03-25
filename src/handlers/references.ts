@@ -115,8 +115,19 @@ async function handleXmlReferences(
       return refsToLocations(project.webapiIndex.getRefsForMethod(webapiRef.fqcn, webapiRef.methodName));
     }
     if (webapiRef.kind === 'resource-ref') {
-      return refsToLocations(project.webapiIndex.getRefsForResource(webapiRef.value));
+      // Include both webapi.xml usages and the acl.xml definition(s)
+      const webapiRefs = project.webapiIndex.getRefsForResource(webapiRef.value);
+      const aclDefs = project.aclIndex.getAllResources(webapiRef.value);
+      return refsToLocations([...webapiRefs, ...aclDefs]);
     }
+  }
+
+  // --- Try acl.xml ---
+  const aclResource = project.aclIndex.getResourceAtPosition(filePath, line, character);
+  if (aclResource) {
+    // From an acl.xml resource definition, find all webapi.xml routes that reference it
+    const webapiRefs = project.webapiIndex.getRefsForResource(aclResource.id);
+    return refsToLocations(webapiRefs);
   }
 
   // --- Try events.xml ---

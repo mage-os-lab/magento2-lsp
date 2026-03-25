@@ -150,11 +150,50 @@ export function handleHover(
         } else if (webapiRef.value === 'anonymous') {
           value = `**ACL** \`anonymous\` — no authentication required\n\nRoute: \`${webapiRef.httpMethod} ${webapiRef.routeUrl}\``;
         } else {
-          value = `**ACL Resource** \`${webapiRef.value}\`\n\nRoute: \`${webapiRef.httpMethod} ${webapiRef.routeUrl}\``;
+          // Enrich with title and hierarchy from acl.xml when available
+          const aclDef = project.aclIndex.getResource(webapiRef.value);
+          value = `**ACL Resource** \`${webapiRef.value}\``;
+          if (aclDef?.title) {
+            value += `\n\nTitle: ${aclDef.title}`;
+            // Show hierarchy path using titles where available
+            if (aclDef.hierarchyPath.length > 1) {
+              const pathTitles = aclDef.hierarchyPath.map((id) => {
+                const res = project.aclIndex.getResource(id);
+                return res?.title || id;
+              });
+              value += `\n\nPath: ${pathTitles.join(' > ')}`;
+            }
+          }
+          value += `\n\nRoute: \`${webapiRef.httpMethod} ${webapiRef.routeUrl}\``;
         }
         break;
       default:
         return null;
+    }
+    return { contents: { kind: MarkupKind.Markdown, value }, range };
+  }
+
+  // --- Try acl.xml ---
+  const aclResource = project.aclIndex.getResourceAtPosition(filePath, line, character);
+  if (aclResource) {
+    const range = Range.create(aclResource.line, aclResource.column, aclResource.line, aclResource.endColumn);
+    let value = `**ACL Resource** \`${aclResource.id}\``;
+    if (aclResource.title) {
+      value += `\n\nTitle: ${aclResource.title}`;
+    }
+    // Show hierarchy path using titles where available
+    if (aclResource.hierarchyPath.length > 1) {
+      const pathTitles = aclResource.hierarchyPath.map((id) => {
+        const res = project.aclIndex.getResource(id);
+        return res?.title || id;
+      });
+      value += `\n\nPath: ${pathTitles.join(' > ')}`;
+    }
+    value += `\n\nModule: ${aclResource.module}`;
+    // Show how many webapi.xml routes reference this resource
+    const webapiRefs = project.webapiIndex.getRefsForResource(aclResource.id);
+    if (webapiRefs.length > 0) {
+      value += `\n\nReferenced in ${webapiRefs.length} webapi.xml route${webapiRefs.length === 1 ? '' : 's'}`;
     }
     return { contents: { kind: MarkupKind.Markdown, value }, range };
   }

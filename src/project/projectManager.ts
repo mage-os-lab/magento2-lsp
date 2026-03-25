@@ -16,6 +16,7 @@ import {
   discoverDiXmlFiles,
   discoverEventsXmlFiles,
   discoverWebapiXmlFiles,
+  discoverAclXmlFiles,
 } from './moduleResolver';
 import { buildPsr4Map } from './composerAutoload';
 import { ThemeResolver } from './themeResolver';
@@ -31,9 +32,11 @@ import { MagicMethodIndex } from '../index/magicMethodIndex';
 import { CompatModuleIndex } from '../index/compatModuleIndex';
 import { SystemConfigIndex } from '../index/systemConfigIndex';
 import { WebapiIndex } from '../index/webapiIndex';
+import { AclIndex } from '../index/aclIndex';
 import { parseCompatModuleRegistrations } from '../indexer/compatModuleParser';
 import { parseSystemXml } from '../indexer/systemXmlParser';
 import { parseWebapiXml } from '../indexer/webapiXmlParser';
+import { parseAclXml } from '../indexer/aclXmlParser';
 import { ModuleInfo, Psr4Map } from '../indexer/types';
 import { fileExists } from '../utils/fsHelpers';
 import * as fs from 'fs';
@@ -65,6 +68,8 @@ export interface ProjectContext {
   systemConfigIndex: SystemConfigIndex;
   /** In-memory webapi.xml route/service index for this project. */
   webapiIndex: WebapiIndex;
+  /** In-memory acl.xml resource definition index for this project. */
+  aclIndex: AclIndex;
   /** Disk cache for this project's parse results. */
   cache: IndexCache;
   /** True once the initial indexing pass is complete. */
@@ -290,6 +295,38 @@ export class ProjectManager {
     const t3c = Date.now();
     console.error(`[magento2-lsp]   webapi.xml (${allWebapiFiles.length} files, ${webapiCacheHits} cached): ${t3c - t3b}ms`);
 
+    // --- Index acl.xml files (cached) ---
+    const aclIndex = new AclIndex();
+    const allAclFiles: string[] = [];
+    let aclCacheHits = 0;
+
+    for (const mod of modules) {
+      const aclFiles = discoverAclXmlFiles(mod.path);
+      for (const f of aclFiles) {
+        allAclFiles.push(f.file);
+        try {
+          const stat = fs.statSync(f.file);
+          const cached = cache.getAclEntry(f.file, stat.mtimeMs);
+
+          if (cached) {
+            aclCacheHits++;
+            aclIndex.addFile(f.file, cached.resources);
+          } else {
+            const content = fs.readFileSync(f.file, 'utf-8');
+            const result = parseAclXml(content, { file: f.file, module: mod.name });
+            aclIndex.addFile(f.file, result.resources);
+            cache.setAclEntry(f.file, stat.mtimeMs, result.resources);
+          }
+        } catch {
+          // Skip unreadable files
+        }
+      }
+    }
+
+    cache.pruneAclFiles(new Set(allAclFiles));
+    const t3d = Date.now();
+    console.error(`[magento2-lsp]   acl.xml (${allAclFiles.length} files, ${aclCacheHits} cached): ${t3d - t3c}ms`);
+
     // --- Discover themes and index layout XML files (cached) ---
     const themeResolver = new ThemeResolver();
     themeResolver.discover(root);
@@ -400,6 +437,7 @@ export class ProjectManager {
       compatModuleIndex,
       systemConfigIndex,
       webapiIndex,
+      aclIndex,
       cache,
       indexingComplete: true,
     };

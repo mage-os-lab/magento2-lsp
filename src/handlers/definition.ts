@@ -201,7 +201,29 @@ export function handleDefinition(
         );
       }
     }
-    // resource-ref: no navigation (future: acl.xml Feature #8)
+    // resource-ref: navigate to acl.xml definition
+    if (webapiRef.kind === 'resource-ref') {
+      // "self" and "anonymous" are special built-in resource values, not ACL resource IDs
+      if (webapiRef.value === 'self' || webapiRef.value === 'anonymous') return null;
+      const aclDef = project.aclIndex.getResource(webapiRef.value);
+      if (aclDef) {
+        return Location.create(
+          URI.file(aclDef.file).toString(),
+          Range.create(aclDef.line, aclDef.column, aclDef.line, aclDef.endColumn),
+        );
+      }
+    }
+    return null;
+  }
+
+  // --- Try acl.xml ---
+  const aclResource = project.aclIndex.getResourceAtPosition(
+    filePath,
+    params.position.line,
+    params.position.character,
+  );
+  if (aclResource) {
+    // Cursor IS the definition — nothing to navigate to (same pattern as system.xml field-id)
     return null;
   }
 
