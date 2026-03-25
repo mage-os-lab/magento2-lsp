@@ -259,6 +259,21 @@ export class PluginMethodIndex {
     return this.hierarchy.getAncestors(classFqcn);
   }
 
+  /** Ensure a class has been scanned for hierarchy data (extends/implements). */
+  ensureScanned(fqcn: string, psr4Map: Psr4Map): void {
+    this.hierarchy.buildForClasses([fqcn], psr4Map);
+  }
+
+  /** Get the direct parent class FQCN, or undefined if none. */
+  getParent(fqcn: string): string | undefined {
+    return this.hierarchy.getParent(fqcn);
+  }
+
+  /** Get the directly implemented interface FQCNs. */
+  getInterfaces(fqcn: string): string[] {
+    return this.hierarchy.getInterfaces(fqcn);
+  }
+
   /** Invalidate hierarchy data for a class (e.g., when its PHP file changes). */
   invalidateHierarchy(fqcn: string): void {
     this.hierarchy.invalidateClass(fqcn);

@@ -118,4 +118,14 @@ export class ClassHierarchy {
 
     return ancestors;
   }
+
+  /** Get the direct parent class of an FQCN, or undefined if none / not scanned. */
+  getParent(fqcn: string): string | undefined {
+    return this.parentMap.get(fqcn);
+  }
+
+  /** Get the directly implemented interfaces of an FQCN, or empty array if none / not scanned. */
+  getInterfaces(fqcn: string): string[] {
+    return this.interfacesMap.get(fqcn) ?? [];
+  }
 }

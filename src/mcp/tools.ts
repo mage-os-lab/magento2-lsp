@@ -15,5 +15,7 @@ export {
   handleGetClassContext,
   handleGetModuleOverview,
   handleResolveClass,
+  handleSearchSymbols,
+  handleGetClassHierarchy,
   handleReindex,
 } from './handlers';

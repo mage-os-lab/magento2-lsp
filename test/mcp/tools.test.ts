@@ -9,6 +9,8 @@ import {
   handleGetClassContext,
   handleGetModuleOverview,
   handleResolveClass,
+  handleSearchSymbols,
+  handleGetClassHierarchy,
   handleReindex,
 } from '../../src/mcp/tools';
 
@@ -419,6 +421,122 @@ describe('MCP tools', () => {
     it('returns error when neither fqcn nor phpFile provided', async () => {
       const result = await handleResolveClass(pm, { filePath: FIXTURE_FILE });
       expect(result).toHaveProperty('error');
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // magento_search_symbols
+  // -----------------------------------------------------------------------
+
+  describe('magento_search_symbols', () => {
+    it('matches DI-configured FQCNs with class file path', async () => {
+      const result = await handleSearchSymbols(pm, {
+        filePath: FIXTURE_FILE,
+        query: 'FooInterface',
+      }) as { resultCount: number; results: { name: string; kind: string; file: string; classFile?: string }[] };
+      expect(result.resultCount).toBeGreaterThanOrEqual(1);
+      const match = result.results.find((r) => r.name === 'Test\\Foo\\Api\\FooInterface');
+      expect(match).toBeDefined();
+      expect(match!.kind).toBe('class');
+      expect(match!.classFile).toContain('FooInterface.php');
+    });
+
+    it('matches virtual types', async () => {
+      const result = await handleSearchSymbols(pm, {
+        filePath: FIXTURE_FILE,
+        query: 'CustomBar',
+      }) as { results: { name: string; kind: string }[] };
+      const match = result.results.find((r) => r.kind === 'virtualType');
+      expect(match).toBeDefined();
+      expect(match!.name).toBe('CustomBarVirtual');
+    });
+
+    it('matches event names', async () => {
+      const result = await handleSearchSymbols(pm, {
+        filePath: FIXTURE_FILE,
+        query: 'test_foo',
+      }) as { results: { name: string; kind: string }[] };
+      const events = result.results.filter((r) => r.kind === 'event');
+      expect(events.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('is case-insensitive', async () => {
+      const result = await handleSearchSymbols(pm, {
+        filePath: FIXTURE_FILE,
+        query: 'foointerface',
+      }) as { results: { name: string }[] };
+      const match = result.results.find((r) => r.name === 'Test\\Foo\\Api\\FooInterface');
+      expect(match).toBeDefined();
+    });
+
+    it('rejects queries shorter than 2 characters', async () => {
+      const result = await handleSearchSymbols(pm, {
+        filePath: FIXTURE_FILE,
+        query: 'F',
+      }) as { error: string };
+      expect(result.error).toBeDefined();
+    });
+
+    it('returns empty results for no matches', async () => {
+      const result = await handleSearchSymbols(pm, {
+        filePath: FIXTURE_FILE,
+        query: 'ZzNonExistentZz',
+      }) as { resultCount: number; results: unknown[] };
+      expect(result.resultCount).toBe(0);
+      expect(result.results).toEqual([]);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // magento_get_class_hierarchy
+  // -----------------------------------------------------------------------
+
+  describe('magento_get_class_hierarchy', () => {
+    it('returns interfaces for a class that implements an interface', async () => {
+      const result = await handleGetClassHierarchy(pm, {
+        filePath: FIXTURE_FILE,
+        fqcn: 'Test\\Foo\\Model\\Foo',
+      }) as { parentClass: string | null; interfaces: string[]; ancestors: string[] };
+      expect(result.parentClass).toBeNull();
+      expect(result.interfaces).toContain('Test\\Foo\\Api\\FooInterface');
+    });
+
+    it('returns parent class and interfaces for a class with both', async () => {
+      const result = await handleGetClassHierarchy(pm, {
+        filePath: FIXTURE_FILE,
+        fqcn: 'Test\\Foo\\Model\\Storage',
+      }) as { parentClass: string | null; interfaces: string[]; ancestors: string[] };
+      expect(result.parentClass).toBe('Test\\Foo\\Model\\DataObject');
+      expect(result.interfaces).toContain('Test\\Foo\\Api\\StorageInterface');
+    });
+
+    it('returns full ancestor chain', async () => {
+      const result = await handleGetClassHierarchy(pm, {
+        filePath: FIXTURE_FILE,
+        fqcn: 'Test\\Foo\\Model\\Storage',
+      }) as { ancestors: string[] };
+      expect(result.ancestors).toContain('Test\\Foo\\Model\\DataObject');
+      expect(result.ancestors).toContain('Test\\Foo\\Api\\StorageInterface');
+    });
+
+    it('returns classFile and module', async () => {
+      const result = await handleGetClassHierarchy(pm, {
+        filePath: FIXTURE_FILE,
+        fqcn: 'Test\\Foo\\Model\\Foo',
+      }) as { classFile: string | null; module: string | null };
+      expect(result.classFile).toContain('Foo.php');
+      expect(result.module).toBe('Test_Foo');
+    });
+
+    it('returns empty results for unknown FQCN', async () => {
+      const result = await handleGetClassHierarchy(pm, {
+        filePath: FIXTURE_FILE,
+        fqcn: 'NonExistent\\Class\\Name',
+      }) as { parentClass: string | null; interfaces: string[]; ancestors: string[]; classFile: string | null };
+      expect(result.parentClass).toBeNull();
+      expect(result.interfaces).toEqual([]);
+      expect(result.ancestors).toEqual([]);
+      expect(result.classFile).toBeNull();
     });
   });
 

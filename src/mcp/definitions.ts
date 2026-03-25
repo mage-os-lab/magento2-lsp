@@ -176,6 +176,43 @@ export const toolDefinitions = [
     },
   },
   {
+    name: 'magento_search_symbols',
+    description:
+      'Search for Magento symbols by name substring: PHP classes/interfaces configured in DI, ' +
+      'virtual types, and event names. Returns up to 100 matches with their type and declaration file. ' +
+      'Use this to discover class names, virtual types, or events when you only know part of the name.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        filePath: filePathProperty,
+        query: {
+          type: 'string',
+          description: 'Search string (minimum 2 characters). Matches case-insensitively against symbol names.',
+        },
+      },
+      required: ['filePath', 'query'],
+    },
+  },
+  {
+    name: 'magento_get_class_hierarchy',
+    description:
+      'Get the class hierarchy for a PHP class: its parent class, implemented interfaces, ' +
+      'and full ancestor chain (all parent classes and interfaces, walking up the inheritance tree). ' +
+      'Use this to understand inheritance relationships and which interfaces a class satisfies.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        filePath: filePathProperty,
+        fqcn: {
+          type: 'string',
+          description:
+            'Fully-qualified PHP class name (e.g., Magento\\Catalog\\Model\\Product)',
+        },
+      },
+      required: ['filePath', 'fqcn'],
+    },
+  },
+  {
     name: 'magento_reindex',
     description:
       'Re-index the Magento project. Call this after creating or modifying modules, ' +

@@ -98,6 +98,26 @@ Find theme overrides and layout XML usages for a template identifier.
 
 **Returns:** Module source template path, theme overrides with theme codes, and layout XML files using the template.
 
+### `magento_search_symbols`
+
+Search for Magento symbols by name substring: PHP classes/interfaces configured in DI, virtual types, and event names. Use this to discover identifiers when you only know part of the name.
+
+**Parameters:**
+- `filePath` (required) — Any file in the Magento project
+- `query` (required) — Search string (minimum 2 characters, case-insensitive)
+
+**Returns:** Up to 100 matches, each with the symbol name, kind (`class`, `virtualType`, or `event`), and the file where it's declared.
+
+### `magento_get_class_hierarchy`
+
+Get the class hierarchy for a PHP class: its parent class, implemented interfaces, and full ancestor chain. Use this to understand inheritance relationships and which interfaces a class satisfies — critical for reasoning about DI preferences and plugin inheritance.
+
+**Parameters:**
+- `filePath` (required) — Any file in the Magento project
+- `fqcn` (required) — Fully-qualified PHP class name
+
+**Returns:** Parent class, directly implemented interfaces, full ancestor chain (all parent classes and interfaces walking up the tree), resolved class file path, and module name.
+
 ### `magento_resolve_class`
 
 Resolve a PHP class: given a file path, returns its FQCN; given a FQCN, returns its file path. Also returns the module the class belongs to. This is a lightweight PSR-4 lookup — use it when you need to map between file paths and class names without querying the full index.

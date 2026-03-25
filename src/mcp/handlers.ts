@@ -606,6 +606,98 @@ export async function handleReindex(
 }
 
 // ---------------------------------------------------------------------------
+// magento_search_symbols
+// ---------------------------------------------------------------------------
+
+const MAX_SEARCH_RESULTS = 100;
+
+export async function handleSearchSymbols(
+  pm: ProjectManager,
+  args: unknown,
+) {
+  const params = validateParams(args, ['filePath', 'query']);
+  const query = (params.query as string).toLowerCase();
+  if (query.length < 2) {
+    return { error: 'Query must be at least 2 characters' };
+  }
+
+  const project = await resolveProject(pm, params.filePath);
+  const root = project.root;
+  const results: { name: string; kind: string; file: string; classFile?: string }[] = [];
+
+  // Search DI-configured FQCNs
+  for (const fqcn of project.index.getAllFqcns()) {
+    if (results.length >= MAX_SEARCH_RESULTS) break;
+    if (!fqcn.toLowerCase().includes(query)) continue;
+    const refs = project.index.getReferencesForFqcn(fqcn);
+    if (refs.length > 0) {
+      const resolved = resolveClassFile(fqcn, project.psr4Map);
+      results.push({
+        name: fqcn,
+        kind: 'class',
+        file: relPath(refs[0].file, root),
+        ...(resolved ? { classFile: relPath(resolved, root) } : {}),
+      });
+    }
+  }
+
+  // Search virtual types
+  for (const name of project.index.getAllVirtualTypeNames()) {
+    if (results.length >= MAX_SEARCH_RESULTS) break;
+    if (!name.toLowerCase().includes(query)) continue;
+    const decls = project.index.getAllVirtualTypeDecls(name);
+    if (decls.length > 0) {
+      results.push({ name, kind: 'virtualType', file: relPath(decls[0].file, root) });
+    }
+  }
+
+  // Search event names
+  for (const eventName of project.eventsIndex.getAllEventNames()) {
+    if (results.length >= MAX_SEARCH_RESULTS) break;
+    if (!eventName.toLowerCase().includes(query)) continue;
+    const refs = project.eventsIndex.getEventNameRefs(eventName);
+    if (refs.length > 0) {
+      results.push({ name: eventName, kind: 'event', file: relPath(refs[0].file, root) });
+    }
+  }
+
+  return { query: params.query as string, resultCount: results.length, results };
+}
+
+// ---------------------------------------------------------------------------
+// magento_get_class_hierarchy
+// ---------------------------------------------------------------------------
+
+export async function handleGetClassHierarchy(
+  pm: ProjectManager,
+  args: unknown,
+) {
+  const params = validateParams(args, ['filePath', 'fqcn']);
+  const project = await resolveProject(pm, params.filePath);
+  const fqcn = params.fqcn as string;
+  const root = project.root;
+
+  // Ensure the class is scanned (it may not have been referenced in di.xml)
+  project.pluginMethodIndex.ensureScanned(fqcn, project.psr4Map);
+
+  const parentClass = project.pluginMethodIndex.getParent(fqcn) ?? null;
+  const interfaces = project.pluginMethodIndex.getInterfaces(fqcn);
+  const ancestors = project.pluginMethodIndex.getAncestors(fqcn);
+
+  const classFile = resolveClassFile(fqcn, project.psr4Map);
+  const mod = classFile ? findModuleForFile(classFile, project.modules) : undefined;
+
+  return {
+    fqcn,
+    classFile: classFile ? relPath(classFile, root) : null,
+    module: mod ? mod.name : null,
+    parentClass,
+    interfaces,
+    ancestors,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Tool handler registry (maps tool name -> handler, eliminates switch/case dispatch)
 // ---------------------------------------------------------------------------
 
@@ -619,5 +711,7 @@ export const toolHandlers = new Map<string, ToolHandler>([
   ['magento_get_class_context', handleGetClassContext],
   ['magento_get_module_overview', handleGetModuleOverview],
   ['magento_resolve_class', handleResolveClass],
+  ['magento_search_symbols', handleSearchSymbols],
+  ['magento_get_class_hierarchy', handleGetClassHierarchy],
   ['magento_reindex', handleReindex],
 ]);
