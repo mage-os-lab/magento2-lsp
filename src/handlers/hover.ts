@@ -89,6 +89,49 @@ export function handleHover(
     };
   }
 
+  // --- Try system.xml ---
+  const sysRef = project.systemConfigIndex.getReferenceAtPosition(filePath, line, character);
+  if (sysRef) {
+    const range = Range.create(sysRef.line, sysRef.column, sysRef.line, sysRef.endColumn);
+    const isPartial = filePath.includes('/etc/adminhtml/system/');
+    const pathDisplay = isPartial ? `…/${sysRef.configPath}` : sysRef.configPath;
+    let value: string;
+
+    switch (sysRef.kind) {
+      case 'section-id':
+        value = `**Config section** \`${pathDisplay}\``;
+        if (sysRef.label) value += `\n\nLabel: ${sysRef.label}`;
+        value += `\n\nModule: ${sysRef.module}`;
+        if (isPartial) value += `\n\n*Include partial — full path has a prefix from parent system.xml*`;
+        break;
+      case 'group-id':
+        value = `**Config group** \`${pathDisplay}\``;
+        if (sysRef.label) value += `\n\nLabel: ${sysRef.label}`;
+        value += `\n\nModule: ${sysRef.module}`;
+        if (isPartial) value += `\n\n*Include partial — full path has a prefix from parent system.xml*`;
+        break;
+      case 'field-id':
+        value = `**Config field** \`${pathDisplay}\``;
+        if (sysRef.label) value += `\n\nLabel: ${sysRef.label}`;
+        value += `\n\nModule: ${sysRef.module}`;
+        if (isPartial) value += `\n\n*Include partial — full path has a prefix from parent system.xml*`;
+        break;
+      case 'source-model':
+        value = `**Source model** for \`${pathDisplay}\`\n\nClass: \`${sysRef.fqcn}\``;
+        break;
+      case 'backend-model':
+        value = `**Backend model** for \`${pathDisplay}\`\n\nClass: \`${sysRef.fqcn}\``;
+        break;
+      case 'frontend-model':
+        value = `**Frontend model** for \`${pathDisplay}\`\n\nClass: \`${sysRef.fqcn}\``;
+        break;
+      default:
+        return null;
+    }
+
+    return { contents: { kind: MarkupKind.Markdown, value }, range };
+  }
+
   // --- Try events.xml ---
   const eventsRef = project.eventsIndex.getReferenceAtPosition(filePath, line, character);
   if (eventsRef) {

@@ -21,7 +21,7 @@ describe('events.xml integration', () => {
   }
 
   describe('definition', () => {
-    it('navigates from observer instance in events.xml to PHP class', () => {
+    it('navigates from observer instance in events.xml to PHP class', async () => {
       const eventsXml = path.join(
         FIXTURE_ROOT,
         'vendor/test/module-foo/etc/events.xml',
@@ -44,7 +44,7 @@ describe('events.xml integration', () => {
   });
 
   describe('references', () => {
-    it('from event name in events.xml shows all observers', () => {
+    it('from event name in events.xml shows all observers', async () => {
       const eventsXml = path.join(
         FIXTURE_ROOT,
         'vendor/test/module-foo/etc/events.xml',
@@ -52,7 +52,7 @@ describe('events.xml integration', () => {
       const eventRefs = project.eventsIndex.getEventNameRefs('test_foo_load_after');
       const eventRef = eventRefs[0];
 
-      const result = handleReferences(
+      const result = await handleReferences(
         {
           textDocument: { uri: URI.file(eventsXml).toString() },
           position: { line: eventRef.line, character: eventRef.column },
@@ -65,7 +65,7 @@ describe('events.xml integration', () => {
       expect(result!).toHaveLength(2);
     });
 
-    it('from observer instance in events.xml shows all registrations for that class', () => {
+    it('from observer instance in events.xml shows all registrations for that class', async () => {
       const eventsXml = path.join(
         FIXTURE_ROOT,
         'vendor/test/module-foo/etc/events.xml',
@@ -73,7 +73,7 @@ describe('events.xml integration', () => {
       const observers = project.eventsIndex.getObserversForEvent('test_foo_save_after');
       const obs = observers[0];
 
-      const result = handleReferences(
+      const result = await handleReferences(
         {
           textDocument: { uri: URI.file(eventsXml).toString() },
           position: { line: obs.line, character: obs.column },
@@ -85,14 +85,14 @@ describe('events.xml integration', () => {
       expect(result!.length).toBeGreaterThanOrEqual(1);
     });
 
-    it('from PHP observer class declaration shows events.xml refs', () => {
+    it('from PHP observer class declaration shows events.xml refs', async () => {
       const phpFile = path.join(
         FIXTURE_ROOT,
         'vendor/test/module-foo/Observer/FooSaveObserver.php',
       );
       // Line 7 (0-based): "class FooSaveObserver implements ObserverInterface"
       // class name at col 6
-      const result = handleReferences(
+      const result = await handleReferences(
         {
           textDocument: { uri: URI.file(phpFile).toString() },
           position: { line: 7, character: 6 },
@@ -108,14 +108,14 @@ describe('events.xml integration', () => {
       expect(xmlResults.length).toBeGreaterThanOrEqual(1);
     });
 
-    it('from observer execute() method shows events.xml refs', () => {
+    it('from observer execute() method shows events.xml refs', async () => {
       const phpFile = path.join(
         FIXTURE_ROOT,
         'vendor/test/module-foo/Observer/FooSaveObserver.php',
       );
       // Line 9 (0-based): "    public function execute(Observer $observer): void {}"
       // "execute" at col 20
-      const result = handleReferences(
+      const result = await handleReferences(
         {
           textDocument: { uri: URI.file(phpFile).toString() },
           position: { line: 9, character: 20 },
@@ -129,7 +129,7 @@ describe('events.xml integration', () => {
   });
 
   describe('codeLens', () => {
-    it('shows event name on observer execute() method', () => {
+    it('shows event name on observer execute() method', async () => {
       const phpFile = path.join(
         FIXTURE_ROOT,
         'vendor/test/module-foo/Observer/FooSaveObserver.php',

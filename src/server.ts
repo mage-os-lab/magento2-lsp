@@ -36,6 +36,7 @@ import { discoverDiXmlFiles, discoverEventsXmlFiles } from './project/moduleReso
 import { parseDiXml, DiXmlParseContext } from './indexer/diXmlParser';
 import { parseEventsXml, EventsXmlParseContext } from './indexer/eventsXmlParser';
 import { parseLayoutXml } from './indexer/layoutXmlParser';
+import { parseSystemXml, SystemXmlParseContext } from './indexer/systemXmlParser';
 import { resolveFileToFqcn } from './indexer/phpClassLocator';
 import { realpath } from './utils/realpath';
 import { validateXmlFile, isXmllintAvailable, invalidateCatalogCache } from './validation/xsdValidator';
@@ -78,9 +79,34 @@ connection.onDefinition((params, token) => {
   return handleDefinition(params, () => project, token);
 });
 
-connection.onReferences((params, token) => {
+connection.onReferences(async (params, token) => {
   const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
-  return handleReferences(params, () => projectManager.getProjectForFile(filePath), token);
+  const project = projectManager.getProjectForFile(filePath);
+
+  // Show progress for system.xml field references (grep can take a moment)
+  if (project && filePath.endsWith('.xml')) {
+    const sysRef = project.systemConfigIndex.getReferenceAtPosition(
+      filePath, params.position.line, params.position.character,
+    );
+    if (sysRef && !sysRef.fqcn) {
+      const progressToken = `config-refs-${Date.now()}`;
+      try {
+        await connection.sendRequest('window/workDoneProgress/create', { token: progressToken });
+        connection.sendProgress(WorkDoneProgress.type, progressToken, {
+          kind: 'begin',
+          title: 'Searching PHP files',
+          message: sysRef.configPath,
+        });
+        const result = await handleReferences(params, () => project, token);
+        connection.sendProgress(WorkDoneProgress.type, progressToken, { kind: 'end' });
+        return result;
+      } catch {
+        // Client may not support progress — fall through to normal handling
+      }
+    }
+  }
+
+  return handleReferences(params, () => project, token);
 });
 
 connection.onCodeLens((params, token) => {
@@ -90,7 +116,12 @@ connection.onCodeLens((params, token) => {
 
 connection.onHover((params, token) => {
   const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
-  return handleHover(params, () => projectManager.getProjectForFile(filePath), token);
+  const project = projectManager.getProjectForFile(filePath);
+  if (project) {
+    const sysRef = project.systemConfigIndex.getReferenceAtPosition(filePath, params.position.line, params.position.character);
+    log(`onHover: ${filePath} line=${params.position.line} col=${params.position.character} sysConfigFiles=${project.systemConfigIndex.getFileCount()} sysRef=${sysRef ? `${sysRef.kind} ${sysRef.configPath} col=${sysRef.column}-${sysRef.endColumn}` : 'NONE'}`);
+  }
+  return handleHover(params, () => project, token);
 });
 
 connection.onWorkspaceSymbol((params, token) => {
@@ -448,6 +479,56 @@ function setupFileWatchers(project: import('./project/projectManager').ProjectCo
   });
   layoutWatcher.watch(layoutWatchPatterns);
   watchers.push(layoutWatcher);
+
+  // --- system.xml watcher ---
+  const systemConfigWatchPatterns: string[] = [];
+  const systemConfigContextMap = new Map<string, SystemXmlParseContext>();
+
+  for (const mod of project.modules) {
+    const mainFile = path.join(mod.path, 'etc', 'adminhtml', 'system.xml');
+    systemConfigWatchPatterns.push(mainFile);
+    systemConfigContextMap.set(mainFile, { file: mainFile, module: mod.name });
+    // Watch for include partials
+    systemConfigWatchPatterns.push(path.join(mod.path, 'etc', 'adminhtml', 'system', '**', '*.xml'));
+  }
+
+  function getSystemConfigContext(file: string): SystemXmlParseContext | undefined {
+    const cached = systemConfigContextMap.get(file);
+    if (cached) return cached;
+    for (const mod of project.modules) {
+      if (file.startsWith(mod.path) && file.includes('/etc/adminhtml/')) {
+        const ctx: SystemXmlParseContext = { file, module: mod.name };
+        systemConfigContextMap.set(file, ctx);
+        return ctx;
+      }
+    }
+    return undefined;
+  }
+
+  const systemConfigWatcher = new FileWatcher({
+    onFileChange(filePath) {
+      const context = getSystemConfigContext(filePath);
+      if (!context) return;
+      try {
+        const content = fs.readFileSync(filePath, 'utf-8');
+        const stat = fs.statSync(filePath);
+        const result = parseSystemXml(content, context);
+        project.systemConfigIndex.removeFile(filePath);
+        project.systemConfigIndex.addFile(filePath, result.references);
+        project.cache.setSystemConfigEntry(filePath, stat.mtimeMs, result.references);
+        project.cache.save();
+      } catch {
+        // File might be temporarily unreadable during write
+      }
+    },
+    onFileRemove(filePath) {
+      project.systemConfigIndex.removeFile(filePath);
+      project.cache.removeSystemConfigEntry(filePath);
+      project.cache.save();
+    },
+  });
+  systemConfigWatcher.watch(systemConfigWatchPatterns);
+  watchers.push(systemConfigWatcher);
 
   // --- PHP file watcher ---
   // Invalidates MagicMethodIndex and ClassHierarchy caches when PHP files change.

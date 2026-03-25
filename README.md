@@ -57,12 +57,27 @@ Language Server for navigating Magento 2 XML configuration and PHP classes. Work
 - **Code Lens** on magic method calls: shows `→ ClassName::methodName` (or `→ ClassName::__call` for `__call`-dispatched methods)
 - Walks ancestor chains (parent classes, interfaces, traits) and resolves return types through method call chains
 
+### system.xml / Config Path Navigation
+
+- **Go to Definition** from `source_model`, `backend_model`, or `frontend_model` in `system.xml`: jump to the PHP class
+- **Go to Definition** from PHP `scopeConfig->getValue('section/group/field')` or `isSetFlag(...)`: jump to the `<field>` declaration in `system.xml`
+- **Find References** from a `<field>` in `system.xml`: shows all system.xml declarations for that config path across modules, plus all PHP files referencing the config path string
+- **Find References** from a `source_model`/`backend_model`/`frontend_model` FQCN in `system.xml`: shows all system.xml and di.xml references to that class
+- **Find References** from a PHP class declaration: includes system.xml model references
+- **Find References** from a PHP config path string: shows system.xml field declarations and PHP usages
+- **Hover** on `<section>`, `<group>`, `<field>` IDs: shows the config path, label, and module name
+- **Hover** on model FQCNs: shows the model type, parent config path, and class name
+- **Include partials** (e.g., `etc/adminhtml/system/*.xml`) are parsed and indexed — hover indicates partial paths with `…/` prefix
+- **Nested groups** are fully supported (config paths can have 4+ segments)
+- **Semantic validation**: error diagnostics for broken `source_model`, `backend_model`, and `frontend_model` class references
+
 ### Semantic Diagnostics
 
 - **Broken class references** in `di.xml`, `events.xml`, and layout XML: error when a FQCN doesn't resolve to a PHP file via PSR-4 (virtual types, generated classes like `\Proxy` and `Factory`, and uninstalled vendor namespaces are excluded)
 - **Broken template references** in layout XML: warning when a `Module_Name::path/to/template.phtml` identifier doesn't resolve to any `.phtml` file through module or theme paths
 - **Duplicate plugin names**: warning when a `<plugin name="...">` duplicates a name already declared for the same target type, either in the same file or across modules
 - **Missing ObserverInterface**: warning when an observer `instance` class exists but doesn't implement `Magento\Framework\Event\ObserverInterface`
+- **Broken model references** in `system.xml`: error when a `source_model`, `backend_model`, or `frontend_model` FQCN doesn't resolve to a PHP file
 
 Diagnostics update on every keystroke (debounced). Expensive checks (duplicate plugins, ObserverInterface) also run on file open and save.
 
@@ -77,6 +92,7 @@ Diagnostics update on every keystroke (debounced). Expensive checks (duplicate p
 - **Hover** on event names in `events.xml`: shows observer count and registrations
 - **Hover** on observer `instance` in `events.xml`: shows which events the observer handles
 - **Hover** on class and template references in layout XML: shows block class info and template resolution paths
+- **Hover** on `system.xml` elements: shows config path, label, module, and model class info
 
 ### Workspace Symbol Search
 
@@ -242,9 +258,9 @@ magento2-lsp --stdio
 
 1. Detects the Magento project root by walking up from the opened file looking for `app/etc/di.xml`
 2. Reads `app/etc/config.php` to determine active modules and their load order
-3. Discovers all `di.xml`, `events.xml`, and layout XML files from active modules (vendor and app/code)
+3. Discovers all `di.xml`, `events.xml`, `system.xml` (including include partials), and layout XML files from active modules (vendor and app/code)
 4. Discovers themes from `vendor/` packages and `app/design/` directories, resolving parent theme fallback chains
-5. Parses each XML file and builds in-memory indexes mapping PHP class names, templates, and events to their XML locations
+5. Parses each XML file and builds in-memory indexes mapping PHP class names, templates, events, and config paths to their XML locations
 6. Scans `etc/frontend/di.xml` files for Hyvä compatibility module registrations (`CompatModuleRegistry` arguments)
 7. Builds a class hierarchy (extends/implements) to resolve inherited plugins
 8. Builds a plugin method index by reading plugin PHP files for `before`/`after`/`around` methods

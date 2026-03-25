@@ -33,13 +33,14 @@ import { locatePhpClass } from '../indexer/phpClassLocator';
 import { isObserverReference } from '../index/eventsIndex';
 import { realpath } from '../utils/realpath';
 import { reverseResolveTemplateId } from '../utils/templateId';
+import { grepConfigPathInPhp } from '../utils/configPathGrep';
 import * as fs from 'fs';
 
-export function handleReferences(
+export async function handleReferences(
   params: ReferenceParams,
   getProject: (uri: string) => ProjectContext | undefined,
   token?: CancellationToken,
-): Location[] | null {
+): Promise<Location[] | null> {
   const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
   const project = getProject(filePath);
   if (!project) return null;
@@ -63,11 +64,11 @@ export function handleReferences(
  * Handle references from an XML file (di.xml, events.xml, or layout XML).
  * Tries layout XML, then events.xml, then di.xml.
  */
-function handleXmlReferences(
+async function handleXmlReferences(
   filePath: string,
   params: ReferenceParams,
   project: ProjectContext,
-): Location[] | null {
+): Promise<Location[] | null> {
   const { line, character } = params.position;
 
   // --- Try layout XML ---
@@ -82,6 +83,24 @@ function handleXmlReferences(
     const layoutRefs = project.layoutIndex.getReferencesForFqcn(layoutRef.value);
     const diRefs = project.index.getReferencesForFqcn(layoutRef.value);
     return refsToLocations([...layoutRefs, ...diRefs]);
+  }
+
+  // --- Try system.xml ---
+  const sysRef = project.systemConfigIndex.getReferenceAtPosition(filePath, line, character);
+  if (sysRef) {
+    if (sysRef.fqcn) {
+      // source/backend/frontend model -> all refs for that FQCN (system.xml + di.xml)
+      const sysRefs = project.systemConfigIndex.getRefsForFqcn(sysRef.fqcn);
+      const diRefs = project.index.getReferencesForFqcn(sysRef.fqcn);
+      return refsToLocations([...sysRefs, ...diRefs]);
+    }
+    // section/group/field -> XML declarations + PHP usages of this config path
+    const pathRefs = project.systemConfigIndex.getRefsForPath(sysRef.configPath)
+      .filter((r) => r.kind === sysRef.kind);
+    const phpUsages = sysRef.kind === 'field-id'
+      ? await grepConfigPathInPhp(sysRef.configPath, project.root, project.psr4Map)
+      : [];
+    return refsToLocations([...pathRefs, ...phpUsages]);
   }
 
   // --- Try events.xml ---
@@ -109,12 +128,12 @@ function handleXmlReferences(
  *   3. Cursor on a method name in a target class -> di.xml plugin refs + plugin PHP methods
  *   4. Cursor on execute() in an observer class -> events.xml declaration
  */
-function handlePhpReferences(
+async function handlePhpReferences(
   filePath: string,
   params: ReferenceParams,
   project: ProjectContext,
   token?: CancellationToken,
-): Location[] | null {
+): Promise<Location[] | null> {
   let content: string;
   try {
     content = fs.readFileSync(filePath, 'utf-8');
@@ -133,12 +152,13 @@ function handlePhpReferences(
     character >= classInfo.column &&
     character < classInfo.endColumn
   ) {
-    // Include di.xml, events.xml, and layout XML refs for this class,
+    // Include di.xml, events.xml, layout XML, and system.xml refs for this class,
     // plus inherited di.xml refs from ancestor classes/interfaces.
     const allRefs: { file: string; line: number; column: number; endColumn: number }[] = [
       ...project.index.getReferencesForFqcn(classInfo.fqcn),
       ...project.eventsIndex.getObserversForFqcn(classInfo.fqcn),
       ...project.layoutIndex.getReferencesForFqcn(classInfo.fqcn),
+      ...project.systemConfigIndex.getRefsForFqcn(classInfo.fqcn),
     ];
     for (const ancestor of project.pluginMethodIndex.getAncestors(classInfo.fqcn)) {
       allRefs.push(...project.index.getReferencesForFqcn(ancestor));
@@ -262,6 +282,43 @@ function handlePhpReferences(
     }
   }
 
+  // --- Config path detection: scopeConfig->getValue('section/group/field') ---
+  const lines = content.split('\n');
+  const currentLine = lines[line];
+  if (currentLine) {
+    const configRefs = await findPhpConfigPathRefs(currentLine, character, project);
+    if (configRefs) return configRefs;
+  }
+
+  return null;
+}
+
+/** Regex for scopeConfig->getValue('config/path') and isSetFlag('config/path'). */
+const SCOPE_CONFIG_RE = /(?:scopeConfig|_scopeConfig)->(?:getValue|isSetFlag)\s*\(\s*['"]([a-zA-Z0-9_]+(?:\/[a-zA-Z0-9_]+)+)['"]/g;
+
+/**
+ * Check if cursor is on a config path string in a scopeConfig call.
+ * Returns system.xml field declarations + PHP usages of that config path.
+ */
+async function findPhpConfigPathRefs(
+  line: string,
+  character: number,
+  project: ProjectContext,
+): Promise<Location[] | null> {
+  SCOPE_CONFIG_RE.lastIndex = 0;
+  let match;
+  while ((match = SCOPE_CONFIG_RE.exec(line)) !== null) {
+    const configPath = match[1];
+    const pathStart = match.index + match[0].indexOf(configPath);
+    const pathEnd = pathStart + configPath.length;
+
+    if (character >= pathStart && character <= pathEnd) {
+      const fieldRefs = project.systemConfigIndex.getRefsForPath(configPath)
+        .filter((r) => r.kind === 'field-id');
+      const phpUsages = await grepConfigPathInPhp(configPath, project.root, project.psr4Map);
+      return refsToLocations([...fieldRefs, ...phpUsages]);
+    }
+  }
   return null;
 }
 

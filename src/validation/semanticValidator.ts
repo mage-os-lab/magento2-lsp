@@ -22,6 +22,7 @@ import { resolveClassFile } from '../indexer/phpClassLocator';
 import { parseDiXml, DiXmlParseContext } from '../indexer/diXmlParser';
 import { parseEventsXml, EventsXmlParseContext } from '../indexer/eventsXmlParser';
 import { parseLayoutXml } from '../indexer/layoutXmlParser';
+import { parseSystemXml } from '../indexer/systemXmlParser';
 import { extractPhpClass } from '../utils/phpNamespace';
 import type { ProjectContext } from '../project/projectManager';
 import type { DiReference, LayoutReference, Psr4Map, ModuleInfo } from '../indexer/types';
@@ -57,6 +58,11 @@ export function validateSemantics(
 
   if (isLayoutXml(filePath)) {
     return validateLayoutXml(content, filePath, project);
+  }
+
+  const systemConfigContext = deriveSystemConfigContext(filePath, project);
+  if (systemConfigContext) {
+    return validateSystemConfigXml(content, systemConfigContext, project);
   }
 
   return [];
@@ -102,6 +108,25 @@ function deriveEventsContext(
     if (parts[0] === 'etc' && parts[parts.length - 1] === 'events.xml') {
       const area = parts.length === 2 ? 'global' : parts[1];
       return { file: filePath, area, module: mod.name };
+    }
+  }
+  return undefined;
+}
+
+function deriveSystemConfigContext(
+  filePath: string,
+  project: ProjectContext,
+): import('../indexer/systemXmlParser').SystemXmlParseContext | undefined {
+  if (!filePath.endsWith('.xml')) return undefined;
+  // Main system.xml: etc/adminhtml/system.xml
+  // Include partials: etc/adminhtml/system/**/*.xml
+  const isMainSystemXml = filePath.includes('/etc/adminhtml/') && filePath.endsWith('/system.xml');
+  const isIncludePartial = filePath.includes('/etc/adminhtml/system/');
+  if (!isMainSystemXml && !isIncludePartial) return undefined;
+
+  for (const mod of project.modules) {
+    if (filePath.startsWith(mod.path)) {
+      return { file: filePath, module: mod.name };
     }
   }
   return undefined;
@@ -301,6 +326,34 @@ function validateLayoutXml(
           ref.line, ref.column, ref.endColumn,
           `Template "${templateId}" not found`,
           DiagnosticSeverity.Warning,
+        ));
+      }
+    }
+  }
+
+  return diagnostics;
+}
+
+// --- system.xml validation ---
+
+function validateSystemConfigXml(
+  content: string,
+  context: import('../indexer/systemXmlParser').SystemXmlParseContext,
+  project: ProjectContext,
+): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  const { references } = parseSystemXml(content, context);
+
+  for (const ref of references) {
+    if (ref.fqcn && (ref.kind === 'source-model' || ref.kind === 'backend-model' || ref.kind === 'frontend-model')) {
+      if (!classOrVirtualTypeExists(ref.fqcn, project.psr4Map, project.index, new Set())) {
+        const label = ref.kind === 'source-model' ? 'Source model'
+          : ref.kind === 'backend-model' ? 'Backend model'
+          : 'Frontend model';
+        diagnostics.push(makeDiagnostic(
+          ref.line, ref.column, ref.endColumn,
+          `${label} class "${ref.fqcn}" not found`,
+          DiagnosticSeverity.Error,
         ));
       }
     }

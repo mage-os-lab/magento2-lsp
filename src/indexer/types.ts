@@ -211,3 +211,57 @@ export interface LayoutReference {
   /** 0-based column where the value ends. */
   endColumn: number;
 }
+
+// ---- system.xml types ----
+
+/**
+ * Identifies which kind of system.xml element a reference comes from.
+ *
+ * Example system.xml entries and their corresponding kinds:
+ *   <section id="payment">           -> 'section-id'
+ *   <group id="account">             -> 'group-id'
+ *   <field id="active">              -> 'field-id'
+ *   <source_model>FQCN</source_model>   -> 'source-model'
+ *   <backend_model>FQCN</backend_model> -> 'backend-model'
+ *   <frontend_model>FQCN</frontend_model> -> 'frontend-model'
+ */
+export type SystemConfigReferenceKind =
+  | 'section-id'
+  | 'group-id'
+  | 'field-id'
+  | 'source-model'
+  | 'backend-model'
+  | 'frontend-model';
+
+/**
+ * A reference found in a system.xml file (or an included partial).
+ *
+ * system.xml defines the Magento admin configuration structure as a hierarchy:
+ *   <section id="X"> / <group id="Y"> / <field id="Z">
+ * The config path is formed by joining IDs: "X/Y/Z".
+ * Groups can nest arbitrarily deep, producing paths with 4+ segments.
+ */
+export interface SystemConfigReference {
+  /** Which system.xml element this reference comes from. */
+  kind: SystemConfigReferenceKind;
+  /**
+   * Full config path up to this element's level.
+   * For field-id: "section/group/field". For group-id: "section/group".
+   * For source/backend/frontend-model: the parent field's config path.
+   */
+  configPath: string;
+  /** For source-model/backend-model/frontend-model: the PHP FQCN. */
+  fqcn?: string;
+  /** Label from the <label> child element, if present. */
+  label?: string;
+  /** Absolute filesystem path to the system.xml (or include partial) file. */
+  file: string;
+  /** 0-based line number. */
+  line: number;
+  /** 0-based column where the value starts. */
+  column: number;
+  /** 0-based column where the value ends. */
+  endColumn: number;
+  /** Magento module name in Vendor_Module format. */
+  module: string;
+}

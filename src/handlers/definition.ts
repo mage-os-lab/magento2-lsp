@@ -154,6 +154,27 @@ export function handleDefinition(
     return null;
   }
 
+  // --- Try system.xml ---
+  const sysRef = project.systemConfigIndex.getReferenceAtPosition(
+    filePath,
+    params.position.line,
+    params.position.character,
+  );
+  if (sysRef) {
+    if (sysRef.fqcn) {
+      // source-model / backend-model / frontend-model -> jump to PHP class
+      const loc = locatePhpClass(sysRef.fqcn, project.psr4Map);
+      if (loc) {
+        return Location.create(
+          URI.file(loc.file).toString(),
+          Range.create(loc.line, loc.column, loc.line, loc.column),
+        );
+      }
+    }
+    // section-id / group-id / field-id: cursor IS the definition
+    return null;
+  }
+
   // --- Try events.xml ---
   const eventsRef = project.eventsIndex.getReferenceAtPosition(
     filePath,
@@ -289,7 +310,7 @@ function handlePhpDefinition(
   filePath: string,
   params: DefinitionParams,
   getProject: (uri: string) => ProjectContext | undefined,
-): Location | null {
+): Location | Location[] | null {
   const project = getProject(filePath);
   if (!project) return null;
 
@@ -309,6 +330,10 @@ function handlePhpDefinition(
   const lines = content.split('\n');
   const line = lines[params.position.line];
   if (!line) return null;
+
+  // --- Config path detection: scopeConfig->getValue('section/group/field') ---
+  const configResult = handlePhpConfigPath(line, params.position.character, project);
+  if (configResult) return configResult;
 
   let match;
   CALL_RE.lastIndex = 0;
@@ -399,5 +424,43 @@ function handlePhtmlDefinition(
     );
   }
 
+  return null;
+}
+
+/** Regex for scopeConfig->getValue('config/path') and isSetFlag('config/path'). */
+const SCOPE_CONFIG_RE = /(?:scopeConfig|_scopeConfig)->(?:getValue|isSetFlag)\s*\(\s*['"]([a-zA-Z0-9_]+(?:\/[a-zA-Z0-9_]+)+)['"]/g;
+
+/**
+ * Check if cursor is on a config path string in a scopeConfig call.
+ * Returns Location to the system.xml field declaration if found.
+ */
+function handlePhpConfigPath(
+  line: string,
+  character: number,
+  project: ProjectContext,
+): Location | Location[] | null {
+  SCOPE_CONFIG_RE.lastIndex = 0;
+  let match;
+  while ((match = SCOPE_CONFIG_RE.exec(line)) !== null) {
+    // Find where the config path string starts (inside the quotes)
+    const fullMatch = match[0];
+    const configPath = match[1];
+    const pathStart = match.index + fullMatch.indexOf(configPath);
+    const pathEnd = pathStart + configPath.length;
+
+    if (character >= pathStart && character <= pathEnd) {
+      const refs = project.systemConfigIndex.getRefsForPath(configPath);
+      // Jump to field-id declarations (not model refs)
+      const fieldRefs = refs.filter((r) => r.kind === 'field-id');
+      if (fieldRefs.length === 0) return null;
+
+      return fieldRefs.map((r) =>
+        Location.create(
+          URI.file(r.file).toString(),
+          Range.create(r.line, r.column, r.line, r.endColumn),
+        ),
+      );
+    }
+  }
   return null;
 }

@@ -26,7 +26,7 @@ describe('layout XML integration', () => {
   );
 
   describe('definition from layout XML', () => {
-    it('navigates from block class to PHP file', () => {
+    it('navigates from block class to PHP file', async () => {
       // Find the block-class reference
       const ref = project.layoutIndex.getReferencesForFqcn('Test\\Foo\\Block\\FooList')[0];
       expect(ref).toBeDefined();
@@ -43,7 +43,7 @@ describe('layout XML integration', () => {
       expect(result).toBeNull(); // No PHP file for this fixture class
     });
 
-    it('navigates from template identifier to .phtml file', () => {
+    it('navigates from template identifier to .phtml file', async () => {
       const refs = project.layoutIndex.getReferencesForTemplate('Test_Foo::product/list.phtml');
       const ref = refs[0];
       expect(ref).toBeDefined();
@@ -60,7 +60,7 @@ describe('layout XML integration', () => {
       expect(URI.parse(loc.uri).fsPath).toContain('list.phtml');
     });
 
-    it('resolves template with theme fallback (child theme override)', () => {
+    it('resolves template with theme fallback (child theme override)', async () => {
       // Magento_Catalog::product/view.phtml exists in the child theme
       const themeLayoutFile = path.join(
         FIXTURE_ROOT,
@@ -81,11 +81,11 @@ describe('layout XML integration', () => {
   });
 
   describe('references from layout XML', () => {
-    it('finds all layout refs for a template identifier', () => {
+    it('finds all layout refs for a template identifier', async () => {
       const refs = project.layoutIndex.getReferencesForTemplate('Test_Foo::product/list.phtml');
       const ref = refs[0];
 
-      const result = handleReferences(
+      const result = await handleReferences(
         {
           textDocument: { uri: URI.file(layoutFile).toString() },
           position: { line: ref.line, character: ref.column },
@@ -97,10 +97,10 @@ describe('layout XML integration', () => {
       expect(result!.length).toBeGreaterThanOrEqual(1);
     });
 
-    it('finds all layout refs for a block class', () => {
+    it('finds all layout refs for a block class', async () => {
       const ref = project.layoutIndex.getReferencesForFqcn('Test\\Foo\\Block\\FooList')[0];
 
-      const result = handleReferences(
+      const result = await handleReferences(
         {
           textDocument: { uri: URI.file(layoutFile).toString() },
           position: { line: ref.line, character: ref.column },
@@ -141,7 +141,7 @@ describe('layout XML integration', () => {
   );
 
   describe('code lens on .phtml templates', () => {
-    it('shows "overridden in N themes" on a module template', () => {
+    it('shows "overridden in N themes" on a module template', async () => {
       const result = handleCodeLens(
         { textDocument: { uri: URI.file(moduleTemplate).toString() } },
         getProject,
@@ -153,7 +153,7 @@ describe('layout XML integration', () => {
       expect(result![0].range.start.line).toBe(0);
     });
 
-    it('shows "overrides ..." on a theme override template', () => {
+    it('shows "overrides ..." on a theme override template', async () => {
       const result = handleCodeLens(
         { textDocument: { uri: URI.file(childThemeOverride).toString() } },
         getProject,
@@ -163,7 +163,7 @@ describe('layout XML integration', () => {
       expect(titles).toContain('overrides Test_Foo::product/list.phtml');
     });
 
-    it('shows compat module override lens on a theme override template', () => {
+    it('shows compat module override lens on a theme override template', async () => {
       // A theme override for Test_Foo::product/list.phtml should also show
       // that a compat module overrides the same template
       const result = handleCodeLens(
@@ -175,7 +175,7 @@ describe('layout XML integration', () => {
       expect(titles).toContain('overridden in Hyvä compat module Test_HyvaCompat');
     });
 
-    it('returns null for a module template with no overrides', () => {
+    it('returns null for a module template with no overrides', async () => {
       // Magento_Catalog::product/view.phtml only exists in the child theme,
       // but we don't have the module template file for it — so test with a
       // .phtml that no theme overrides. Use a non-existent template path.
@@ -190,8 +190,8 @@ describe('layout XML integration', () => {
   });
 
   describe('references from .phtml file', () => {
-    it('finds layout XML files using this template', () => {
-      const result = handleReferences(
+    it('finds layout XML files using this template', async () => {
+      const result = await handleReferences(
         {
           textDocument: { uri: URI.file(moduleTemplate).toString() },
           position: { line: 0, character: 0 },
@@ -205,8 +205,8 @@ describe('layout XML integration', () => {
       expect(uris.some((u) => u.includes('test_foo_index.xml'))).toBe(true);
     });
 
-    it('includes theme overrides when finding references from a module template', () => {
-      const result = handleReferences(
+    it('includes theme overrides when finding references from a module template', async () => {
+      const result = await handleReferences(
         {
           textDocument: { uri: URI.file(moduleTemplate).toString() },
           position: { line: 0, character: 0 },
@@ -221,8 +221,8 @@ describe('layout XML integration', () => {
       expect(uris.some((u) => u.includes(path.join('Test', 'child')))).toBe(true);
     });
 
-    it('includes original module template when finding references from a theme override', () => {
-      const result = handleReferences(
+    it('includes original module template when finding references from a theme override', async () => {
+      const result = await handleReferences(
         {
           textDocument: { uri: URI.file(childThemeOverride).toString() },
           position: { line: 0, character: 0 },
@@ -241,7 +241,7 @@ describe('layout XML integration', () => {
   });
 
   describe('definition from .phtml theme override', () => {
-    it('navigates from theme override to original module template (gd)', () => {
+    it('navigates from theme override to original module template (gd)', async () => {
       const result = handleDefinition(
         {
           textDocument: { uri: URI.file(childThemeOverride).toString() },
@@ -257,7 +257,7 @@ describe('layout XML integration', () => {
       );
     });
 
-    it('returns null for a module template (not a theme override)', () => {
+    it('returns null for a module template (not a theme override)', async () => {
       const result = handleDefinition(
         {
           textDocument: { uri: URI.file(moduleTemplate).toString() },
@@ -286,7 +286,7 @@ describe('layout XML integration', () => {
   );
 
   describe('code lens on Hyvä compat module templates', () => {
-    it('shows compat module override lens on a module template', () => {
+    it('shows compat module override lens on a module template', async () => {
       const result = handleCodeLens(
         { textDocument: { uri: URI.file(moduleTemplate).toString() } },
         getProject,
@@ -296,7 +296,7 @@ describe('layout XML integration', () => {
       expect(titles).toContain('overridden in Hyvä compat module Test_HyvaCompat');
     });
 
-    it('shows "Hyvä compat override: ..." on a compat module override template', () => {
+    it('shows "Hyvä compat override: ..." on a compat module override template', async () => {
       const result = handleCodeLens(
         { textDocument: { uri: URI.file(compatOverride).toString() } },
         getProject,
@@ -310,8 +310,8 @@ describe('layout XML integration', () => {
   });
 
   describe('references from Hyvä compat module override', () => {
-    it('includes compat module override when finding references from a module template', () => {
-      const result = handleReferences(
+    it('includes compat module override when finding references from a module template', async () => {
+      const result = await handleReferences(
         {
           textDocument: { uri: URI.file(moduleTemplate).toString() },
           position: { line: 0, character: 0 },
@@ -324,8 +324,8 @@ describe('layout XML integration', () => {
       expect(uris.some((u) => u.includes('module-compat'))).toBe(true);
     });
 
-    it('includes original module template when finding references from a compat override', () => {
-      const result = handleReferences(
+    it('includes original module template when finding references from a compat override', async () => {
+      const result = await handleReferences(
         {
           textDocument: { uri: URI.file(compatOverride).toString() },
           position: { line: 0, character: 0 },
@@ -359,7 +359,7 @@ describe('layout XML integration', () => {
   );
 
   describe('definition from <update handle="..."/>', () => {
-    it('navigates to layout files matching the handle name', () => {
+    it('navigates to layout files matching the handle name', async () => {
       // Find the update-handle reference in the source file
       const ref = project.layoutIndex.getReferenceAtPosition(
         updateSourceFile,
@@ -390,7 +390,7 @@ describe('layout XML integration', () => {
       expect(paths.some((p) => p.endsWith('hyva_test_foo_index.xml'))).toBe(true);
     });
 
-    it('includes theme override files in results', () => {
+    it('includes theme override files in results', async () => {
       const ref = project.layoutIndex.getReferenceAtPosition(
         updateSourceFile,
         2,
@@ -411,7 +411,7 @@ describe('layout XML integration', () => {
       expect(paths.some((p) => p.includes(path.join('Test', 'child')) && p.endsWith('test_foo_index.xml'))).toBe(true);
     });
 
-    it('prioritizes theme fallback when source file is in a theme', () => {
+    it('prioritizes theme fallback when source file is in a theme', async () => {
       // Create a layout file reference from within the child theme
       const themeUpdateFile = path.join(
         FIXTURE_ROOT,
@@ -427,7 +427,7 @@ describe('layout XML integration', () => {
   });
 
   describe('definition from Hyvä compat module override', () => {
-    it('navigates from compat override to original module template (gd)', () => {
+    it('navigates from compat override to original module template (gd)', async () => {
       const result = handleDefinition(
         {
           textDocument: { uri: URI.file(compatOverride).toString() },

@@ -15,10 +15,10 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { DiReference, VirtualTypeDecl, EventReference, ObserverReference, LayoutReference } from '../indexer/types';
+import { DiReference, VirtualTypeDecl, EventReference, ObserverReference, LayoutReference, SystemConfigReference } from '../indexer/types';
 
 /** Bump this when entry formats change to invalidate old caches. */
-const CACHE_VERSION = 4;
+const CACHE_VERSION = 5;
 const CACHE_FILENAME = '.magento2-lsp-cache.json';
 
 /** Cached parse results for a single di.xml file. */
@@ -41,12 +41,19 @@ export interface LayoutCacheEntry {
   references: LayoutReference[];
 }
 
+/** Cached parse results for a single system.xml (or include partial) file. */
+export interface SystemConfigCacheEntry {
+  mtimeMs: number;
+  references: SystemConfigReference[];
+}
+
 /** Top-level structure of the cache file on disk. */
 export interface CacheFile {
   version: number;
   diFiles: Record<string, DiCacheEntry>;
   eventsFiles: Record<string, EventsCacheEntry>;
   layoutFiles: Record<string, LayoutCacheEntry>;
+  systemConfigFiles: Record<string, SystemConfigCacheEntry>;
 }
 
 export class IndexCache {
@@ -55,7 +62,7 @@ export class IndexCache {
 
   constructor(magentoRoot: string) {
     this.cachePath = path.join(magentoRoot, CACHE_FILENAME);
-    this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {} };
+    this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {}, systemConfigFiles: {} };
   }
 
   /**
@@ -67,17 +74,18 @@ export class IndexCache {
       const raw = fs.readFileSync(this.cachePath, 'utf-8');
       const parsed = JSON.parse(raw) as CacheFile;
       if (parsed.version !== CACHE_VERSION) {
-        this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {} };
+        this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {}, systemConfigFiles: {} };
         return false;
       }
       // Ensure all sections exist (forward-compat for caches without new sections)
       parsed.diFiles ??= {};
       parsed.eventsFiles ??= {};
       parsed.layoutFiles ??= {};
+      parsed.systemConfigFiles ??= {};
       this.data = parsed;
       return true;
     } catch {
-      this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {} };
+      this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {}, systemConfigFiles: {} };
       return false;
     }
   }
@@ -160,6 +168,26 @@ export class IndexCache {
   /** Remove a single layout XML entry from the cache. */
   removeLayoutEntry(filePath: string): void {
     delete this.data.layoutFiles[filePath];
+  }
+
+  // --- system.xml ---
+
+  getSystemConfigEntry(filePath: string, currentMtimeMs: number): SystemConfigCacheEntry | undefined {
+    const entry = this.data.systemConfigFiles[filePath];
+    return entry && entry.mtimeMs === currentMtimeMs ? entry : undefined;
+  }
+
+  setSystemConfigEntry(filePath: string, mtimeMs: number, references: SystemConfigReference[]): void {
+    this.data.systemConfigFiles[filePath] = { mtimeMs, references };
+  }
+
+  pruneSystemConfigFiles(existingFiles: Set<string>): void {
+    this.pruneSection(this.data.systemConfigFiles, existingFiles);
+  }
+
+  /** Remove a single system.xml entry from the cache. */
+  removeSystemConfigEntry(filePath: string): void {
+    delete this.data.systemConfigFiles[filePath];
   }
 
   /** List all di.xml file paths that have cached entries. */

@@ -28,7 +28,9 @@ import { parseLayoutXml } from '../indexer/layoutXmlParser';
 import { PluginMethodIndex } from '../index/pluginMethodIndex';
 import { MagicMethodIndex } from '../index/magicMethodIndex';
 import { CompatModuleIndex } from '../index/compatModuleIndex';
+import { SystemConfigIndex } from '../index/systemConfigIndex';
 import { parseCompatModuleRegistrations } from '../indexer/compatModuleParser';
+import { parseSystemXml } from '../indexer/systemXmlParser';
 import { ModuleInfo, Psr4Map } from '../indexer/types';
 import { fileExists } from '../utils/fsHelpers';
 import * as fs from 'fs';
@@ -56,6 +58,8 @@ export interface ProjectContext {
   themeResolver: ThemeResolver;
   /** Hyvä compatibility module registrations (automatic template overrides). */
   compatModuleIndex: CompatModuleIndex;
+  /** In-memory system.xml config path index for this project. */
+  systemConfigIndex: SystemConfigIndex;
   /** Disk cache for this project's parse results. */
   cache: IndexCache;
   /** True once the initial indexing pass is complete. */
@@ -209,6 +213,46 @@ export class ProjectManager {
     const t3 = Date.now();
     console.error(`[magento2-lsp]   events.xml (${allEventsFiles.length} files, ${eventsCacheHits} cached): ${t3 - t2}ms`);
 
+    // --- Index system.xml files (cached) ---
+    const systemConfigIndex = new SystemConfigIndex();
+    const allSystemConfigFiles: string[] = [];
+    let systemConfigCacheHits = 0;
+
+    for (const mod of modules) {
+      // Main system.xml
+      const mainFile = path.join(mod.path, 'etc', 'adminhtml', 'system.xml');
+      // Include partials under etc/adminhtml/system/
+      const systemDir = path.join(mod.path, 'etc', 'adminhtml', 'system');
+      const filesToIndex = [
+        ...(fileExists(mainFile) ? [mainFile] : []),
+        ...listXmlFilesRecursive(systemDir),
+      ];
+
+      for (const xmlFile of filesToIndex) {
+        allSystemConfigFiles.push(xmlFile);
+        try {
+          const stat = fs.statSync(xmlFile);
+          const cached = cache.getSystemConfigEntry(xmlFile, stat.mtimeMs);
+
+          if (cached) {
+            systemConfigCacheHits++;
+            systemConfigIndex.addFile(xmlFile, cached.references);
+          } else {
+            const content = fs.readFileSync(xmlFile, 'utf-8');
+            const result = parseSystemXml(content, { file: xmlFile, module: mod.name });
+            systemConfigIndex.addFile(xmlFile, result.references);
+            cache.setSystemConfigEntry(xmlFile, stat.mtimeMs, result.references);
+          }
+        } catch {
+          // Skip unreadable files
+        }
+      }
+    }
+
+    cache.pruneSystemConfigFiles(new Set(allSystemConfigFiles));
+    const t3b = Date.now();
+    console.error(`[magento2-lsp]   system.xml (${allSystemConfigFiles.length} files, ${systemConfigCacheHits} cached): ${t3b - t3}ms`);
+
     // --- Discover themes and index layout XML files (cached) ---
     const themeResolver = new ThemeResolver();
     themeResolver.discover(root);
@@ -317,6 +361,7 @@ export class ProjectManager {
       layoutIndex,
       themeResolver,
       compatModuleIndex,
+      systemConfigIndex,
       cache,
       indexingComplete: true,
     };
@@ -344,4 +389,23 @@ function listXmlFiles(dir: string): string[] {
   } catch {
     return [];
   }
+}
+
+/** List all .xml files in a directory recursively. Returns empty array if dir doesn't exist. */
+function listXmlFilesRecursive(dir: string): string[] {
+  const results: string[] = [];
+  try {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        results.push(...listXmlFilesRecursive(fullPath));
+      } else if (entry.name.endsWith('.xml')) {
+        results.push(fullPath);
+      }
+    }
+  } catch {
+    // Directory doesn't exist or is unreadable
+  }
+  return results;
 }
