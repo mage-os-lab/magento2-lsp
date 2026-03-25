@@ -24,6 +24,11 @@ import { parseEventsXml, EventsXmlParseContext } from '../indexer/eventsXmlParse
 import { parseLayoutXml } from '../indexer/layoutXmlParser';
 import { parseSystemXml } from '../indexer/systemXmlParser';
 import { extractPhpClass } from '../utils/phpNamespace';
+import {
+  deriveDiXmlContext,
+  deriveEventsXmlContext,
+  deriveSystemXmlContext,
+} from '../project/moduleResolver';
 import type { ProjectContext } from '../project/projectManager';
 import type { DiReference, LayoutReference, Psr4Map, ModuleInfo } from '../indexer/types';
 
@@ -46,12 +51,12 @@ export function validateSemantics(
   if (!project.indexingComplete) return [];
 
   // Detect file type from path and parse accordingly
-  const diContext = deriveDiContext(filePath, project);
+  const diContext = deriveDiXmlContext(filePath, project.root, project.modules);
   if (diContext) {
     return validateDiXml(content, diContext, project, includeExpensiveChecks);
   }
 
-  const eventsContext = deriveEventsContext(filePath, project);
+  const eventsContext = deriveEventsXmlContext(filePath, project.modules);
   if (eventsContext) {
     return validateEventsXml(content, eventsContext, project, includeExpensiveChecks);
   }
@@ -60,7 +65,7 @@ export function validateSemantics(
     return validateLayoutXml(content, filePath, project);
   }
 
-  const systemConfigContext = deriveSystemConfigContext(filePath, project);
+  const systemConfigContext = deriveSystemXmlContext(filePath, project.modules);
   if (systemConfigContext) {
     return validateSystemConfigXml(content, systemConfigContext, project);
   }
@@ -69,68 +74,6 @@ export function validateSemantics(
 }
 
 // --- File type detection from path ---
-
-function deriveDiContext(
-  filePath: string,
-  project: ProjectContext,
-): DiXmlParseContext | undefined {
-  if (!filePath.endsWith('/di.xml')) return undefined;
-
-  // Root-level app/etc/di.xml
-  const rootDiXml = path.join(project.root, 'app', 'etc', 'di.xml');
-  if (filePath === rootDiXml) {
-    return { file: filePath, area: 'global', module: '__root__', moduleOrder: -1 };
-  }
-
-  // Module-level etc/di.xml or etc/{area}/di.xml
-  for (const mod of project.modules) {
-    if (!filePath.startsWith(mod.path)) continue;
-    const relPath = path.relative(mod.path, filePath);
-    const parts = relPath.split(path.sep);
-    if (parts[0] === 'etc' && parts[parts.length - 1] === 'di.xml') {
-      const area = parts.length === 2 ? 'global' : parts[1];
-      return { file: filePath, area, module: mod.name, moduleOrder: mod.order };
-    }
-  }
-  return undefined;
-}
-
-function deriveEventsContext(
-  filePath: string,
-  project: ProjectContext,
-): EventsXmlParseContext | undefined {
-  if (!filePath.endsWith('/events.xml')) return undefined;
-
-  for (const mod of project.modules) {
-    if (!filePath.startsWith(mod.path)) continue;
-    const relPath = path.relative(mod.path, filePath);
-    const parts = relPath.split(path.sep);
-    if (parts[0] === 'etc' && parts[parts.length - 1] === 'events.xml') {
-      const area = parts.length === 2 ? 'global' : parts[1];
-      return { file: filePath, area, module: mod.name };
-    }
-  }
-  return undefined;
-}
-
-function deriveSystemConfigContext(
-  filePath: string,
-  project: ProjectContext,
-): import('../indexer/systemXmlParser').SystemXmlParseContext | undefined {
-  if (!filePath.endsWith('.xml')) return undefined;
-  // Main system.xml: etc/adminhtml/system.xml
-  // Include partials: etc/adminhtml/system/**/*.xml
-  const isMainSystemXml = filePath.includes('/etc/adminhtml/') && filePath.endsWith('/system.xml');
-  const isIncludePartial = filePath.includes('/etc/adminhtml/system/');
-  if (!isMainSystemXml && !isIncludePartial) return undefined;
-
-  for (const mod of project.modules) {
-    if (filePath.startsWith(mod.path)) {
-      return { file: filePath, module: mod.name };
-    }
-  }
-  return undefined;
-}
 
 function isLayoutXml(filePath: string): boolean {
   if (!filePath.endsWith('.xml')) return false;

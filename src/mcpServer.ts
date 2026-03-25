@@ -69,11 +69,7 @@ async function main() {
 
     try {
       const result = await handler(projectManager, args);
-      // handleReindex returns { project, summary } — only send the summary
-      const output = name === 'magento_reindex'
-        ? (result as { summary: unknown }).summary
-        : result;
-      return { content: [{ type: 'text', text: JSON.stringify(output, null, 2) }] };
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {

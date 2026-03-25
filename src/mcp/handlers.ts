@@ -573,7 +573,7 @@ export async function handleResolveClass(
 export async function handleReindex(
   pm: ProjectManager,
   args: unknown,
-): Promise<{ project: ProjectContext; summary: object }> {
+): Promise<object> {
   const params = validateParams(args, ['filePath']);
   const filePath = params.filePath;
   // Detect the root without triggering a full index (avoids double-indexing on first call)
@@ -593,15 +593,12 @@ export async function handleReindex(
   }
 
   return {
-    project,
-    summary: {
-      projectRoot,
-      moduleCount: project.modules.length,
-      diXmlFiles: project.index.getFileCount(),
-      eventsXmlFiles: project.eventsIndex.getFileCount(),
-      layoutXmlFiles: project.layoutIndex.getFileCount(),
-      themes: project.themeResolver.getAllThemes().length,
-    },
+    projectRoot,
+    moduleCount: project.modules.length,
+    diXmlFiles: project.index.getFileCount(),
+    eventsXmlFiles: project.eventsIndex.getFileCount(),
+    layoutXmlFiles: project.layoutIndex.getFileCount(),
+    themes: project.themeResolver.getAllThemes().length,
   };
 }
 

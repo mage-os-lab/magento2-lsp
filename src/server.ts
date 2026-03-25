@@ -32,7 +32,13 @@ import { handleCodeLens } from './handlers/codeLens';
 import { handleHover } from './handlers/hover';
 import { handleWorkspaceSymbol } from './handlers/workspaceSymbol';
 import { FileWatcher } from './watcher/fileWatcher';
-import { discoverDiXmlFiles, discoverEventsXmlFiles } from './project/moduleResolver';
+import {
+  discoverDiXmlFiles,
+  discoverEventsXmlFiles,
+  deriveDiXmlContext,
+  deriveEventsXmlContext,
+  deriveSystemXmlContext,
+} from './project/moduleResolver';
 import { parseDiXml, DiXmlParseContext } from './indexer/diXmlParser';
 import { parseEventsXml, EventsXmlParseContext } from './indexer/eventsXmlParser';
 import { parseLayoutXml } from './indexer/layoutXmlParser';
@@ -333,19 +339,9 @@ function setupFileWatchers(project: import('./project/projectManager').ProjectCo
   function getDiContext(file: string): DiXmlParseContext | undefined {
     const cached = diContextMap.get(file);
     if (cached) return cached;
-    for (const mod of project.modules) {
-      if (file.startsWith(mod.path)) {
-        const relPath = path.relative(mod.path, file);
-        const parts = relPath.split(path.sep);
-        if (parts[0] === 'etc' && parts[parts.length - 1] === 'di.xml') {
-          const area = parts.length === 2 ? 'global' : parts[1];
-          const ctx: DiXmlParseContext = { file, area, module: mod.name, moduleOrder: mod.order };
-          diContextMap.set(file, ctx);
-          return ctx;
-        }
-      }
-    }
-    return undefined;
+    const ctx = deriveDiXmlContext(file, project.root, project.modules);
+    if (ctx) diContextMap.set(file, ctx);
+    return ctx;
   }
 
   // Debounced rebuild of PluginMethodIndex after di.xml changes.
@@ -402,19 +398,9 @@ function setupFileWatchers(project: import('./project/projectManager').ProjectCo
   function getEventsContext(file: string): EventsXmlParseContext | undefined {
     const cached = eventsContextMap.get(file);
     if (cached) return cached;
-    for (const mod of project.modules) {
-      if (file.startsWith(mod.path)) {
-        const relPath = path.relative(mod.path, file);
-        const parts = relPath.split(path.sep);
-        if (parts[0] === 'etc' && parts[parts.length - 1] === 'events.xml') {
-          const area = parts.length === 2 ? 'global' : parts[1];
-          const ctx: EventsXmlParseContext = { file, area, module: mod.name };
-          eventsContextMap.set(file, ctx);
-          return ctx;
-        }
-      }
-    }
-    return undefined;
+    const ctx = deriveEventsXmlContext(file, project.modules);
+    if (ctx) eventsContextMap.set(file, ctx);
+    return ctx;
   }
 
   const eventsWatcher = new FileWatcher({
@@ -495,14 +481,9 @@ function setupFileWatchers(project: import('./project/projectManager').ProjectCo
   function getSystemConfigContext(file: string): SystemXmlParseContext | undefined {
     const cached = systemConfigContextMap.get(file);
     if (cached) return cached;
-    for (const mod of project.modules) {
-      if (file.startsWith(mod.path) && file.includes('/etc/adminhtml/')) {
-        const ctx: SystemXmlParseContext = { file, module: mod.name };
-        systemConfigContextMap.set(file, ctx);
-        return ctx;
-      }
-    }
-    return undefined;
+    const ctx = deriveSystemXmlContext(file, project.modules);
+    if (ctx) systemConfigContextMap.set(file, ctx);
+    return ctx;
   }
 
   const systemConfigWatcher = new FileWatcher({

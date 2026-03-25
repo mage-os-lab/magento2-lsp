@@ -33,7 +33,7 @@ import { locatePhpClass } from '../indexer/phpClassLocator';
 import { isObserverReference } from '../index/eventsIndex';
 import { realpath } from '../utils/realpath';
 import { reverseResolveTemplateId } from '../utils/templateId';
-import { grepConfigPathInPhp } from '../utils/configPathGrep';
+import { createScopeConfigRegex, grepConfigPathInPhp } from '../utils/configPathGrep';
 import * as fs from 'fs';
 
 export async function handleReferences(
@@ -293,9 +293,6 @@ async function handlePhpReferences(
   return null;
 }
 
-/** Regex for scopeConfig->getValue('config/path') and isSetFlag('config/path'). */
-const SCOPE_CONFIG_RE = /(?:scopeConfig|_scopeConfig)->(?:getValue|isSetFlag)\s*\(\s*['"]([a-zA-Z0-9_]+(?:\/[a-zA-Z0-9_]+)+)['"]/g;
-
 /**
  * Check if cursor is on a config path string in a scopeConfig call.
  * Returns system.xml field declarations + PHP usages of that config path.
@@ -305,9 +302,9 @@ async function findPhpConfigPathRefs(
   character: number,
   project: ProjectContext,
 ): Promise<Location[] | null> {
-  SCOPE_CONFIG_RE.lastIndex = 0;
+  const re = createScopeConfigRegex();
   let match;
-  while ((match = SCOPE_CONFIG_RE.exec(line)) !== null) {
+  while ((match = re.exec(line)) !== null) {
     const configPath = match[1];
     const pathStart = match.index + match[0].indexOf(configPath);
     const pathEnd = pathStart + configPath.length;

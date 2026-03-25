@@ -17,6 +17,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { ModuleInfo } from '../indexer/types';
+import { DiXmlParseContext } from '../indexer/diXmlParser';
+import { EventsXmlParseContext } from '../indexer/eventsXmlParser';
+import { SystemXmlParseContext } from '../indexer/systemXmlParser';
 import { realpath } from '../utils/realpath';
 import { fileExists, isDirectory } from '../utils/fsHelpers';
 import { readComposerPackages } from '../utils/composerPackages';
@@ -196,6 +199,88 @@ export function discoverEventsXmlFiles(
   modulePath: string,
 ): { file: string; area: string }[] {
   return discoverModuleXmlFiles(modulePath, 'events.xml');
+}
+
+// --- File-type context derivation ---
+//
+// These functions determine whether a given file path is a di.xml / events.xml / system.xml
+// and derive the parse context (area, module, etc.) from the path structure.
+// Used by both the file watcher (server.ts) and semantic validator.
+
+/**
+ * Derive the DI parse context for a file, if it is a di.xml.
+ * Handles both the root-level app/etc/di.xml and module-level etc/[area/]di.xml files.
+ * Returns undefined if the file is not a di.xml within a known module or the Magento root.
+ */
+export function deriveDiXmlContext(
+  filePath: string,
+  magentoRoot: string,
+  modules: ModuleInfo[],
+): DiXmlParseContext | undefined {
+  if (!filePath.endsWith('/di.xml')) return undefined;
+
+  // Root-level app/etc/di.xml
+  const rootDiXml = path.join(magentoRoot, 'app', 'etc', 'di.xml');
+  if (filePath === rootDiXml) {
+    return { file: filePath, area: 'global', module: '__root__', moduleOrder: -1 };
+  }
+
+  // Module-level etc/di.xml or etc/{area}/di.xml
+  for (const mod of modules) {
+    if (!filePath.startsWith(mod.path)) continue;
+    const relPath = path.relative(mod.path, filePath);
+    const parts = relPath.split(path.sep);
+    if (parts[0] === 'etc' && parts[parts.length - 1] === 'di.xml') {
+      const area = parts.length === 2 ? 'global' : parts[1];
+      return { file: filePath, area, module: mod.name, moduleOrder: mod.order };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Derive the events parse context for a file, if it is an events.xml.
+ * Handles etc/events.xml (global) and etc/{area}/events.xml (scoped).
+ * Returns undefined if the file is not an events.xml within a known module.
+ */
+export function deriveEventsXmlContext(
+  filePath: string,
+  modules: ModuleInfo[],
+): EventsXmlParseContext | undefined {
+  if (!filePath.endsWith('/events.xml')) return undefined;
+
+  for (const mod of modules) {
+    if (!filePath.startsWith(mod.path)) continue;
+    const relPath = path.relative(mod.path, filePath);
+    const parts = relPath.split(path.sep);
+    if (parts[0] === 'etc' && parts[parts.length - 1] === 'events.xml') {
+      const area = parts.length === 2 ? 'global' : parts[1];
+      return { file: filePath, area, module: mod.name };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Derive the system.xml parse context for a file.
+ * Handles etc/adminhtml/system.xml and include partials under etc/adminhtml/system/.
+ * Returns undefined if the file is not a system.xml within a known module.
+ */
+export function deriveSystemXmlContext(
+  filePath: string,
+  modules: ModuleInfo[],
+): SystemXmlParseContext | undefined {
+  if (!filePath.endsWith('.xml')) return undefined;
+  const isMainSystemXml = filePath.includes('/etc/adminhtml/') && filePath.endsWith('/system.xml');
+  const isIncludePartial = filePath.includes('/etc/adminhtml/system/');
+  if (!isMainSystemXml && !isIncludePartial) return undefined;
+
+  for (const mod of modules) {
+    if (filePath.startsWith(mod.path)) {
+      return { file: filePath, module: mod.name };
+    }
+  }
+  return undefined;
 }
 
 /**

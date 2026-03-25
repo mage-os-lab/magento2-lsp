@@ -47,6 +47,7 @@ import { resolveVariableTypes } from '../utils/phpTypeResolver';
 import { realpath } from '../utils/realpath';
 import { resolveXmlUrn } from '../utils/xmlUrnResolver';
 import { resolveConcreteType, CALL_RE } from '../utils/diPreference';
+import { createScopeConfigRegex } from '../utils/configPathGrep';
 import * as fs from 'fs';
 
 export function handleDefinition(
@@ -427,9 +428,6 @@ function handlePhtmlDefinition(
   return null;
 }
 
-/** Regex for scopeConfig->getValue('config/path') and isSetFlag('config/path'). */
-const SCOPE_CONFIG_RE = /(?:scopeConfig|_scopeConfig)->(?:getValue|isSetFlag)\s*\(\s*['"]([a-zA-Z0-9_]+(?:\/[a-zA-Z0-9_]+)+)['"]/g;
-
 /**
  * Check if cursor is on a config path string in a scopeConfig call.
  * Returns Location to the system.xml field declaration if found.
@@ -439,9 +437,9 @@ function handlePhpConfigPath(
   character: number,
   project: ProjectContext,
 ): Location | Location[] | null {
-  SCOPE_CONFIG_RE.lastIndex = 0;
+  const re = createScopeConfigRegex();
   let match;
-  while ((match = SCOPE_CONFIG_RE.exec(line)) !== null) {
+  while ((match = re.exec(line)) !== null) {
     // Find where the config path string starts (inside the quotes)
     const fullMatch = match[0];
     const configPath = match[1];

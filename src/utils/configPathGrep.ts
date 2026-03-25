@@ -1,15 +1,27 @@
 /**
- * On-demand grep for config path strings in PHP files.
+ * Utilities for detecting and searching config path strings in PHP files.
  *
- * Used by the references handler to find PHP usages of a system.xml config path
- * (e.g., scopeConfig->getValue('catalog/review/active')).
+ * Provides:
+ *   - A regex factory for matching scopeConfig->getValue('path') calls in PHP code
+ *   - An on-demand grep for finding all PHP usages of a given config path
  *
- * This is an async search done on demand rather than pre-indexed, since
- * scanning all PHP files for config path strings during startup would be too slow.
+ * The grep is async and done on demand rather than pre-indexed, since scanning
+ * all PHP files for config path strings during startup would be too slow.
  */
 
 import { exec } from 'child_process';
 import { Psr4Map } from '../indexer/types';
+
+/**
+ * Create a regex matching scopeConfig->getValue('config/path') and isSetFlag('config/path').
+ * Captures the config path string (e.g., 'catalog/review/active') in group 1.
+ *
+ * Returns a fresh regex each call to avoid the shared /g lastIndex footgun —
+ * callers can use it with exec() or matchAll() without worrying about stale state.
+ */
+export function createScopeConfigRegex(): RegExp {
+  return /(?:scopeConfig|_scopeConfig)->(?:getValue|isSetFlag)\s*\(\s*['"]([a-zA-Z0-9_]+(?:\/[a-zA-Z0-9_]+)+)['"]/g;
+}
 
 export interface PhpConfigPathRef {
   file: string;

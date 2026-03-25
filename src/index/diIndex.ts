@@ -29,8 +29,6 @@ import { DiReference, VirtualTypeDecl } from '../indexer/types';
 export interface EffectiveConfig {
   /** Key: `${area}:${interfaceFqcn}` -> the winning preference-type DiReference. */
   preferences: Map<string, DiReference>;
-  /** Key: `${area}:${typeFqcn}:${pluginLine}` -> the winning plugin DiReference. */
-  plugins: Map<string, DiReference>;
   /** Key: virtualType name -> the winning VirtualTypeDecl. */
   virtualTypes: Map<string, VirtualTypeDecl>;
 }
@@ -50,7 +48,6 @@ export class DiIndex {
   /** The "winning" config after merging — rebuilt on every index change. */
   private effective: EffectiveConfig = {
     preferences: new Map(),
-    plugins: new Map(),
     virtualTypes: new Map(),
   };
 
@@ -167,21 +164,6 @@ export class DiIndex {
   }
 
   /**
-   * Return the effective plugin for a type+pluginName combination in a given area.
-   * Falls back to global scope if no area-specific plugin exists.
-   */
-  getEffectivePlugin(
-    typeFqcn: string,
-    pluginName: string,
-    area: string,
-  ): DiReference | undefined {
-    return (
-      this.effective.plugins.get(`${area}:${typeFqcn}:${pluginName}`) ??
-      this.effective.plugins.get(`global:${typeFqcn}:${pluginName}`)
-    );
-  }
-
-  /**
    * Find which DiReference (if any) the cursor is on at a given position in a di.xml file.
    * Used by both definition and references handlers to determine what the user clicked on.
    */
@@ -268,7 +250,6 @@ export class DiIndex {
     this.fileToRefs.clear();
     this.fileToVirtualTypes.clear();
     this.effective.preferences.clear();
-    this.effective.plugins.clear();
     this.effective.virtualTypes.clear();
   }
 
@@ -279,7 +260,6 @@ export class DiIndex {
    */
   private rebuildEffective(): void {
     this.effective.preferences.clear();
-    this.effective.plugins.clear();
     this.effective.virtualTypes.clear();
 
     // --- Preferences ---
@@ -303,31 +283,6 @@ export class DiIndex {
       const winner = this.pickWinner(group);
       if (winner) {
         this.effective.preferences.set(key, winner);
-      }
-    }
-
-    // --- Plugins ---
-    // Group by area:typeFqcn:line, then pick the winner.
-    const pluginGroups = new Map<string, DiReference[]>();
-    for (const refs of this.fqcnToRefs.values()) {
-      for (const ref of refs) {
-        if (ref.kind === 'plugin-type') {
-          const fileRefs = this.fileToRefs.get(ref.file) ?? [];
-          // Determine which <type> element this plugin belongs to
-          const parentType = this.findParentTypeName(ref, fileRefs);
-          if (parentType) {
-            const key = `${ref.area}:${parentType}:${ref.line}`;
-            const group = pluginGroups.get(key) ?? [];
-            group.push(ref);
-            pluginGroups.set(key, group);
-          }
-        }
-      }
-    }
-    for (const [key, group] of pluginGroups) {
-      const winner = this.pickWinner(group);
-      if (winner) {
-        this.effective.plugins.set(key, winner);
       }
     }
 
