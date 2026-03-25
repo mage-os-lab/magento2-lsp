@@ -16,6 +16,8 @@ export class SystemConfigIndex {
   private pathToRefs = new Map<string, SystemConfigReference[]>();
   /** FQCN -> all source/backend/frontend model references for that class. */
   private fqcnToRefs = new Map<string, SystemConfigReference[]>();
+  /** ACL resource ID -> all section-resource references (for ACL navigation). */
+  private aclResourceToRefs = new Map<string, SystemConfigReference[]>();
   /** File path -> all references in that file. */
   private fileToRefs = new Map<string, SystemConfigReference[]>();
 
@@ -32,6 +34,12 @@ export class SystemConfigIndex {
         byFqcn.push(ref);
         this.fqcnToRefs.set(ref.fqcn, byFqcn);
       }
+
+      if (ref.aclResourceId) {
+        const byAcl = this.aclResourceToRefs.get(ref.aclResourceId) ?? [];
+        byAcl.push(ref);
+        this.aclResourceToRefs.set(ref.aclResourceId, byAcl);
+      }
     }
   }
 
@@ -43,6 +51,9 @@ export class SystemConfigIndex {
       removeFromMap(this.pathToRefs, ref.configPath, file);
       if (ref.fqcn) {
         removeFromMap(this.fqcnToRefs, ref.fqcn, file);
+      }
+      if (ref.aclResourceId) {
+        removeFromMap(this.aclResourceToRefs, ref.aclResourceId, file);
       }
     }
 
@@ -57,6 +68,11 @@ export class SystemConfigIndex {
   /** Get all model references (source/backend/frontend) for a given PHP class. */
   getRefsForFqcn(fqcn: string): SystemConfigReference[] {
     return this.fqcnToRefs.get(fqcn) ?? [];
+  }
+
+  /** Get all section-resource references for a given ACL resource ID. */
+  getRefsForAclResource(resourceId: string): SystemConfigReference[] {
+    return this.aclResourceToRefs.get(resourceId) ?? [];
   }
 
   /** Find which reference the cursor is on at a given position in a system.xml file. */
@@ -86,6 +102,7 @@ export class SystemConfigIndex {
   clear(): void {
     this.pathToRefs.clear();
     this.fqcnToRefs.clear();
+    this.aclResourceToRefs.clear();
     this.fileToRefs.clear();
   }
 }

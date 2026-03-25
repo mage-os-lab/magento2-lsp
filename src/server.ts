@@ -37,11 +37,15 @@ import {
   discoverEventsXmlFiles,
   discoverWebapiXmlFiles,
   discoverAclXmlFiles,
+  discoverMenuXmlFiles,
+  discoverUiComponentAclFiles,
   deriveDiXmlContext,
   deriveEventsXmlContext,
   deriveSystemXmlContext,
   deriveWebapiXmlContext,
   deriveAclXmlContext,
+  deriveMenuXmlContext,
+  deriveUiComponentAclContext,
 } from './project/moduleResolver';
 import { parseDiXml, DiXmlParseContext } from './indexer/diXmlParser';
 import { parseEventsXml, EventsXmlParseContext } from './indexer/eventsXmlParser';
@@ -49,6 +53,8 @@ import { parseLayoutXml } from './indexer/layoutXmlParser';
 import { parseSystemXml, SystemXmlParseContext } from './indexer/systemXmlParser';
 import { parseWebapiXml, WebapiXmlParseContext } from './indexer/webapiXmlParser';
 import { parseAclXml, AclXmlParseContext } from './indexer/aclXmlParser';
+import { parseMenuXml, MenuXmlParseContext } from './indexer/menuXmlParser';
+import { parseUiComponentAcl, UiComponentAclParseContext } from './indexer/uiComponentAclParser';
 import { resolveFileToFqcn } from './indexer/phpClassLocator';
 import { realpath } from './utils/realpath';
 import { validateXmlFile, isXmllintAvailable, invalidateCatalogCache } from './validation/xsdValidator';
@@ -563,6 +569,82 @@ function setupFileWatchers(project: import('./project/projectManager').ProjectCo
     saveCache: () => project.cache.save(),
   });
   watchers.push(aclWatcher);
+
+  // --- menu.xml watcher ---
+  const menuWatchPatterns: string[] = [];
+  const menuContextMap = new Map<string, MenuXmlParseContext>();
+
+  for (const mod of project.modules) {
+    const files = discoverMenuXmlFiles(mod.path);
+    for (const f of files) {
+      menuWatchPatterns.push(f.file);
+      menuContextMap.set(f.file, { file: f.file, module: mod.name });
+    }
+    menuWatchPatterns.push(path.join(mod.path, 'etc', 'adminhtml', 'menu.xml'));
+  }
+
+  function getMenuContext(file: string): MenuXmlParseContext | undefined {
+    const cached = menuContextMap.get(file);
+    if (cached) return cached;
+    const ctx = deriveMenuXmlContext(file, project.modules);
+    if (ctx) menuContextMap.set(file, ctx);
+    return ctx;
+  }
+
+  const menuWatcher = createXmlWatcher({
+    patterns: menuWatchPatterns,
+    resolveContext: getMenuContext,
+    parse: parseMenuXml,
+    onParsed(file, mtimeMs, result) {
+      project.menuIndex.removeFile(file);
+      project.menuIndex.addFile(file, result.references);
+      project.cache.setMenuEntry(file, mtimeMs, result.references);
+    },
+    onRemoved(file) {
+      project.menuIndex.removeFile(file);
+      project.cache.removeMenuEntry(file);
+    },
+    saveCache: () => project.cache.save(),
+  });
+  watchers.push(menuWatcher);
+
+  // --- UI component aclResource watcher ---
+  const uiComponentWatchPatterns: string[] = [];
+  const uiComponentContextMap = new Map<string, UiComponentAclParseContext>();
+
+  for (const mod of project.modules) {
+    const files = discoverUiComponentAclFiles(mod.path);
+    for (const f of files) {
+      uiComponentWatchPatterns.push(f.file);
+      uiComponentContextMap.set(f.file, { file: f.file, module: mod.name });
+    }
+    uiComponentWatchPatterns.push(path.join(mod.path, 'view', 'adminhtml', 'ui_component', '*.xml'));
+  }
+
+  function getUiComponentContext(file: string): UiComponentAclParseContext | undefined {
+    const cached = uiComponentContextMap.get(file);
+    if (cached) return cached;
+    const ctx = deriveUiComponentAclContext(file, project.modules);
+    if (ctx) uiComponentContextMap.set(file, ctx);
+    return ctx;
+  }
+
+  const uiComponentWatcher = createXmlWatcher({
+    patterns: uiComponentWatchPatterns,
+    resolveContext: getUiComponentContext,
+    parse: parseUiComponentAcl,
+    onParsed(file, mtimeMs, result) {
+      project.uiComponentAclIndex.removeFile(file);
+      project.uiComponentAclIndex.addFile(file, result.references);
+      project.cache.setUiComponentAclEntry(file, mtimeMs, result.references);
+    },
+    onRemoved(file) {
+      project.uiComponentAclIndex.removeFile(file);
+      project.cache.removeUiComponentAclEntry(file);
+    },
+    saveCache: () => project.cache.save(),
+  });
+  watchers.push(uiComponentWatcher);
 
   // --- PHP file watcher ---
   // Invalidates MagicMethodIndex and ClassHierarchy caches when PHP files change.

@@ -291,4 +291,60 @@ describe('parseSystemXml', () => {
     const field = result.references.find((r) => r.kind === 'field-id');
     expect(field!.configPath).toBe('payment/account/active');
   });
+
+  it('extracts resource element inside a section as section-resource', () => {
+    const xml = `<?xml version="1.0"?>
+<config>
+    <system>
+        <section id="newsletter">
+            <label>Newsletter</label>
+            <resource>Magento_Newsletter::newsletter</resource>
+            <group id="general">
+                <field id="active">
+                    <label>Enabled</label>
+                </field>
+            </group>
+        </section>
+    </system>
+</config>`;
+    const result = parseSystemXml(xml, defaultContext);
+
+    const resourceRef = result.references.find((r) => r.kind === 'section-resource');
+    expect(resourceRef).toBeDefined();
+    expect(resourceRef!.aclResourceId).toBe('Magento_Newsletter::newsletter');
+    expect(resourceRef!.configPath).toBe('newsletter');
+  });
+
+  it('tracks accurate column positions for section resource', () => {
+    const xml = `<?xml version="1.0"?>
+<config>
+    <system>
+        <section id="newsletter">
+            <resource>Magento_Newsletter::newsletter</resource>
+        </section>
+    </system>
+</config>`;
+    const result = parseSystemXml(xml, defaultContext);
+    const ref = result.references.find((r) => r.kind === 'section-resource');
+    const line = xml.split('\n')[4];
+    const col = line.indexOf('Magento_Newsletter::newsletter');
+    expect(ref!.column).toBe(col);
+    expect(ref!.endColumn).toBe(col + 'Magento_Newsletter::newsletter'.length);
+  });
+
+  it('ignores resource elements outside a section', () => {
+    const xml = `<?xml version="1.0"?>
+<config>
+    <system>
+        <resource>Should_Be::ignored</resource>
+        <section id="test">
+            <resource>Should_Be::included</resource>
+        </section>
+    </system>
+</config>`;
+    const result = parseSystemXml(xml, defaultContext);
+    const resourceRefs = result.references.filter((r) => r.kind === 'section-resource');
+    expect(resourceRefs).toHaveLength(1);
+    expect(resourceRefs[0].aclResourceId).toBe('Should_Be::included');
+  });
 });

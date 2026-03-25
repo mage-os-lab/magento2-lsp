@@ -125,6 +125,22 @@ export function handleHover(
       case 'frontend-model':
         value = `**Frontend model** for \`${pathDisplay}\`\n\nClass: \`${sysRef.fqcn}\``;
         break;
+      case 'section-resource': {
+        const aclDef = project.aclIndex.getResource(sysRef.aclResourceId ?? '');
+        value = `**ACL Resource** \`${sysRef.aclResourceId}\``;
+        if (aclDef?.title) {
+          value += `\n\nTitle: ${aclDef.title}`;
+          if (aclDef.hierarchyPath.length > 1) {
+            const pathTitles = aclDef.hierarchyPath.map((id) => {
+              const res = project.aclIndex.getResource(id);
+              return res?.title || id;
+            });
+            value += `\n\nPath: ${pathTitles.join(' > ')}`;
+          }
+        }
+        value += `\n\nConfig section: \`${pathDisplay}\``;
+        break;
+      }
       default:
         return null;
     }
@@ -190,10 +206,57 @@ export function handleHover(
       value += `\n\nPath: ${pathTitles.join(' > ')}`;
     }
     value += `\n\nModule: ${aclResource.module}`;
-    // Show how many webapi.xml routes reference this resource
+    // Show usage counts across all XML types that reference ACL resources
+    const refCounts: string[] = [];
     const webapiRefs = project.webapiIndex.getRefsForResource(aclResource.id);
-    if (webapiRefs.length > 0) {
-      value += `\n\nReferenced in ${webapiRefs.length} webapi.xml route${webapiRefs.length === 1 ? '' : 's'}`;
+    if (webapiRefs.length > 0) refCounts.push(`${webapiRefs.length} webapi.xml route${webapiRefs.length === 1 ? '' : 's'}`);
+    const systemRefs = project.systemConfigIndex.getRefsForAclResource(aclResource.id);
+    if (systemRefs.length > 0) refCounts.push(`${systemRefs.length} system.xml section${systemRefs.length === 1 ? '' : 's'}`);
+    const menuRefs = project.menuIndex.getRefsForResource(aclResource.id);
+    if (menuRefs.length > 0) refCounts.push(`${menuRefs.length} menu item${menuRefs.length === 1 ? '' : 's'}`);
+    const uiRefs = project.uiComponentAclIndex.getRefsForResource(aclResource.id);
+    if (uiRefs.length > 0) refCounts.push(`${uiRefs.length} UI component${uiRefs.length === 1 ? '' : 's'}`);
+    if (refCounts.length > 0) {
+      value += `\n\nReferenced in ${refCounts.join(', ')}`;
+    }
+    return { contents: { kind: MarkupKind.Markdown, value }, range };
+  }
+
+  // --- Try menu.xml ---
+  const menuRef = project.menuIndex.getReferenceAtPosition(filePath, line, character);
+  if (menuRef) {
+    const range = Range.create(menuRef.line, menuRef.column, menuRef.line, menuRef.endColumn);
+    const aclDef = project.aclIndex.getResource(menuRef.value);
+    let value = `**ACL Resource** \`${menuRef.value}\``;
+    if (aclDef?.title) {
+      value += `\n\nTitle: ${aclDef.title}`;
+      if (aclDef.hierarchyPath.length > 1) {
+        const pathTitles = aclDef.hierarchyPath.map((id) => {
+          const res = project.aclIndex.getResource(id);
+          return res?.title || id;
+        });
+        value += `\n\nPath: ${pathTitles.join(' > ')}`;
+      }
+    }
+    value += `\n\nMenu item: ${menuRef.menuItemTitle || menuRef.menuItemId}`;
+    return { contents: { kind: MarkupKind.Markdown, value }, range };
+  }
+
+  // --- Try UI component aclResource ---
+  const uiAclRef = project.uiComponentAclIndex.getReferenceAtPosition(filePath, line, character);
+  if (uiAclRef) {
+    const range = Range.create(uiAclRef.line, uiAclRef.column, uiAclRef.line, uiAclRef.endColumn);
+    const aclDef = project.aclIndex.getResource(uiAclRef.value);
+    let value = `**ACL Resource** \`${uiAclRef.value}\``;
+    if (aclDef?.title) {
+      value += `\n\nTitle: ${aclDef.title}`;
+      if (aclDef.hierarchyPath.length > 1) {
+        const pathTitles = aclDef.hierarchyPath.map((id) => {
+          const res = project.aclIndex.getResource(id);
+          return res?.title || id;
+        });
+        value += `\n\nPath: ${pathTitles.join(' > ')}`;
+      }
     }
     return { contents: { kind: MarkupKind.Markdown, value }, range };
   }

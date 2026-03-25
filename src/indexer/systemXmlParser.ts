@@ -82,6 +82,8 @@ export function parseSystemXml(
   let collectedText = '';
   let modelTagKind: SystemConfigReferenceKind | undefined;
   let collectingLabel = false;
+  // True when we're inside a <resource> element (ACL resource for a section)
+  let collectingResource = false;
 
   parser.onopentagstart = () => {
     currentTagStartLine = parser.line ?? 0;
@@ -142,6 +144,11 @@ export function parseSystemXml(
       collectingLabel = true;
       collectingText = true;
       collectedText = '';
+    } else if (tagName === 'resource' && pathStack.length > 0) {
+      // <resource> inside a section — ACL resource ID text content
+      collectingResource = true;
+      collectingText = true;
+      collectedText = '';
     }
   };
 
@@ -162,6 +169,31 @@ export function parseSystemXml(
 
     if (name === 'system' || name === 'include') {
       inContent = false;
+      return;
+    }
+
+    if (collectingResource && name === 'resource') {
+      // <resource>Magento_Newsletter::newsletter</resource> — ACL resource for the section
+      const trimmed = collectedText.trim();
+      if (trimmed) {
+        const configPath = pathStack.join('/');
+        const pos = findTextContentPosition(lines, currentTagStartLine, trimmed);
+        if (pos) {
+          references.push({
+            kind: 'section-resource',
+            configPath,
+            aclResourceId: trimmed,
+            file: context.file,
+            line: pos.line,
+            column: pos.column,
+            endColumn: pos.endColumn,
+            module: context.module,
+          });
+        }
+      }
+      collectingResource = false;
+      collectingText = false;
+      collectedText = '';
       return;
     }
 

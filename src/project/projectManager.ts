@@ -17,6 +17,8 @@ import {
   discoverEventsXmlFiles,
   discoverWebapiXmlFiles,
   discoverAclXmlFiles,
+  discoverMenuXmlFiles,
+  discoverUiComponentAclFiles,
 } from './moduleResolver';
 import { buildPsr4Map } from './composerAutoload';
 import { ThemeResolver } from './themeResolver';
@@ -33,10 +35,14 @@ import { CompatModuleIndex } from '../index/compatModuleIndex';
 import { SystemConfigIndex } from '../index/systemConfigIndex';
 import { WebapiIndex } from '../index/webapiIndex';
 import { AclIndex } from '../index/aclIndex';
+import { MenuIndex } from '../index/menuIndex';
+import { UiComponentAclIndex } from '../index/uiComponentAclIndex';
 import { parseCompatModuleRegistrations } from '../indexer/compatModuleParser';
 import { parseSystemXml } from '../indexer/systemXmlParser';
 import { parseWebapiXml } from '../indexer/webapiXmlParser';
 import { parseAclXml } from '../indexer/aclXmlParser';
+import { parseMenuXml } from '../indexer/menuXmlParser';
+import { parseUiComponentAcl } from '../indexer/uiComponentAclParser';
 import { ModuleInfo, Psr4Map } from '../indexer/types';
 import { fileExists } from '../utils/fsHelpers';
 import * as fs from 'fs';
@@ -70,6 +76,10 @@ export interface ProjectContext {
   webapiIndex: WebapiIndex;
   /** In-memory acl.xml resource definition index for this project. */
   aclIndex: AclIndex;
+  /** In-memory menu.xml ACL resource reference index for this project. */
+  menuIndex: MenuIndex;
+  /** In-memory UI component ACL resource reference index for this project. */
+  uiComponentAclIndex: UiComponentAclIndex;
   /** Disk cache for this project's parse results. */
   cache: IndexCache;
   /** True once the initial indexing pass is complete. */
@@ -327,6 +337,70 @@ export class ProjectManager {
     const t3d = Date.now();
     console.error(`[magento2-lsp]   acl.xml (${allAclFiles.length} files, ${aclCacheHits} cached): ${t3d - t3c}ms`);
 
+    // --- Index menu.xml files (cached) ---
+    const menuIndex = new MenuIndex();
+    const allMenuFiles: string[] = [];
+    let menuCacheHits = 0;
+
+    for (const mod of modules) {
+      const menuFiles = discoverMenuXmlFiles(mod.path);
+      for (const f of menuFiles) {
+        allMenuFiles.push(f.file);
+        try {
+          const stat = fs.statSync(f.file);
+          const cached = cache.getMenuEntry(f.file, stat.mtimeMs);
+
+          if (cached) {
+            menuCacheHits++;
+            menuIndex.addFile(f.file, cached.references);
+          } else {
+            const content = fs.readFileSync(f.file, 'utf-8');
+            const result = parseMenuXml(content, { file: f.file, module: mod.name });
+            menuIndex.addFile(f.file, result.references);
+            cache.setMenuEntry(f.file, stat.mtimeMs, result.references);
+          }
+        } catch {
+          // Skip unreadable files
+        }
+      }
+    }
+
+    cache.pruneMenuFiles(new Set(allMenuFiles));
+    const t3e = Date.now();
+    console.error(`[magento2-lsp]   menu.xml (${allMenuFiles.length} files, ${menuCacheHits} cached): ${t3e - t3d}ms`);
+
+    // --- Index UI component aclResource files (cached) ---
+    const uiComponentAclIndex = new UiComponentAclIndex();
+    const allUiComponentFiles: string[] = [];
+    let uiComponentCacheHits = 0;
+
+    for (const mod of modules) {
+      const uiFiles = discoverUiComponentAclFiles(mod.path);
+      for (const f of uiFiles) {
+        allUiComponentFiles.push(f.file);
+        try {
+          const stat = fs.statSync(f.file);
+          const cached = cache.getUiComponentAclEntry(f.file, stat.mtimeMs);
+
+          if (cached) {
+            uiComponentCacheHits++;
+            uiComponentAclIndex.addFile(f.file, cached.references);
+          } else {
+            const content = fs.readFileSync(f.file, 'utf-8');
+            const result = parseUiComponentAcl(content, { file: f.file, module: mod.name });
+            uiComponentAclIndex.addFile(f.file, result.references);
+            cache.setUiComponentAclEntry(f.file, stat.mtimeMs, result.references);
+          }
+        } catch {
+          // Skip unreadable files
+        }
+      }
+    }
+
+    cache.pruneUiComponentAclFiles(new Set(allUiComponentFiles));
+    const t3f = Date.now();
+    console.error(`[magento2-lsp]   ui_component acl (${allUiComponentFiles.length} files, ${uiComponentCacheHits} cached): ${t3f - t3e}ms`);
+
     // --- Discover themes and index layout XML files (cached) ---
     const themeResolver = new ThemeResolver();
     themeResolver.discover(root);
@@ -438,6 +512,8 @@ export class ProjectManager {
       systemConfigIndex,
       webapiIndex,
       aclIndex,
+      menuIndex,
+      uiComponentAclIndex,
       cache,
       indexingComplete: true,
     };

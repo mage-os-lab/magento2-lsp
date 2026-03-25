@@ -94,6 +94,12 @@ async function handleXmlReferences(
       const diRefs = project.index.getReferencesForFqcn(sysRef.fqcn);
       return refsToLocations([...sysRefs, ...diRefs]);
     }
+    // section-resource -> all system.xml + acl.xml refs for that ACL resource
+    if (sysRef.kind === 'section-resource' && sysRef.aclResourceId) {
+      const sysRefs = project.systemConfigIndex.getRefsForAclResource(sysRef.aclResourceId);
+      const aclDefs = project.aclIndex.getAllResources(sysRef.aclResourceId);
+      return refsToLocations([...sysRefs, ...aclDefs]);
+    }
     // section/group/field -> XML declarations + PHP usages of this config path
     const pathRefs = project.systemConfigIndex.getRefsForPath(sysRef.configPath)
       .filter((r) => r.kind === sysRef.kind);
@@ -125,9 +131,28 @@ async function handleXmlReferences(
   // --- Try acl.xml ---
   const aclResource = project.aclIndex.getResourceAtPosition(filePath, line, character);
   if (aclResource) {
-    // From an acl.xml resource definition, find all webapi.xml routes that reference it
+    // From an acl.xml resource definition, find all references across XML types
     const webapiRefs = project.webapiIndex.getRefsForResource(aclResource.id);
-    return refsToLocations(webapiRefs);
+    const systemRefs = project.systemConfigIndex.getRefsForAclResource(aclResource.id);
+    const menuRefs = project.menuIndex.getRefsForResource(aclResource.id);
+    const uiRefs = project.uiComponentAclIndex.getRefsForResource(aclResource.id);
+    return refsToLocations([...webapiRefs, ...systemRefs, ...menuRefs, ...uiRefs]);
+  }
+
+  // --- Try menu.xml ---
+  const menuRef = project.menuIndex.getReferenceAtPosition(filePath, line, character);
+  if (menuRef) {
+    const menuRefs = project.menuIndex.getRefsForResource(menuRef.value);
+    const aclDefs = project.aclIndex.getAllResources(menuRef.value);
+    return refsToLocations([...menuRefs, ...aclDefs]);
+  }
+
+  // --- Try UI component aclResource ---
+  const uiAclRef = project.uiComponentAclIndex.getReferenceAtPosition(filePath, line, character);
+  if (uiAclRef) {
+    const uiRefs = project.uiComponentAclIndex.getRefsForResource(uiAclRef.value);
+    const aclDefs = project.aclIndex.getAllResources(uiAclRef.value);
+    return refsToLocations([...uiRefs, ...aclDefs]);
   }
 
   // --- Try events.xml ---

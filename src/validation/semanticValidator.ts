@@ -24,12 +24,16 @@ import { parseEventsXml, EventsXmlParseContext } from '../indexer/eventsXmlParse
 import { parseLayoutXml } from '../indexer/layoutXmlParser';
 import { parseSystemXml } from '../indexer/systemXmlParser';
 import { parseWebapiXml } from '../indexer/webapiXmlParser';
+import { parseMenuXml } from '../indexer/menuXmlParser';
+import { parseUiComponentAcl } from '../indexer/uiComponentAclParser';
 import { extractPhpClass, extractPhpMethods } from '../utils/phpNamespace';
 import {
   deriveDiXmlContext,
   deriveEventsXmlContext,
   deriveSystemXmlContext,
   deriveWebapiXmlContext,
+  deriveMenuXmlContext,
+  deriveUiComponentAclContext,
 } from '../project/moduleResolver';
 import type { ProjectContext } from '../project/projectManager';
 import type { DiReference, LayoutReference, Psr4Map, ModuleInfo } from '../indexer/types';
@@ -75,6 +79,16 @@ export function validateSemantics(
   const systemConfigContext = deriveSystemXmlContext(filePath, project.modules);
   if (systemConfigContext) {
     return validateSystemConfigXml(content, systemConfigContext, project);
+  }
+
+  const menuContext = deriveMenuXmlContext(filePath, project.modules);
+  if (menuContext) {
+    return validateMenuXml(content, menuContext, project);
+  }
+
+  const uiContext = deriveUiComponentAclContext(filePath, project.modules);
+  if (uiContext) {
+    return validateUiComponentAcl(content, uiContext, project);
   }
 
   return [];
@@ -307,6 +321,16 @@ function validateSystemConfigXml(
         ));
       }
     }
+
+    if (ref.kind === 'section-resource' && ref.aclResourceId) {
+      if (project.aclIndex.getAllResources(ref.aclResourceId).length === 0) {
+        diagnostics.push(makeDiagnostic(
+          ref.line, ref.column, ref.endColumn,
+          `ACL resource "${ref.aclResourceId}" not defined in any acl.xml`,
+          DiagnosticSeverity.Warning,
+        ));
+      }
+    }
   }
 
   return diagnostics;
@@ -363,6 +387,52 @@ function validateWebapiXml(
           // Can't read PHP file — don't warn
         }
       }
+    }
+  }
+
+  return diagnostics;
+}
+
+// --- menu.xml validation ---
+
+function validateMenuXml(
+  content: string,
+  context: import('../indexer/menuXmlParser').MenuXmlParseContext,
+  project: ProjectContext,
+): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  const { references } = parseMenuXml(content, context);
+
+  for (const ref of references) {
+    if (project.aclIndex.getAllResources(ref.value).length === 0) {
+      diagnostics.push(makeDiagnostic(
+        ref.line, ref.column, ref.endColumn,
+        `ACL resource "${ref.value}" not defined in any acl.xml`,
+        DiagnosticSeverity.Warning,
+      ));
+    }
+  }
+
+  return diagnostics;
+}
+
+// --- UI component ACL validation ---
+
+function validateUiComponentAcl(
+  content: string,
+  context: import('../indexer/uiComponentAclParser').UiComponentAclParseContext,
+  project: ProjectContext,
+): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  const { references } = parseUiComponentAcl(content, context);
+
+  for (const ref of references) {
+    if (project.aclIndex.getAllResources(ref.value).length === 0) {
+      diagnostics.push(makeDiagnostic(
+        ref.line, ref.column, ref.endColumn,
+        `ACL resource "${ref.value}" not defined in any acl.xml`,
+        DiagnosticSeverity.Warning,
+      ));
     }
   }
 

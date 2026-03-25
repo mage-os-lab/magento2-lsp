@@ -15,10 +15,10 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { DiReference, VirtualTypeDecl, EventReference, ObserverReference, LayoutReference, SystemConfigReference, WebapiReference, AclResource } from '../indexer/types';
+import { DiReference, VirtualTypeDecl, EventReference, ObserverReference, LayoutReference, SystemConfigReference, WebapiReference, AclResource, MenuReference, UiComponentAclReference } from '../indexer/types';
 
 /** Bump this when entry formats change to invalidate old caches. */
-const CACHE_VERSION = 7;
+const CACHE_VERSION = 8;
 const CACHE_FILENAME = '.magento2-lsp-cache.json';
 
 /** Cached parse results for a single di.xml file. */
@@ -59,6 +59,18 @@ export interface AclCacheEntry {
   resources: AclResource[];
 }
 
+/** Cached parse results for a single menu.xml file. */
+export interface MenuCacheEntry {
+  mtimeMs: number;
+  references: MenuReference[];
+}
+
+/** Cached parse results for a single UI component XML file (aclResource only). */
+export interface UiComponentAclCacheEntry {
+  mtimeMs: number;
+  references: UiComponentAclReference[];
+}
+
 /** Top-level structure of the cache file on disk. */
 export interface CacheFile {
   version: number;
@@ -68,6 +80,8 @@ export interface CacheFile {
   systemConfigFiles: Record<string, SystemConfigCacheEntry>;
   webapiFiles: Record<string, WebapiCacheEntry>;
   aclFiles: Record<string, AclCacheEntry>;
+  menuFiles: Record<string, MenuCacheEntry>;
+  uiComponentAclFiles: Record<string, UiComponentAclCacheEntry>;
 }
 
 export class IndexCache {
@@ -76,7 +90,7 @@ export class IndexCache {
 
   constructor(magentoRoot: string) {
     this.cachePath = path.join(magentoRoot, CACHE_FILENAME);
-    this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {}, systemConfigFiles: {}, webapiFiles: {}, aclFiles: {} };
+    this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {}, systemConfigFiles: {}, webapiFiles: {}, aclFiles: {}, menuFiles: {}, uiComponentAclFiles: {} };
   }
 
   /**
@@ -88,7 +102,7 @@ export class IndexCache {
       const raw = fs.readFileSync(this.cachePath, 'utf-8');
       const parsed = JSON.parse(raw) as CacheFile;
       if (parsed.version !== CACHE_VERSION) {
-        this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {}, systemConfigFiles: {}, webapiFiles: {}, aclFiles: {} };
+        this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {}, systemConfigFiles: {}, webapiFiles: {}, aclFiles: {}, menuFiles: {}, uiComponentAclFiles: {} };
         return false;
       }
       // Ensure all sections exist (forward-compat for caches without new sections)
@@ -98,10 +112,12 @@ export class IndexCache {
       parsed.systemConfigFiles ??= {};
       parsed.webapiFiles ??= {};
       parsed.aclFiles ??= {};
+      parsed.menuFiles ??= {};
+      parsed.uiComponentAclFiles ??= {};
       this.data = parsed;
       return true;
     } catch {
-      this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {}, systemConfigFiles: {}, webapiFiles: {}, aclFiles: {} };
+      this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {}, systemConfigFiles: {}, webapiFiles: {}, aclFiles: {}, menuFiles: {}, uiComponentAclFiles: {} };
       return false;
     }
   }
@@ -244,6 +260,44 @@ export class IndexCache {
   /** Remove a single acl.xml entry from the cache. */
   removeAclEntry(filePath: string): void {
     delete this.data.aclFiles[filePath];
+  }
+
+  // --- menu.xml ---
+
+  getMenuEntry(filePath: string, currentMtimeMs: number): MenuCacheEntry | undefined {
+    const entry = this.data.menuFiles[filePath];
+    return entry && entry.mtimeMs === currentMtimeMs ? entry : undefined;
+  }
+
+  setMenuEntry(filePath: string, mtimeMs: number, references: MenuReference[]): void {
+    this.data.menuFiles[filePath] = { mtimeMs, references };
+  }
+
+  pruneMenuFiles(existingFiles: Set<string>): void {
+    this.pruneSection(this.data.menuFiles, existingFiles);
+  }
+
+  removeMenuEntry(filePath: string): void {
+    delete this.data.menuFiles[filePath];
+  }
+
+  // --- UI component ACL ---
+
+  getUiComponentAclEntry(filePath: string, currentMtimeMs: number): UiComponentAclCacheEntry | undefined {
+    const entry = this.data.uiComponentAclFiles[filePath];
+    return entry && entry.mtimeMs === currentMtimeMs ? entry : undefined;
+  }
+
+  setUiComponentAclEntry(filePath: string, mtimeMs: number, references: UiComponentAclReference[]): void {
+    this.data.uiComponentAclFiles[filePath] = { mtimeMs, references };
+  }
+
+  pruneUiComponentAclFiles(existingFiles: Set<string>): void {
+    this.pruneSection(this.data.uiComponentAclFiles, existingFiles);
+  }
+
+  removeUiComponentAclEntry(filePath: string): void {
+    delete this.data.uiComponentAclFiles[filePath];
   }
 
   /** List all di.xml file paths that have cached entries. */

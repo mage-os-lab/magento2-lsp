@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<config>
+    <menu>
+        <add id="Test_ModuleFoo::items" title="Foo Items" module="Test_ModuleFoo"
+             sortOrder="30" resource="Test_ModuleFoo::items"/>
+        <add id="Test_ModuleFoo::items_manage" title="Manage Items" module="Test_ModuleFoo"
+             sortOrder="10" parent="Test_ModuleFoo::items" action="test_foo/items/"
+             resource="Test_ModuleFoo::items_manage"/>
+    </menu>
+</config>

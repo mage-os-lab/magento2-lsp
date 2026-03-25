@@ -172,6 +172,16 @@ export function handleDefinition(
         );
       }
     }
+    // section-resource -> jump to acl.xml definition
+    if (sysRef.kind === 'section-resource' && sysRef.aclResourceId) {
+      const aclDef = project.aclIndex.getResource(sysRef.aclResourceId);
+      if (aclDef) {
+        return Location.create(
+          URI.file(aclDef.file).toString(),
+          Range.create(aclDef.line, aclDef.column, aclDef.line, aclDef.endColumn),
+        );
+      }
+    }
     // section-id / group-id / field-id: cursor IS the definition
     return null;
   }
@@ -224,6 +234,40 @@ export function handleDefinition(
   );
   if (aclResource) {
     // Cursor IS the definition — nothing to navigate to (same pattern as system.xml field-id)
+    return null;
+  }
+
+  // --- Try menu.xml ---
+  const menuRef = project.menuIndex.getReferenceAtPosition(
+    filePath,
+    params.position.line,
+    params.position.character,
+  );
+  if (menuRef) {
+    const aclDef = project.aclIndex.getResource(menuRef.value);
+    if (aclDef) {
+      return Location.create(
+        URI.file(aclDef.file).toString(),
+        Range.create(aclDef.line, aclDef.column, aclDef.line, aclDef.endColumn),
+      );
+    }
+    return null;
+  }
+
+  // --- Try UI component aclResource ---
+  const uiAclRef = project.uiComponentAclIndex.getReferenceAtPosition(
+    filePath,
+    params.position.line,
+    params.position.character,
+  );
+  if (uiAclRef) {
+    const aclDef = project.aclIndex.getResource(uiAclRef.value);
+    if (aclDef) {
+      return Location.create(
+        URI.file(aclDef.file).toString(),
+        Range.create(aclDef.line, aclDef.column, aclDef.line, aclDef.endColumn),
+      );
+    }
     return null;
   }
 

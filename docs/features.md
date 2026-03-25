@@ -85,8 +85,13 @@ Complete list of LSP features provided by magento2-lsp.
 ## acl.xml Navigation
 
 - **Go to Definition** from `<resource ref="...">` in `webapi.xml`: jump to the `<resource>` declaration in acl.xml
-- **Find References** from a `<resource>` in `acl.xml`: shows all `webapi.xml` routes that reference that ACL resource
-- **Hover** on `<resource>` in `acl.xml`: shows resource title, hierarchy path (e.g., `Magento Admin > Customers > All Customers`), module, and webapi.xml usage count
+- **Go to Definition** from `resource="..."` attribute in `menu.xml`: jump to acl.xml
+- **Go to Definition** from `<aclResource>` text in UI component XML: jump to acl.xml
+- **Go to Definition** from `<resource>` text inside `<section>` in `system.xml`: jump to acl.xml
+- **Find References** from a `<resource>` in `acl.xml`: shows all usages across webapi.xml routes, system.xml sections, menu.xml items, and UI component files
+- **Find References** from an ACL resource in any referencing file: shows all usages of that ACL resource across file types plus the acl.xml definition
+- **Hover** on `<resource>` in `acl.xml`: shows resource title, hierarchy path, module, and usage counts by file type
+- **Hover** on ACL resource references in `webapi.xml`, `menu.xml`, `system.xml`, and UI component XML: shows resource title and hierarchy from acl.xml
 
 ## Semantic Diagnostics
 
@@ -97,7 +102,7 @@ Complete list of LSP features provided by magento2-lsp.
 - **Broken model references** in `system.xml`: error when a `source_model`, `backend_model`, or `frontend_model` FQCN doesn't resolve to a PHP file
 - **Broken service class references** in `webapi.xml`: error when a `<service class="..."/>` FQCN doesn't resolve to a PHP file
 - **Missing service methods** in `webapi.xml`: warning when a `<service method="..."/>` method is not found on the service class (checked on save)
-- **Undefined ACL resource** in `webapi.xml`: warning when a `<resource ref="...">` value (other than `self`/`anonymous`) is not defined in any acl.xml file
+- **Undefined ACL resource** in `webapi.xml`, `menu.xml`, `system.xml`, and UI component XML: warning when an ACL resource reference is not defined in any acl.xml file
 
 Diagnostics update on every keystroke (debounced). Expensive checks (duplicate plugins, ObserverInterface) also run on file open and save.
 
@@ -114,7 +119,10 @@ Diagnostics update on every keystroke (debounced). Expensive checks (duplicate p
 - **Hover** on class and template references in layout XML: shows block class info and template resolution paths
 - **Hover** on `system.xml` elements: shows config path, label, module, and model class info
 - **Hover** on `webapi.xml` elements: shows REST route, HTTP method, service class/method, and ACL resource info
-- **Hover** on `acl.xml` resources: shows resource title, hierarchy path, module, and webapi.xml usage count
+- **Hover** on `acl.xml` resources: shows resource title, hierarchy path, module, and usage counts across file types
+- **Hover** on `menu.xml` resource attributes: shows ACL resource title, hierarchy, and menu item context
+- **Hover** on `<aclResource>` in UI components: shows ACL resource title and hierarchy
+- **Hover** on `<resource>` in `system.xml` sections: shows ACL resource title, hierarchy, and config section
 
 ## Workspace Symbol Search
 

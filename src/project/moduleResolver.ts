@@ -22,6 +22,8 @@ import { EventsXmlParseContext } from '../indexer/eventsXmlParser';
 import { SystemXmlParseContext } from '../indexer/systemXmlParser';
 import { WebapiXmlParseContext } from '../indexer/webapiXmlParser';
 import { AclXmlParseContext } from '../indexer/aclXmlParser';
+import { MenuXmlParseContext } from '../indexer/menuXmlParser';
+import { UiComponentAclParseContext } from '../indexer/uiComponentAclParser';
 import { realpath } from '../utils/realpath';
 import { fileExists, isDirectory } from '../utils/fsHelpers';
 import { readComposerPackages } from '../utils/composerPackages';
@@ -344,6 +346,73 @@ export function deriveAclXmlContext(
     if (!filePath.startsWith(mod.path)) continue;
     const relPath = path.relative(mod.path, filePath);
     if (relPath === path.join('etc', 'acl.xml')) {
+      return { file: filePath, module: mod.name };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Discover the menu.xml file for a module, if it exists.
+ * menu.xml only lives at etc/adminhtml/menu.xml (no area variants).
+ */
+export function discoverMenuXmlFiles(
+  modulePath: string,
+): { file: string }[] {
+  const menuFile = path.join(modulePath, 'etc', 'adminhtml', 'menu.xml');
+  return fileExists(menuFile) ? [{ file: menuFile }] : [];
+}
+
+/**
+ * Derive the menu.xml parse context for a file.
+ * Returns undefined if the file is not a menu.xml within a known module.
+ */
+export function deriveMenuXmlContext(
+  filePath: string,
+  modules: ModuleInfo[],
+): MenuXmlParseContext | undefined {
+  if (!filePath.endsWith('/menu.xml')) return undefined;
+
+  for (const mod of modules) {
+    if (!filePath.startsWith(mod.path)) continue;
+    const relPath = path.relative(mod.path, filePath);
+    if (relPath === path.join('etc', 'adminhtml', 'menu.xml')) {
+      return { file: filePath, module: mod.name };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Discover UI component XML files for a module.
+ * These live at view/adminhtml/ui_component/*.xml.
+ */
+export function discoverUiComponentAclFiles(
+  modulePath: string,
+): { file: string }[] {
+  const dir = path.join(modulePath, 'view', 'adminhtml', 'ui_component');
+  try {
+    return fs.readdirSync(dir)
+      .filter((f) => f.endsWith('.xml'))
+      .map((f) => ({ file: path.join(dir, f) }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Derive the UI component ACL parse context for a file.
+ * Returns undefined if the file is not a UI component XML within a known module.
+ */
+export function deriveUiComponentAclContext(
+  filePath: string,
+  modules: ModuleInfo[],
+): UiComponentAclParseContext | undefined {
+  if (!filePath.endsWith('.xml')) return undefined;
+  if (!filePath.includes('/view/adminhtml/ui_component/')) return undefined;
+
+  for (const mod of modules) {
+    if (filePath.startsWith(mod.path)) {
       return { file: filePath, module: mod.name };
     }
   }

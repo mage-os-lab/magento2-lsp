@@ -231,7 +231,8 @@ export type SystemConfigReferenceKind =
   | 'field-id'
   | 'source-model'
   | 'backend-model'
-  | 'frontend-model';
+  | 'frontend-model'
+  | 'section-resource';
 
 /**
  * A reference found in a system.xml file (or an included partial).
@@ -252,6 +253,8 @@ export interface SystemConfigReference {
   configPath: string;
   /** For source-model/backend-model/frontend-model: the PHP FQCN. */
   fqcn?: string;
+  /** For section-resource: the ACL resource ID (e.g., "Magento_Newsletter::newsletter"). */
+  aclResourceId?: string;
   /** Label from the <label> child element, if present. */
   label?: string;
   /** Absolute filesystem path to the system.xml (or include partial) file. */
@@ -308,6 +311,65 @@ export interface WebapiReference {
   /** 0-based column where the value starts. */
   column: number;
   /** 0-based column where the value ends. */
+  endColumn: number;
+  /** Magento module name in Vendor_Module format. */
+  module: string;
+}
+
+// ---- menu.xml types ----
+
+/**
+ * A reference found in a menu.xml file.
+ *
+ * menu.xml defines the Magento admin sidebar menu hierarchy:
+ *   <config><menu>
+ *     <add id="Magento_Customer::customer_manage" title="All Customers"
+ *          resource="Magento_Customer::manage" action="customer/index/"
+ *          parent="Magento_Customer::customer" sortOrder="10"/>
+ *   </menu></config>
+ *
+ * The `resource` attribute is an ACL resource ID that controls menu visibility.
+ */
+export interface MenuReference {
+  /** The ACL resource ID from the resource="..." attribute. */
+  value: string;
+  /** The menu item id attribute (e.g., "Magento_Customer::customer_manage"). */
+  menuItemId: string;
+  /** The menu item title attribute. */
+  menuItemTitle: string;
+  /** Absolute filesystem path to the menu.xml file. */
+  file: string;
+  /** 0-based line number of the resource attribute value. */
+  line: number;
+  /** 0-based column where the resource value starts. */
+  column: number;
+  /** 0-based column where the resource value ends. */
+  endColumn: number;
+  /** Magento module name in Vendor_Module format. */
+  module: string;
+}
+
+// ---- UI component ACL types ----
+
+/**
+ * An ACL resource reference found in a UI component XML file.
+ *
+ * UI component listing/form files contain `<aclResource>` text elements
+ * that control access to admin data grids and forms:
+ *   <dataSource name="customer_listing_data_source">
+ *     <aclResource>Magento_Customer::manage</aclResource>
+ *   </dataSource>
+ */
+export interface UiComponentAclReference {
+  /** The ACL resource ID from the <aclResource> text content. */
+  value: string;
+  /** Absolute filesystem path to the UI component XML file. */
+  file: string;
+  /** 0-based line number of the resource text content. */
+  line: number;
+  /** 0-based column where the resource value starts. */
+  column: number;
+  /** 0-based column where the resource value ends. */
   endColumn: number;
   /** Magento module name in Vendor_Module format. */
   module: string;
