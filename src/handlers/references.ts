@@ -164,6 +164,28 @@ async function handleXmlReferences(
     return refsToLocations([...uiRefs, ...aclDefs]);
   }
 
+  // --- Try db_schema.xml ---
+  const dbSchemaRef = project.dbSchemaIndex.getReferenceAtPosition(filePath, line, character);
+  if (dbSchemaRef) {
+    if (dbSchemaRef.kind === 'table-name' || dbSchemaRef.kind === 'fk-ref-table') {
+      // Show all refs for this table across all modules
+      const tableName = dbSchemaRef.value;
+      return refsToLocations(project.dbSchemaIndex.getRefsForTable(tableName));
+    }
+    if (dbSchemaRef.kind === 'column-name') {
+      // Show all column-name refs with same name on same table across modules
+      const cols = project.dbSchemaIndex.getColumnsForTable(dbSchemaRef.tableName)
+        .filter((r) => r.value === dbSchemaRef.value);
+      return refsToLocations(cols);
+    }
+    if (dbSchemaRef.kind === 'fk-ref-column') {
+      // Show all refs for the referenced table
+      const tableName = dbSchemaRef.fkRefTable ?? dbSchemaRef.tableName;
+      return refsToLocations(project.dbSchemaIndex.getRefsForTable(tableName));
+    }
+    return null;
+  }
+
   // --- Try routes.xml ---
   const routesRef = project.routesIndex.getReferenceAtPosition(filePath, line, character);
   if (routesRef) {

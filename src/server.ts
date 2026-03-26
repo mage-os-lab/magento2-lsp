@@ -40,6 +40,7 @@ import {
   discoverAclXmlFiles,
   discoverMenuXmlFiles,
   discoverRoutesXmlFiles,
+  discoverDbSchemaXmlFiles,
   discoverUiComponentAclFiles,
   deriveDiXmlContext,
   deriveEventsXmlContext,
@@ -48,6 +49,7 @@ import {
   deriveAclXmlContext,
   deriveMenuXmlContext,
   deriveRoutesXmlContext,
+  deriveDbSchemaXmlContext,
   deriveUiComponentAclContext,
 } from './project/moduleResolver';
 import { parseDiXml, DiXmlParseContext } from './indexer/diXmlParser';
@@ -58,6 +60,7 @@ import { parseWebapiXml, WebapiXmlParseContext } from './indexer/webapiXmlParser
 import { parseAclXml, AclXmlParseContext } from './indexer/aclXmlParser';
 import { parseMenuXml, MenuXmlParseContext } from './indexer/menuXmlParser';
 import { parseRoutesXml, RoutesXmlParseContext } from './indexer/routesXmlParser';
+import { parseDbSchemaXml, DbSchemaXmlParseContext } from './indexer/dbSchemaXmlParser';
 import { parseUiComponentAcl, UiComponentAclParseContext } from './indexer/uiComponentAclParser';
 import { resolveFileToFqcn } from './indexer/phpClassLocator';
 import { realpath } from './utils/realpath';
@@ -654,6 +657,44 @@ function setupFileWatchers(project: import('./project/projectManager').ProjectCo
     saveCache: () => project.cache.save(),
   });
   watchers.push(routesWatcher);
+
+  // --- db_schema.xml watcher ---
+  const dbSchemaWatchPatterns: string[] = [];
+  const dbSchemaContextMap = new Map<string, DbSchemaXmlParseContext>();
+
+  for (const mod of project.modules) {
+    const files = discoverDbSchemaXmlFiles(mod.path);
+    for (const f of files) {
+      dbSchemaWatchPatterns.push(f.file);
+      dbSchemaContextMap.set(f.file, { file: f.file, module: mod.name });
+    }
+    dbSchemaWatchPatterns.push(path.join(mod.path, 'etc', 'db_schema.xml'));
+  }
+
+  function getDbSchemaContext(file: string): DbSchemaXmlParseContext | undefined {
+    const cached = dbSchemaContextMap.get(file);
+    if (cached) return cached;
+    const ctx = deriveDbSchemaXmlContext(file, project.modules);
+    if (ctx) dbSchemaContextMap.set(file, ctx);
+    return ctx;
+  }
+
+  const dbSchemaWatcher = createXmlWatcher({
+    patterns: dbSchemaWatchPatterns,
+    resolveContext: getDbSchemaContext,
+    parse: parseDbSchemaXml,
+    onParsed(file, mtimeMs, result) {
+      project.dbSchemaIndex.removeFile(file);
+      project.dbSchemaIndex.addFile(file, result.references);
+      project.cache.setDbSchemaEntry(file, mtimeMs, result.references);
+    },
+    onRemoved(file) {
+      project.dbSchemaIndex.removeFile(file);
+      project.cache.removeDbSchemaEntry(file);
+    },
+    saveCache: () => project.cache.save(),
+  });
+  watchers.push(dbSchemaWatcher);
 
   // --- UI component aclResource watcher ---
   const uiComponentWatchPatterns: string[] = [];

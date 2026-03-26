@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<schema xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:framework:Setup/Declaration/Schema/etc/schema.xsd">
+    <!-- Cross-module extension: adds a column to Test_Foo's test_entity table -->
+    <table name="test_entity" resource="default" comment="Test Entity Table">
+        <column xsi:type="varchar" name="custom_attribute" nullable="true" length="255"
+                comment="Custom Attribute added by Custom_Bar"/>
+    </table>
+</schema>

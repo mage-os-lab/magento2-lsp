@@ -483,3 +483,108 @@ export interface AclResource {
   /** Magento module name in Vendor_Module format. */
   module: string;
 }
+
+// ---- db_schema.xml types ----
+
+/**
+ * Identifies which kind of db_schema.xml element a reference comes from.
+ *
+ * Example db_schema.xml entries and their corresponding kinds:
+ *   <table name="review">                          -> 'table-name'
+ *   <column xsi:type="bigint" name="review_id">    -> 'column-name'
+ *   <constraint xsi:type="foreign"
+ *     referenceTable="review_entity"                -> 'fk-ref-table'
+ *     referenceColumn="entity_id"/>                 -> 'fk-ref-column'
+ */
+export type DbSchemaReferenceKind =
+  | 'table-name'      // <table name="...">
+  | 'column-name'     // <column name="..."> (direct child of <table>, not inside constraint/index)
+  | 'fk-ref-table'    // referenceTable="..." on a foreign key constraint
+  | 'fk-ref-column';  // referenceColumn="..." on a foreign key constraint
+
+/**
+ * A reference found in a db_schema.xml file.
+ *
+ * db_schema.xml defines database table schemas declaratively:
+ *   <schema>
+ *     <table name="review" resource="default" engine="innodb" comment="Review base info">
+ *       <column xsi:type="bigint" name="review_id" identity="true" comment="Review ID"/>
+ *       <constraint xsi:type="foreign" referenceId="FK_REVIEW_ENTITY"
+ *                   table="review" column="entity_id"
+ *                   referenceTable="review_entity" referenceColumn="entity_id" onDelete="CASCADE"/>
+ *     </table>
+ *   </schema>
+ *
+ * Multiple modules can contribute columns, constraints, and indexes to the same table.
+ */
+export interface DbSchemaReference {
+  /** Which db_schema.xml element this reference comes from. */
+  kind: DbSchemaReferenceKind;
+  /** The attribute value: table name, column name, or FK reference target. */
+  value: string;
+  /** The parent table name (present on all refs for context). */
+  tableName: string;
+
+  // ---- Column metadata (on column-name refs) ----
+
+  /** Column data type from xsi:type (e.g., "bigint", "varchar", "decimal"). */
+  columnType?: string;
+  /** Column length attribute (for varchar, etc.). */
+  columnLength?: string;
+  /** Column nullable attribute ("true" or "false"). */
+  columnNullable?: string;
+  /** Column identity attribute — auto-increment ("true" or "false"). */
+  columnIdentity?: string;
+  /** Column default value. */
+  columnDefault?: string;
+  /** Column comment attribute. */
+  columnComment?: string;
+  /** Column unsigned attribute ("true" or "false"). */
+  columnUnsigned?: string;
+  /** Column precision attribute (for decimal/float). */
+  columnPrecision?: string;
+  /** Column scale attribute (for decimal). */
+  columnScale?: string;
+
+  // ---- Table metadata (on table-name refs) ----
+
+  /** Table comment attribute. */
+  tableComment?: string;
+  /** Table resource attribute (DB connection, e.g., "default", "sales"). */
+  tableResource?: string;
+  /** Table engine attribute (e.g., "innodb"). */
+  tableEngine?: string;
+
+  // ---- FK metadata (on fk-ref-table and fk-ref-column refs) ----
+
+  /** The referenceId of the parent foreign key constraint. */
+  fkReferenceId?: string;
+  /** The local table name (from the `table` attribute on the FK constraint). */
+  fkTable?: string;
+  /** The local column name (from the `column` attribute on the FK constraint). */
+  fkColumn?: string;
+  /** The referenced table name (from `referenceTable`). */
+  fkRefTable?: string;
+  /** The referenced column name (from `referenceColumn`). */
+  fkRefColumn?: string;
+  /** The onDelete action (e.g., "CASCADE", "SET NULL", "NO ACTION"). */
+  fkOnDelete?: string;
+
+  // ---- Common flags ----
+
+  /** Whether disabled="true" is set on this element. */
+  disabled?: boolean;
+
+  // ---- Position ----
+
+  /** Absolute filesystem path to the db_schema.xml file. */
+  file: string;
+  /** 0-based line number. */
+  line: number;
+  /** 0-based column where the value starts. */
+  column: number;
+  /** 0-based column where the value ends. */
+  endColumn: number;
+  /** Magento module name in Vendor_Module format. */
+  module: string;
+}

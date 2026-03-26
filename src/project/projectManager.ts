@@ -20,6 +20,7 @@ import {
   discoverMenuXmlFiles,
   discoverUiComponentAclFiles,
   discoverRoutesXmlFiles,
+  discoverDbSchemaXmlFiles,
 } from './moduleResolver';
 import { buildPsr4Map } from './composerAutoload';
 import { ThemeResolver } from './themeResolver';
@@ -39,6 +40,7 @@ import { AclIndex } from '../index/aclIndex';
 import { MenuIndex } from '../index/menuIndex';
 import { UiComponentAclIndex } from '../index/uiComponentAclIndex';
 import { RoutesIndex } from '../index/routesIndex';
+import { DbSchemaIndex } from '../index/dbSchemaIndex';
 import { parseCompatModuleRegistrations } from '../indexer/compatModuleParser';
 import { parseSystemXml } from '../indexer/systemXmlParser';
 import { parseWebapiXml } from '../indexer/webapiXmlParser';
@@ -46,6 +48,7 @@ import { parseAclXml } from '../indexer/aclXmlParser';
 import { parseMenuXml } from '../indexer/menuXmlParser';
 import { parseUiComponentAcl } from '../indexer/uiComponentAclParser';
 import { parseRoutesXml } from '../indexer/routesXmlParser';
+import { parseDbSchemaXml } from '../indexer/dbSchemaXmlParser';
 import { ModuleInfo, Psr4Map } from '../indexer/types';
 import { fileExists } from '../utils/fsHelpers';
 import * as fs from 'fs';
@@ -85,6 +88,8 @@ export interface ProjectContext {
   uiComponentAclIndex: UiComponentAclIndex;
   /** In-memory routes.xml route/module index for this project. */
   routesIndex: RoutesIndex;
+  /** In-memory db_schema.xml table/column/FK index for this project. */
+  dbSchemaIndex: DbSchemaIndex;
   /** Disk cache for this project's parse results. */
   cache: IndexCache;
   /** True once the initial indexing pass is complete. */
@@ -424,6 +429,34 @@ export class ProjectManager {
 
     cache.pruneRoutesFiles(new Set(allRoutesFiles));
 
+    // --- Index db_schema.xml files (cached) ---
+    const dbSchemaIndex = new DbSchemaIndex();
+    const allDbSchemaFiles: string[] = [];
+
+    for (const mod of modules) {
+      const dbSchemaFiles = discoverDbSchemaXmlFiles(mod.path);
+      for (const f of dbSchemaFiles) {
+        allDbSchemaFiles.push(f.file);
+        try {
+          const stat = fs.statSync(f.file);
+          const cached = cache.getDbSchemaEntry(f.file, stat.mtimeMs);
+
+          if (cached) {
+            dbSchemaIndex.addFile(f.file, cached.references);
+          } else {
+            const content = fs.readFileSync(f.file, 'utf-8');
+            const result = parseDbSchemaXml(content, { file: f.file, module: mod.name });
+            dbSchemaIndex.addFile(f.file, result.references);
+            cache.setDbSchemaEntry(f.file, stat.mtimeMs, result.references);
+          }
+        } catch {
+          // Skip unreadable files
+        }
+      }
+    }
+
+    cache.pruneDbSchemaFiles(new Set(allDbSchemaFiles));
+
     // --- Discover themes and index layout XML files (cached) ---
     const themeResolver = new ThemeResolver();
     themeResolver.discover(root);
@@ -513,7 +546,8 @@ export class ProjectManager {
 
     const totalFiles = diXmlFiles.length + allEventsFiles.length + allSystemConfigFiles.length
       + allWebapiFiles.length + allAclFiles.length + allMenuFiles.length
-      + allUiComponentFiles.length + allRoutesFiles.length + allLayoutFiles.length;
+      + allUiComponentFiles.length + allRoutesFiles.length + allDbSchemaFiles.length
+      + allLayoutFiles.length;
     console.error(`[magento2-lsp] Indexed ${modules.length} modules, ${totalFiles} XML files in ${Date.now() - t0}ms`);
 
     progress?.onEnd();
@@ -535,6 +569,7 @@ export class ProjectManager {
       menuIndex,
       uiComponentAclIndex,
       routesIndex,
+      dbSchemaIndex,
       cache,
       indexingComplete: true,
     };

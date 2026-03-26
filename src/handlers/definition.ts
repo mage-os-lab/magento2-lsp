@@ -327,6 +327,42 @@ export function handleDefinition(
     return null;
   }
 
+  // --- Try db_schema.xml ---
+  const dbSchemaRef = project.dbSchemaIndex.getReferenceAtPosition(
+    filePath,
+    params.position.line,
+    params.position.character,
+  );
+  if (dbSchemaRef) {
+    if (dbSchemaRef.kind === 'fk-ref-table') {
+      // Jump to the referenced table declaration(s) across modules
+      const tableDefs = project.dbSchemaIndex.getTableDefs(dbSchemaRef.value);
+      if (tableDefs.length > 0) {
+        return tableDefs.map((r) =>
+          Location.create(
+            URI.file(r.file).toString(),
+            Range.create(r.line, r.column, r.line, r.endColumn),
+          ),
+        );
+      }
+    }
+    if (dbSchemaRef.kind === 'table-name') {
+      // If same table is defined in other modules, show those declarations
+      const allDefs = project.dbSchemaIndex.getTableDefs(dbSchemaRef.value);
+      const otherDefs = allDefs.filter((r) => r.file !== filePath);
+      if (otherDefs.length > 0) {
+        return otherDefs.map((r) =>
+          Location.create(
+            URI.file(r.file).toString(),
+            Range.create(r.line, r.column, r.line, r.endColumn),
+          ),
+        );
+      }
+    }
+    // column-name, fk-ref-column: cursor IS the definition or not navigable further
+    return null;
+  }
+
   // --- Try events.xml ---
   const eventsRef = project.eventsIndex.getReferenceAtPosition(
     filePath,

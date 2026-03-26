@@ -32,6 +32,7 @@ import { parseAclXml, AclXmlParseContext } from '../indexer/aclXmlParser';
 import { parseMenuXml, MenuXmlParseContext } from '../indexer/menuXmlParser';
 import { parseRoutesXml, RoutesXmlParseContext } from '../indexer/routesXmlParser';
 import { parseUiComponentAcl, UiComponentAclParseContext } from '../indexer/uiComponentAclParser';
+import { DbSchemaXmlParseContext } from '../indexer/dbSchemaXmlParser';
 import {
   deriveDiXmlContext,
   deriveEventsXmlContext,
@@ -41,6 +42,7 @@ import {
   deriveAclXmlContext,
   deriveMenuXmlContext,
   deriveRoutesXmlContext,
+  deriveDbSchemaXmlContext,
   deriveUiComponentAclContext,
 } from '../project/moduleResolver';
 import { realpath } from '../utils/realpath';
@@ -92,6 +94,9 @@ export function handleDocumentSymbol(
 
   const routesContext = deriveRoutesXmlContext(filePath, project.modules);
   if (routesContext) return buildRoutesSymbols(content, routesContext);
+
+  const dbSchemaContext = deriveDbSchemaXmlContext(filePath, project.modules);
+  if (dbSchemaContext) return buildDbSchemaSymbols(content, dbSchemaContext);
 
   const menuContext = deriveMenuXmlContext(filePath, project.modules);
   if (menuContext) return buildMenuSymbols(content, menuContext);
@@ -681,6 +686,127 @@ function buildRoutesSymbols(content: string, context: RoutesXmlParseContext): Do
   }
 
   return symbols;
+}
+
+// --- db_schema.xml symbols ---
+
+/**
+ * Build document symbols for a db_schema.xml file.
+ *
+ * Uses a lightweight SAX parse to produce a hierarchical tree:
+ *   Table (Struct) > Column (Field), Constraint (Key), Index (Key)
+ *
+ * This is separate from the parser (which only extracts navigable references) because
+ * document symbols need all structural elements including constraints and indexes.
+ */
+function buildDbSchemaSymbols(content: string, _context: DbSchemaXmlParseContext): DocumentSymbol[] | null {
+  const parser = sax.parser(true, { position: true, trim: false });
+  const lines = content.split('\n');
+  const symbols: DocumentSymbol[] = [];
+  let currentTableSymbol: DocumentSymbol | null = null;
+  let currentTagStartLine = 0;
+
+  parser.onopentagstart = () => {
+    currentTagStartLine = parser.line ?? 0;
+  };
+
+  parser.onopentag = (tag) => {
+    const tagLine = parser.line ?? 0;
+    const tagStartLine = currentTagStartLine;
+    const tagName = tag.name.toLowerCase();
+
+    if (tagName === 'table') {
+      const name = getAttr(tag, 'name');
+      if (!name) return;
+      const pos = findAttributeValuePosition(lines, tagLine, 'name', tagStartLine);
+      if (!pos) return;
+      const comment = getAttr(tag, 'comment');
+      const resource = getAttr(tag, 'resource');
+      const detail = [comment, resource ? `resource: ${resource}` : ''].filter(Boolean).join(' — ');
+      currentTableSymbol = makeSymbol(
+        name,
+        detail || undefined,
+        SymbolKind.Struct,
+        pos.line, pos.column, pos.endColumn,
+      );
+      currentTableSymbol.children = [];
+      return;
+    }
+
+    if (!currentTableSymbol) return;
+
+    if (tagName === 'column') {
+      const name = getAttr(tag, 'name');
+      if (!name) return;
+      const pos = findAttributeValuePosition(lines, tagLine, 'name', tagStartLine);
+      if (!pos) return;
+      const xsiType = tag.attributes['xsi:type'] ?? tag.attributes['XSI:TYPE'] ?? tag.attributes['xsi:Type'];
+      const typeStr = typeof xsiType === 'string' ? xsiType : xsiType?.value;
+      currentTableSymbol.children!.push(makeSymbol(
+        name,
+        typeStr || undefined,
+        SymbolKind.Field,
+        pos.line, pos.column, pos.endColumn,
+      ));
+      return;
+    }
+
+    if (tagName === 'constraint') {
+      const xsiType = tag.attributes['xsi:type'] ?? tag.attributes['XSI:TYPE'] ?? tag.attributes['xsi:Type'];
+      const typeStr = (typeof xsiType === 'string' ? xsiType : xsiType?.value) ?? '';
+      const referenceId = getAttr(tag, 'referenceId') ?? '';
+      const pos = findAttributeValuePosition(lines, tagLine, 'referenceId', tagStartLine)
+        ?? findAttributeValuePosition(lines, tagLine, 'xsi:type', tagStartLine);
+      if (!pos) return;
+
+      let detail: string;
+      if (typeStr === 'foreign') {
+        const refTable = getAttr(tag, 'referenceTable') ?? '';
+        const refCol = getAttr(tag, 'referenceColumn') ?? '';
+        const col = getAttr(tag, 'column') ?? '';
+        detail = `${col} → ${refTable}.${refCol}`;
+      } else {
+        detail = typeStr;
+      }
+
+      currentTableSymbol.children!.push(makeSymbol(
+        referenceId || typeStr,
+        detail,
+        SymbolKind.Key,
+        pos.line, pos.column, pos.endColumn,
+      ));
+      return;
+    }
+
+    if (tagName === 'index') {
+      const referenceId = getAttr(tag, 'referenceId') ?? '';
+      const indexType = getAttr(tag, 'indexType') ?? 'btree';
+      const pos = findAttributeValuePosition(lines, tagLine, 'referenceId', tagStartLine);
+      if (!pos) return;
+      currentTableSymbol.children!.push(makeSymbol(
+        referenceId,
+        `index (${indexType})`,
+        SymbolKind.Key,
+        pos.line, pos.column, pos.endColumn,
+      ));
+    }
+  };
+
+  parser.onclosetag = (tagName) => {
+    if (tagName.toLowerCase() === 'table' && currentTableSymbol) {
+      if (currentTableSymbol.children && currentTableSymbol.children.length === 0) {
+        delete currentTableSymbol.children;
+      }
+      expandRangeToChildren(currentTableSymbol);
+      symbols.push(currentTableSymbol);
+      currentTableSymbol = null;
+    }
+  };
+
+  installErrorHandler(parser);
+  parser.write(content).close();
+
+  return symbols.length > 0 ? symbols : null;
 }
 
 // --- menu.xml symbols ---

@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<schema xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:framework:Setup/Declaration/Schema/etc/schema.xsd">
+    <table name="test_entity" resource="default" engine="innodb" comment="Test Entity Table">
+        <column xsi:type="int" name="entity_id" unsigned="true" nullable="false"
+                identity="true" comment="Entity ID"/>
+        <column xsi:type="varchar" name="name" nullable="false" length="255" comment="Name"/>
+        <column xsi:type="smallint" name="store_id" unsigned="true" nullable="false" comment="Store ID"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY">
+            <column name="entity_id"/>
+        </constraint>
+        <constraint xsi:type="foreign" referenceId="TEST_ENTITY_STORE_ID_STORE_STORE_ID"
+                    table="test_entity" column="store_id"
+                    referenceTable="store" referenceColumn="store_id" onDelete="CASCADE"/>
+        <index referenceId="TEST_ENTITY_NAME" indexType="btree">
+            <column name="name"/>
+        </index>
+    </table>
+    <table name="test_related" resource="default" engine="innodb" comment="Test Related Table">
+        <column xsi:type="int" name="related_id" unsigned="true" nullable="false"
+                identity="true" comment="Related ID"/>
+        <column xsi:type="int" name="entity_id" unsigned="true" nullable="false" comment="Entity ID"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY">
+            <column name="related_id"/>
+        </constraint>
+        <constraint xsi:type="foreign" referenceId="TEST_RELATED_ENTITY_ID_TEST_ENTITY_ENTITY_ID"
+                    table="test_related" column="entity_id"
+                    referenceTable="test_entity" referenceColumn="entity_id" onDelete="CASCADE"/>
+    </table>
+</schema>

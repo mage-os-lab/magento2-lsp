@@ -274,6 +274,81 @@ export function handleHover(
     return { contents: { kind: MarkupKind.Markdown, value }, range };
   }
 
+  // --- Try db_schema.xml ---
+  const dbSchemaRef = project.dbSchemaIndex.getReferenceAtPosition(filePath, line, character);
+  if (dbSchemaRef) {
+    const range = Range.create(dbSchemaRef.line, dbSchemaRef.column, dbSchemaRef.line, dbSchemaRef.endColumn);
+    let value = '';
+
+    switch (dbSchemaRef.kind) {
+      case 'table-name': {
+        value = `**Table** \`${dbSchemaRef.value}\``;
+        if (dbSchemaRef.tableComment) value += `\n\n${dbSchemaRef.tableComment}`;
+        if (dbSchemaRef.tableResource) value += `\n\nResource: ${dbSchemaRef.tableResource}`;
+        if (dbSchemaRef.tableEngine) value += `  \nEngine: ${dbSchemaRef.tableEngine}`;
+        value += `\n\nModule: ${dbSchemaRef.module}`;
+        // Count how many modules define this table
+        const allDefs = project.dbSchemaIndex.getTableDefs(dbSchemaRef.value);
+        if (allDefs.length > 1) {
+          value += `\n\nDefined in ${allDefs.length} modules`;
+        }
+        // Count columns across all modules
+        const allCols = project.dbSchemaIndex.getColumnsForTable(dbSchemaRef.value);
+        if (allCols.length > 0) {
+          value += `\n\n${allCols.length} column${allCols.length === 1 ? '' : 's'}`;
+        }
+        if (dbSchemaRef.disabled) value += `\n\n*disabled*`;
+        break;
+      }
+      case 'column-name': {
+        value = `**Column** \`${dbSchemaRef.tableName}\`.\`${dbSchemaRef.value}\``;
+        if (dbSchemaRef.columnType) value += `\n\nType: ${dbSchemaRef.columnType}`;
+        if (dbSchemaRef.columnLength) value += `  \nLength: ${dbSchemaRef.columnLength}`;
+        if (dbSchemaRef.columnPrecision) value += `  \nPrecision: ${dbSchemaRef.columnPrecision}`;
+        if (dbSchemaRef.columnScale) value += `  \nScale: ${dbSchemaRef.columnScale}`;
+        if (dbSchemaRef.columnNullable) value += `  \nNullable: ${dbSchemaRef.columnNullable}`;
+        if (dbSchemaRef.columnUnsigned) value += `  \nUnsigned: ${dbSchemaRef.columnUnsigned}`;
+        if (dbSchemaRef.columnIdentity === 'true') value += `  \nAuto-increment: yes`;
+        if (dbSchemaRef.columnDefault !== undefined) value += `  \nDefault: ${dbSchemaRef.columnDefault}`;
+        if (dbSchemaRef.columnComment) value += `\n\n${dbSchemaRef.columnComment}`;
+        value += `\n\nModule: ${dbSchemaRef.module}`;
+        if (dbSchemaRef.disabled) value += `\n\n*disabled*`;
+        break;
+      }
+      case 'fk-ref-table': {
+        value = `**FK Reference** → \`${dbSchemaRef.fkRefTable}\``;
+        if (dbSchemaRef.fkColumn && dbSchemaRef.fkRefColumn) {
+          value += `\n\n\`${dbSchemaRef.fkTable || dbSchemaRef.tableName}\`.\`${dbSchemaRef.fkColumn}\` → \`${dbSchemaRef.fkRefTable}\`.\`${dbSchemaRef.fkRefColumn}\``;
+        }
+        if (dbSchemaRef.fkOnDelete) value += `\n\nON DELETE ${dbSchemaRef.fkOnDelete}`;
+        // Show info about the referenced table
+        const refTableDefs = project.dbSchemaIndex.getTableDefs(dbSchemaRef.value);
+        if (refTableDefs.length > 0 && refTableDefs[0].tableComment) {
+          value += `\n\n*${refTableDefs[0].tableComment}*`;
+        }
+        break;
+      }
+      case 'fk-ref-column': {
+        value = `**FK Reference Column** \`${dbSchemaRef.fkRefTable}\`.\`${dbSchemaRef.value}\``;
+        if (dbSchemaRef.fkColumn) {
+          value += `\n\n\`${dbSchemaRef.fkTable || dbSchemaRef.tableName}\`.\`${dbSchemaRef.fkColumn}\` → \`${dbSchemaRef.fkRefTable}\`.\`${dbSchemaRef.value}\``;
+        }
+        if (dbSchemaRef.fkOnDelete) value += `\n\nON DELETE ${dbSchemaRef.fkOnDelete}`;
+        // Show column type from the referenced table
+        const refCols = project.dbSchemaIndex.getColumnsForTable(dbSchemaRef.fkRefTable ?? '');
+        const refCol = refCols.find((c) => c.value === dbSchemaRef.value);
+        if (refCol?.columnType) {
+          value += `\n\nType: ${refCol.columnType}`;
+        }
+        break;
+      }
+      default:
+        return null;
+    }
+
+    return { contents: { kind: MarkupKind.Markdown, value }, range };
+  }
+
   // --- Try routes.xml ---
   const routesRef = project.routesIndex.getReferenceAtPosition(filePath, line, character);
   if (routesRef) {

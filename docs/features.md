@@ -108,6 +108,18 @@ Complete list of LSP features provided by magento2-lsp.
 - **Hover** on `<module name="...">`: shows frontName, router type, area, before/after priority, and URL pattern hint
 - **Hover** on route `id`: shows frontName, router type, area, and all registered modules
 
+## db_schema.xml Navigation
+
+- **Go to Definition** from `referenceTable="..."` on a foreign key constraint: jump to the `<table>` declaration(s) across all modules
+- **Go to Definition** from `<table name="...">`: jump to other modules' declarations of the same table (cross-module table extensions)
+- **Find References** from a `<table name="...">`: shows all `db_schema.xml` files that define or extend that table, including columns and FK references
+- **Find References** from a `<column name="...">`: shows all declarations of the same column on the same table across modules
+- **Find References** from `referenceTable` or `referenceColumn`: shows all references for the target table
+- **Hover** on `<table name="...">`: shows table comment, resource (DB connection), engine, module, column count, and cross-module definition count
+- **Hover** on `<column name="...">`: shows column data type, length/precision/scale, nullable, unsigned, auto-increment, default, and comment
+- **Hover** on FK `referenceTable`: shows the full FK relationship (`table.column → referenceTable.referenceColumn`), ON DELETE action, and target table info
+- **Hover** on FK `referenceColumn`: shows the FK relationship and the referenced column's type info
+
 ## Semantic Diagnostics
 
 - **Broken class references** in `di.xml`, `events.xml`, and layout XML: error when a FQCN doesn't resolve to a PHP file via PSR-4 (virtual types, generated classes like `\Proxy` and `Factory`, and uninstalled vendor namespaces are excluded)
@@ -119,6 +131,8 @@ Complete list of LSP features provided by magento2-lsp.
 - **Missing service methods** in `webapi.xml`: warning when a `<service method="..."/>` method is not found on the service class (checked on save)
 - **Undefined ACL resource** in `webapi.xml`, `menu.xml`, `system.xml`, UI component XML, and PHP files: warning when an ACL resource reference is not defined in any acl.xml file
 - **Inactive module** in `routes.xml`: warning when a `<module name="..."/>` references a module not listed in `config.php`
+- **Broken FK table reference** in `db_schema.xml`: warning when a foreign key `referenceTable` is not defined in any `db_schema.xml` file
+- **Broken FK column reference** in `db_schema.xml`: warning when a foreign key `referenceColumn` is not found on the referenced table
 
 Diagnostics update on every keystroke (debounced). Expensive checks (duplicate plugins, ObserverInterface) also run on file open and save.
 
@@ -144,6 +158,9 @@ Diagnostics update on every keystroke (debounced). Expensive checks (duplicate p
 - **Hover** on `<aclResource>` in UI components: shows ACL resource title and hierarchy
 - **Hover** on `<resource>` in `system.xml` sections: shows ACL resource title, hierarchy, and config section
 - **Hover** on ACL resource IDs in PHP (`ADMIN_RESOURCE` constants and `isAllowed()` calls): shows resource title, hierarchy, and module
+- **Hover** on `db_schema.xml` table names: shows table comment, resource, engine, module, column count, and cross-module definition count
+- **Hover** on `db_schema.xml` column names: shows column type, length/precision/scale, nullable, unsigned, identity, default, and comment
+- **Hover** on `db_schema.xml` FK `referenceTable`/`referenceColumn`: shows FK relationship details and target table/column info
 
 ## Document Symbols (Outline / Breadcrumbs)
 
@@ -154,6 +171,7 @@ Diagnostics update on every keystroke (debounced). Expensive checks (duplicate p
 - **webapi.xml**: service classes, methods, and ACL resources — each with HTTP method and route URL context
 - **acl.xml**: hierarchical resource tree reconstructed from parent-child relationships
 - **routes.xml**: router > route (frontName) > module hierarchy, with before/after priority info
+- **db_schema.xml**: table > column, constraint (primary/foreign/unique), and index hierarchy — shows data types, FK relationships, and index types
 - **menu.xml**: menu items showing title and ACL resource
 - **UI component XML**: ACL resource references
 

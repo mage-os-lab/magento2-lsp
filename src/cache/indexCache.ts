@@ -15,10 +15,10 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { DiReference, VirtualTypeDecl, EventReference, ObserverReference, LayoutReference, SystemConfigReference, WebapiReference, AclResource, MenuReference, UiComponentAclReference, RoutesReference } from '../indexer/types';
+import { DiReference, VirtualTypeDecl, EventReference, ObserverReference, LayoutReference, SystemConfigReference, WebapiReference, AclResource, MenuReference, UiComponentAclReference, RoutesReference, DbSchemaReference } from '../indexer/types';
 
 /** Bump this when entry formats change to invalidate old caches. */
-const CACHE_VERSION = 9;
+const CACHE_VERSION = 10;
 const CACHE_FILENAME = '.magento2-lsp-cache.json';
 
 /** Cached parse results for a single di.xml file. */
@@ -71,6 +71,12 @@ export interface RoutesCacheEntry {
   references: RoutesReference[];
 }
 
+/** Cached parse results for a single db_schema.xml file. */
+export interface DbSchemaCacheEntry {
+  mtimeMs: number;
+  references: DbSchemaReference[];
+}
+
 /** Cached parse results for a single UI component XML file (aclResource only). */
 export interface UiComponentAclCacheEntry {
   mtimeMs: number;
@@ -89,6 +95,7 @@ export interface CacheFile {
   menuFiles: Record<string, MenuCacheEntry>;
   uiComponentAclFiles: Record<string, UiComponentAclCacheEntry>;
   routesFiles: Record<string, RoutesCacheEntry>;
+  dbSchemaFiles: Record<string, DbSchemaCacheEntry>;
 }
 
 export class IndexCache {
@@ -97,7 +104,7 @@ export class IndexCache {
 
   constructor(magentoRoot: string) {
     this.cachePath = path.join(magentoRoot, CACHE_FILENAME);
-    this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {}, systemConfigFiles: {}, webapiFiles: {}, aclFiles: {}, menuFiles: {}, uiComponentAclFiles: {}, routesFiles: {} };
+    this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {}, systemConfigFiles: {}, webapiFiles: {}, aclFiles: {}, menuFiles: {}, uiComponentAclFiles: {}, routesFiles: {}, dbSchemaFiles: {} };
   }
 
   /**
@@ -109,7 +116,7 @@ export class IndexCache {
       const raw = fs.readFileSync(this.cachePath, 'utf-8');
       const parsed = JSON.parse(raw) as CacheFile;
       if (parsed.version !== CACHE_VERSION) {
-        this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {}, systemConfigFiles: {}, webapiFiles: {}, aclFiles: {}, menuFiles: {}, uiComponentAclFiles: {}, routesFiles: {} };
+        this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {}, systemConfigFiles: {}, webapiFiles: {}, aclFiles: {}, menuFiles: {}, uiComponentAclFiles: {}, routesFiles: {}, dbSchemaFiles: {} };
         return false;
       }
       // Ensure all sections exist (forward-compat for caches without new sections)
@@ -122,10 +129,11 @@ export class IndexCache {
       parsed.menuFiles ??= {};
       parsed.uiComponentAclFiles ??= {};
       parsed.routesFiles ??= {};
+      parsed.dbSchemaFiles ??= {};
       this.data = parsed;
       return true;
     } catch {
-      this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {}, systemConfigFiles: {}, webapiFiles: {}, aclFiles: {}, menuFiles: {}, uiComponentAclFiles: {}, routesFiles: {} };
+      this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {}, systemConfigFiles: {}, webapiFiles: {}, aclFiles: {}, menuFiles: {}, uiComponentAclFiles: {}, routesFiles: {}, dbSchemaFiles: {} };
       return false;
     }
   }
@@ -325,6 +333,25 @@ export class IndexCache {
 
   removeRoutesEntry(filePath: string): void {
     delete this.data.routesFiles[filePath];
+  }
+
+  // --- db_schema.xml ---
+
+  getDbSchemaEntry(filePath: string, currentMtimeMs: number): DbSchemaCacheEntry | undefined {
+    const entry = this.data.dbSchemaFiles[filePath];
+    return entry && entry.mtimeMs === currentMtimeMs ? entry : undefined;
+  }
+
+  setDbSchemaEntry(filePath: string, mtimeMs: number, references: DbSchemaReference[]): void {
+    this.data.dbSchemaFiles[filePath] = { mtimeMs, references };
+  }
+
+  pruneDbSchemaFiles(existingFiles: Set<string>): void {
+    this.pruneSection(this.data.dbSchemaFiles, existingFiles);
+  }
+
+  removeDbSchemaEntry(filePath: string): void {
+    delete this.data.dbSchemaFiles[filePath];
   }
 
   /** List all di.xml file paths that have cached entries. */

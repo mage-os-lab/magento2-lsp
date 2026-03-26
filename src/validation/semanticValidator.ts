@@ -26,6 +26,7 @@ import { parseSystemXml } from '../indexer/systemXmlParser';
 import { parseWebapiXml } from '../indexer/webapiXmlParser';
 import { parseMenuXml } from '../indexer/menuXmlParser';
 import { parseRoutesXml } from '../indexer/routesXmlParser';
+import { parseDbSchemaXml } from '../indexer/dbSchemaXmlParser';
 import { parseUiComponentAcl } from '../indexer/uiComponentAclParser';
 import { extractPhpClass, extractPhpMethods } from '../utils/phpNamespace';
 import { createPhpAclRegex } from '../utils/phpAclGrep';
@@ -37,6 +38,7 @@ import {
   deriveWebapiXmlContext,
   deriveMenuXmlContext,
   deriveRoutesXmlContext,
+  deriveDbSchemaXmlContext,
   deriveUiComponentAclContext,
 } from '../project/moduleResolver';
 import type { ProjectContext } from '../project/projectManager';
@@ -89,6 +91,11 @@ export function validateSemantics(
   const routesContext = deriveRoutesXmlContext(filePath, project.modules);
   if (routesContext) {
     return validateRoutesXml(content, routesContext, project);
+  }
+
+  const dbSchemaContext = deriveDbSchemaXmlContext(filePath, project.modules);
+  if (dbSchemaContext) {
+    return validateDbSchemaXml(content, dbSchemaContext, project);
   }
 
   const menuContext = deriveMenuXmlContext(filePath, project.modules);
@@ -420,6 +427,53 @@ function validateRoutesXml(
         `Module "${ref.value}" is not an active module`,
         DiagnosticSeverity.Warning,
       ));
+    }
+  }
+
+  return diagnostics;
+}
+
+// --- db_schema.xml validation ---
+
+/**
+ * Validate foreign key references in a db_schema.xml file.
+ * Warns when referenceTable or referenceColumn targets don't exist in any indexed db_schema.xml.
+ */
+function validateDbSchemaXml(
+  content: string,
+  context: import('../indexer/dbSchemaXmlParser').DbSchemaXmlParseContext,
+  project: ProjectContext,
+): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  const { references } = parseDbSchemaXml(content, context);
+
+  for (const ref of references) {
+    if (ref.kind === 'fk-ref-table') {
+      const tableDefs = project.dbSchemaIndex.getTableDefs(ref.value);
+      if (tableDefs.length === 0) {
+        diagnostics.push(makeDiagnostic(
+          ref.line, ref.column, ref.endColumn,
+          `Referenced table "${ref.value}" not found in any db_schema.xml`,
+          DiagnosticSeverity.Warning,
+        ));
+      }
+    }
+
+    if (ref.kind === 'fk-ref-column' && ref.fkRefTable) {
+      // Check that the referenced column exists on the referenced table
+      const refTableCols = project.dbSchemaIndex.getColumnsForTable(ref.fkRefTable);
+      const colExists = refTableCols.some((c) => c.value === ref.value);
+      if (!colExists) {
+        // Only warn if the referenced table itself exists (otherwise the fk-ref-table warning covers it)
+        const tableDefs = project.dbSchemaIndex.getTableDefs(ref.fkRefTable);
+        if (tableDefs.length > 0) {
+          diagnostics.push(makeDiagnostic(
+            ref.line, ref.column, ref.endColumn,
+            `Column "${ref.value}" not found on table "${ref.fkRefTable}"`,
+            DiagnosticSeverity.Warning,
+          ));
+        }
+      }
     }
   }
 

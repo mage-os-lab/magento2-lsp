@@ -25,6 +25,7 @@ import { AclXmlParseContext } from '../indexer/aclXmlParser';
 import { MenuXmlParseContext } from '../indexer/menuXmlParser';
 import { RoutesXmlParseContext } from '../indexer/routesXmlParser';
 import { UiComponentAclParseContext } from '../indexer/uiComponentAclParser';
+import { DbSchemaXmlParseContext } from '../indexer/dbSchemaXmlParser';
 import { realpath } from '../utils/realpath';
 import { fileExists, isDirectory } from '../utils/fsHelpers';
 import { readComposerPackages } from '../utils/composerPackages';
@@ -412,6 +413,37 @@ export function deriveRoutesXmlContext(
     // Must be etc/{area}/routes.xml (area-specific only)
     if (parts.length === 3 && parts[0] === 'etc' && parts[2] === 'routes.xml') {
       return { file: filePath, module: mod.name, area: parts[1] };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Discover db_schema.xml files for a module.
+ * db_schema.xml is always global scope — it lives at etc/db_schema.xml only (no area variants).
+ */
+export function discoverDbSchemaXmlFiles(
+  modulePath: string,
+): { file: string }[] {
+  const file = path.join(modulePath, 'etc', 'db_schema.xml');
+  return fileExists(file) ? [{ file }] : [];
+}
+
+/**
+ * Derive the db_schema.xml parse context for a file.
+ * Returns undefined if the file is not a db_schema.xml within a known module.
+ */
+export function deriveDbSchemaXmlContext(
+  filePath: string,
+  modules: ModuleInfo[],
+): DbSchemaXmlParseContext | undefined {
+  if (!filePath.endsWith('/db_schema.xml')) return undefined;
+
+  for (const mod of modules) {
+    if (!filePath.startsWith(mod.path)) continue;
+    const relPath = path.relative(mod.path, filePath);
+    if (relPath === path.join('etc', 'db_schema.xml')) {
+      return { file: filePath, module: mod.name };
     }
   }
   return undefined;
