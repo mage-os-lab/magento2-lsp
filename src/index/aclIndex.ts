@@ -92,6 +92,19 @@ export class AclIndex {
     return this.fileToResources.get(file) ?? [];
   }
 
+  /** Get all ACL resources declared by a given module. */
+  getResourcesByModule(moduleName: string): AclResource[] {
+    const result: AclResource[] = [];
+    for (const resources of this.fileToResources.values()) {
+      for (const res of resources) {
+        if (res.module === moduleName) {
+          result.push(res);
+        }
+      }
+    }
+    return result;
+  }
+
   /** Number of acl.xml files currently indexed. */
   getFileCount(): number {
     return this.fileToResources.size;

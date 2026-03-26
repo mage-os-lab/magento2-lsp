@@ -119,4 +119,33 @@ describe('RoutesIndex', () => {
     index.removeFile('/nonexistent.xml');
     expect(index.getFileCount()).toBe(0);
   });
+
+  it('getAllFrontNames returns all unique frontNames', () => {
+    index.addFile('/a.xml', [
+      makeRef({ kind: 'route-frontname', value: 'catalog', frontName: 'catalog' }),
+    ]);
+    index.addFile('/b.xml', [
+      makeRef({ kind: 'route-frontname', value: 'customer', frontName: 'customer', file: '/b.xml' }),
+    ]);
+
+    const names = index.getAllFrontNames().sort();
+    expect(names).toEqual(['catalog', 'customer']);
+  });
+
+  it('getAllFrontNames returns empty array when no routes indexed', () => {
+    expect(index.getAllFrontNames()).toEqual([]);
+  });
+
+  it('getRefsByModule returns route-module refs for a module', () => {
+    index.addFile('/a.xml', [
+      makeRef({ kind: 'route-module', value: 'Test_Foo', module: 'Test_Foo' }),
+      makeRef({ kind: 'route-module', value: 'Test_Bar', module: 'Test_Bar' }),
+    ]);
+
+    const fooRefs = index.getRefsByModule('Test_Foo');
+    expect(fooRefs).toHaveLength(1);
+    expect(fooRefs[0].value).toBe('Test_Foo');
+
+    expect(index.getRefsByModule('Unknown_Module')).toEqual([]);
+  });
 });

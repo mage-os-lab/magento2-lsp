@@ -11,6 +11,7 @@ import {
   handleResolveClass,
   handleSearchSymbols,
   handleGetClassHierarchy,
+  handleGetDbSchema,
   handleReindex,
 } from '../../src/mcp/tools';
 
@@ -346,6 +347,68 @@ describe('MCP tools', () => {
       });
       expect(result).toHaveProperty('error');
     });
+
+    it('returns routes declared by a module', async () => {
+      const result = await handleGetModuleOverview(pm, {
+        filePath: FIXTURE_FILE,
+        moduleName: 'Test_Foo',
+      }) as any;
+      expect(result.routes).toBeDefined();
+      expect(result.routes.length).toBeGreaterThanOrEqual(1);
+      expect(result.routes[0].frontName).toBe('testfoo');
+      expect(result.routes[0].routerType).toBe('standard');
+    });
+
+    it('returns db tables declared by a module', async () => {
+      const result = await handleGetModuleOverview(pm, {
+        filePath: FIXTURE_FILE,
+        moduleName: 'Test_Foo',
+      }) as any;
+      expect(result.dbTables).toBeDefined();
+      expect(result.dbTables).toContain('test_entity');
+      expect(result.dbTables).toContain('test_related');
+    });
+
+    it('returns ACL resources declared by a module', async () => {
+      const result = await handleGetModuleOverview(pm, {
+        filePath: FIXTURE_FILE,
+        moduleName: 'Test_Foo',
+      }) as any;
+      expect(result.aclResources).toBeDefined();
+      expect(result.aclResources.length).toBeGreaterThanOrEqual(1);
+      const itemsResource = result.aclResources.find(
+        (r: any) => r.id === 'Test_ModuleFoo::items',
+      );
+      expect(itemsResource).toBeDefined();
+      expect(itemsResource.title).toBe('Items');
+    });
+
+    it('returns webapi endpoints declared by a module', async () => {
+      const result = await handleGetModuleOverview(pm, {
+        filePath: FIXTURE_FILE,
+        moduleName: 'Test_Foo',
+      }) as any;
+      // Test_Foo's webapi.xml declares REST routes
+      expect(result.webapiEndpoints).toBeDefined();
+      // For small modules the full array is returned
+      if (Array.isArray(result.webapiEndpoints)) {
+        expect(result.webapiEndpoints.length).toBeGreaterThanOrEqual(1);
+        expect(result.webapiEndpoints[0]).toHaveProperty('url');
+        expect(result.webapiEndpoints[0]).toHaveProperty('httpMethod');
+      }
+    });
+
+    it('returns full arrays for small modules (below summary threshold)', async () => {
+      // Custom_Bar is a small module — should return full arrays, not counts
+      const result = await handleGetModuleOverview(pm, {
+        filePath: FIXTURE_FILE,
+        moduleName: 'Custom_Bar',
+      }) as any;
+      expect(Array.isArray(result.preferences)).toBe(true);
+      expect(Array.isArray(result.plugins)).toBe(true);
+      expect(Array.isArray(result.virtualTypes)).toBe(true);
+      expect(Array.isArray(result.observers)).toBe(true);
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -485,6 +548,36 @@ describe('MCP tools', () => {
       expect(result.resultCount).toBe(0);
       expect(result.results).toEqual([]);
     });
+
+    it('matches database table names', async () => {
+      const result = await handleSearchSymbols(pm, {
+        filePath: FIXTURE_FILE,
+        query: 'test_entity',
+      }) as { results: { name: string; kind: string }[] };
+      const tables = result.results.filter((r) => r.kind === 'table');
+      expect(tables.length).toBeGreaterThanOrEqual(1);
+      expect(tables.find((t) => t.name === 'test_entity')).toBeDefined();
+    });
+
+    it('matches ACL resource IDs', async () => {
+      const result = await handleSearchSymbols(pm, {
+        filePath: FIXTURE_FILE,
+        query: 'ModuleFoo::items',
+      }) as { results: { name: string; kind: string }[] };
+      const acl = result.results.filter((r) => r.kind === 'aclResource');
+      expect(acl.length).toBeGreaterThanOrEqual(1);
+      expect(acl.find((a) => a.name === 'Test_ModuleFoo::items')).toBeDefined();
+    });
+
+    it('matches route frontNames', async () => {
+      const result = await handleSearchSymbols(pm, {
+        filePath: FIXTURE_FILE,
+        query: 'testfoo',
+      }) as { results: { name: string; kind: string }[] };
+      const routes = result.results.filter((r) => r.kind === 'route');
+      expect(routes.length).toBeGreaterThanOrEqual(1);
+      expect(routes[0].name).toBe('testfoo');
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -537,6 +630,86 @@ describe('MCP tools', () => {
       expect(result.interfaces).toEqual([]);
       expect(result.ancestors).toEqual([]);
       expect(result.classFile).toBeNull();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // magento_get_db_schema
+  // -----------------------------------------------------------------------
+
+  describe('magento_get_db_schema', () => {
+    it('returns merged table schema with columns from multiple modules', async () => {
+      const result = await handleGetDbSchema(pm, {
+        filePath: FIXTURE_FILE,
+        tableName: 'test_entity',
+      }) as any;
+      expect(result.tableName).toBe('test_entity');
+      expect(result.comment).toBe('Test Entity Table');
+      expect(result.resource).toBe('default');
+      expect(result.engine).toBe('innodb');
+
+      // Columns from Test_Foo: entity_id, name, store_id
+      // Column from Custom_Bar: custom_attribute
+      expect(result.columns.length).toBeGreaterThanOrEqual(4);
+      const colNames = result.columns.map((c: any) => c.name);
+      expect(colNames).toContain('entity_id');
+      expect(colNames).toContain('name');
+      expect(colNames).toContain('store_id');
+      expect(colNames).toContain('custom_attribute');
+    });
+
+    it('returns column metadata', async () => {
+      const result = await handleGetDbSchema(pm, {
+        filePath: FIXTURE_FILE,
+        tableName: 'test_entity',
+      }) as any;
+      const entityId = result.columns.find((c: any) => c.name === 'entity_id');
+      expect(entityId).toBeDefined();
+      expect(entityId.type).toBe('int');
+      expect(entityId.identity).toBe(true);
+      expect(entityId.nullable).toBe(false);
+      expect(entityId.unsigned).toBe(true);
+      expect(entityId.comment).toBe('Entity ID');
+    });
+
+    it('returns foreign key constraints', async () => {
+      const result = await handleGetDbSchema(pm, {
+        filePath: FIXTURE_FILE,
+        tableName: 'test_entity',
+      }) as any;
+      expect(result.foreignKeys.length).toBeGreaterThanOrEqual(1);
+      const storeFk = result.foreignKeys.find(
+        (fk: any) => fk.referenceTable === 'store',
+      );
+      expect(storeFk).toBeDefined();
+      expect(storeFk.column).toBe('store_id');
+      expect(storeFk.referenceColumn).toBe('store_id');
+      expect(storeFk.onDelete).toBe('CASCADE');
+    });
+
+    it('returns declaring modules', async () => {
+      const result = await handleGetDbSchema(pm, {
+        filePath: FIXTURE_FILE,
+        tableName: 'test_entity',
+      }) as any;
+      const moduleNames = result.declaredIn.map((d: any) => d.module);
+      expect(moduleNames).toContain('Test_Foo');
+      expect(moduleNames).toContain('Custom_Bar');
+    });
+
+    it('returns error for unknown table', async () => {
+      const result = await handleGetDbSchema(pm, {
+        filePath: FIXTURE_FILE,
+        tableName: 'nonexistent_table',
+      }) as any;
+      expect(result.error).toBeDefined();
+      expect(result.tableName).toBe('nonexistent_table');
+    });
+
+    it('rejects missing tableName parameter', async () => {
+      await expect(
+        handleGetDbSchema(pm, { filePath: FIXTURE_FILE }),
+      ).rejects.toThrow('Missing or invalid required parameter: tableName');
     });
   });
 

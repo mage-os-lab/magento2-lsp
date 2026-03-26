@@ -17,5 +17,6 @@ export {
   handleResolveClass,
   handleSearchSymbols,
   handleGetClassHierarchy,
+  handleGetDbSchema,
   handleReindex,
 } from './handlers';

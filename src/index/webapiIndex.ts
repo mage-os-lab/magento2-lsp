@@ -98,6 +98,19 @@ export class WebapiIndex {
     return this.fileToRefs.get(file) ?? [];
   }
 
+  /** Get all webapi references declared by a given module. */
+  getRefsByModule(moduleName: string): WebapiReference[] {
+    const result: WebapiReference[] = [];
+    for (const refs of this.fileToRefs.values()) {
+      for (const ref of refs) {
+        if (ref.module === moduleName) {
+          result.push(ref);
+        }
+      }
+    }
+    return result;
+  }
+
   /** Number of webapi.xml files currently indexed. */
   getFileCount(): number {
     return this.fileToRefs.size;

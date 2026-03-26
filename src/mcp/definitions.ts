@@ -133,7 +133,9 @@ export const toolDefinitions = [
     name: 'magento_get_module_overview',
     description:
       'Get an overview of what a Magento module declares: preferences, plugins, virtual types, ' +
-      'event observers, layout XML files, and theme template overrides. ' +
+      'event observers, routes, REST API endpoints, database tables, and ACL resources. ' +
+      'For large modules, DI and event sections are automatically summarized as counts ' +
+      'to keep the response compact. ' +
       'Pass either a module name (Vendor_Module) or any file inside the module.',
     inputSchema: {
       type: 'object' as const,
@@ -144,6 +146,13 @@ export const toolDefinitions = [
           description:
             'Module name in Vendor_Module format (e.g., Magento_Catalog). ' +
             'If omitted, the module is detected from filePath.',
+        },
+        detail: {
+          type: 'boolean',
+          description:
+            'When true, always return full arrays even for large modules. ' +
+            'Default: false (large modules are auto-summarized to counts).',
+          default: false,
         },
       },
       required: ['filePath'],
@@ -179,8 +188,9 @@ export const toolDefinitions = [
     name: 'magento_search_symbols',
     description:
       'Search for Magento symbols by name substring: PHP classes/interfaces configured in DI, ' +
-      'virtual types, and event names. Returns up to 100 matches with their type and declaration file. ' +
-      'Use this to discover class names, virtual types, or events when you only know part of the name.',
+      'virtual types, event names, database table names, system config paths, ACL resource IDs, ' +
+      'and route frontNames. Returns up to 100 matches with their type and declaration file. ' +
+      'Use this to discover any Magento symbol when you only know part of the name.',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -210,6 +220,26 @@ export const toolDefinitions = [
         },
       },
       required: ['filePath', 'fqcn'],
+    },
+  },
+  {
+    name: 'magento_get_db_schema',
+    description:
+      'Get the merged database table schema from all db_schema.xml files across modules. ' +
+      'Returns the full column list (with types, nullable, identity, default, comment), ' +
+      'foreign key constraints, and which modules declare or extend the table. ' +
+      'Use this when working on models, repositories, data patches, or SQL — ' +
+      'Magento tables are often extended by multiple modules, so reading a single db_schema.xml is not enough.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        filePath: filePathProperty,
+        tableName: {
+          type: 'string',
+          description: 'Database table name (e.g., catalog_product_entity)',
+        },
+      },
+      required: ['filePath', 'tableName'],
     },
   },
   {

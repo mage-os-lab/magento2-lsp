@@ -152,4 +152,20 @@ describe('WebapiIndex', () => {
     expect(index.getRefsForFile('/test/webapi.xml')).toHaveLength(3);
     expect(index.getRefsForFile('/other/file.xml')).toEqual([]);
   });
+
+  it('getRefsByModule returns refs declared by a specific module', () => {
+    const index = new WebapiIndex();
+    index.addFile('/module-a/webapi.xml', [
+      makeRef({ kind: 'service-class', value: 'A\\Api\\Test', fqcn: 'A\\Api\\Test', module: 'Module_A' }),
+    ]);
+    index.addFile('/module-b/webapi.xml', [
+      makeRef({ kind: 'service-class', value: 'B\\Api\\Test', fqcn: 'B\\Api\\Test', module: 'Module_B' }),
+    ]);
+
+    const aRefs = index.getRefsByModule('Module_A');
+    expect(aRefs).toHaveLength(1);
+    expect(aRefs[0].fqcn).toBe('A\\Api\\Test');
+
+    expect(index.getRefsByModule('Unknown_Module')).toEqual([]);
+  });
 });

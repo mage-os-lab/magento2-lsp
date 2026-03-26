@@ -106,6 +106,19 @@ export class DbSchemaIndex {
     return this.fileToRefs.get(file) ?? [];
   }
 
+  /** Get all db_schema references declared by a given module. */
+  getRefsByModule(moduleName: string): DbSchemaReference[] {
+    const result: DbSchemaReference[] = [];
+    for (const refs of this.fileToRefs.values()) {
+      for (const ref of refs) {
+        if (ref.module === moduleName) {
+          result.push(ref);
+        }
+      }
+    }
+    return result;
+  }
+
   /** Number of db_schema.xml files currently indexed. */
   getFileCount(): number {
     return this.fileToRefs.size;

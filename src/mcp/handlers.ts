@@ -519,14 +519,62 @@ export async function handleGetModuleOverview(
     file: relPath(o.file, root),
   }));
 
+  // Routes declared by this module (from routes.xml)
+  const routeModuleRefs = project.routesIndex.getRefsByModule(mod.name);
+  const routes = routeModuleRefs.map((r) => ({
+    routeId: r.routeId,
+    frontName: r.frontName,
+    routerType: r.routerType,
+    area: r.area,
+  }));
+
+  // REST API endpoints declared by this module (from webapi.xml)
+  const webapiRefs = project.webapiIndex.getRefsByModule(mod.name);
+  const webapiEndpoints = webapiRefs
+    .filter((r) => r.kind === 'service-method')
+    .map((r) => ({
+      url: r.routeUrl,
+      httpMethod: r.httpMethod,
+      serviceClass: r.fqcn ?? null,
+      serviceMethod: r.methodName ?? null,
+    }));
+
+  // Database tables declared by this module (from db_schema.xml)
+  const dbRefs = project.dbSchemaIndex.getRefsByModule(mod.name);
+  const dbTables = [...new Set(
+    dbRefs.filter((r) => r.kind === 'table-name').map((r) => r.value),
+  )];
+
+  // ACL resources declared by this module (from acl.xml)
+  const aclResources = project.aclIndex.getResourcesByModule(mod.name).map((r) => ({
+    id: r.id,
+    title: r.title || null,
+  }));
+
+  // Auto-summarize: if the total item count across collapsible sections exceeds
+  // the threshold, replace large sections with { count } to keep the response
+  // compact for agent context windows. Threshold of 30 was determined by
+  // measuring real Magento modules (see plan for rationale).
+  // The `detail` parameter lets agents override this and get full arrays.
+  const forceDetail = params.detail === true;
+  const SUMMARY_THRESHOLD = 30;
+  const collapsibleTotal =
+    preferences.length + plugins.length + virtualTypes.length +
+    observers.length + webapiEndpoints.length;
+  const summarize = !forceDetail && collapsibleTotal > SUMMARY_THRESHOLD;
+
   return {
     moduleName: mod.name,
     modulePath: relPath(mod.path, root),
     loadOrder: mod.order,
-    preferences,
-    plugins,
-    virtualTypes,
-    observers,
+    preferences: summarize ? { count: preferences.length } : preferences,
+    plugins: summarize ? { count: plugins.length } : plugins,
+    virtualTypes: summarize ? { count: virtualTypes.length } : virtualTypes,
+    observers: summarize ? { count: observers.length } : observers,
+    routes,
+    webapiEndpoints: summarize ? { count: webapiEndpoints.length } : webapiEndpoints,
+    dbTables,
+    aclResources,
   };
 }
 
@@ -604,10 +652,102 @@ export async function handleReindex(
 }
 
 // ---------------------------------------------------------------------------
+// magento_get_db_schema
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the merged database table schema aggregated from all db_schema.xml
+ * files across modules. Partitions the raw DbSchemaReference entries by kind
+ * to assemble a clean table definition with columns, foreign keys, and the
+ * list of modules that declare or extend the table.
+ */
+export async function handleGetDbSchema(
+  pm: ProjectManager,
+  args: unknown,
+) {
+  const params = validateParams(args, ['filePath', 'tableName']);
+  const project = await resolveProject(pm, params.filePath);
+  const tableName = params.tableName as string;
+  const root = project.root;
+
+  const allRefs = project.dbSchemaIndex.getRefsForTable(tableName);
+  if (allRefs.length === 0) {
+    return { tableName, error: `Table '${tableName}' not found in any db_schema.xml.` };
+  }
+
+  // Extract table-level metadata from the first table-name ref that has it
+  let comment: string | null = null;
+  let resource: string | null = null;
+  let engine: string | null = null;
+  const declaredInMap = new Map<string, string>(); // module -> file (dedup)
+
+  for (const ref of allRefs) {
+    if (ref.kind === 'table-name' && ref.value === tableName) {
+      if (ref.tableComment && !comment) comment = ref.tableComment;
+      if (ref.tableResource && !resource) resource = ref.tableResource;
+      if (ref.tableEngine && !engine) engine = ref.tableEngine;
+      declaredInMap.set(ref.module, relPath(ref.file, root));
+    }
+  }
+
+  // Collect columns (skip disabled ones)
+  const columns = allRefs
+    .filter((r) => r.kind === 'column-name' && !r.disabled)
+    .map((r) => ({
+      name: r.value,
+      type: r.columnType ?? null,
+      ...(r.columnLength ? { length: r.columnLength } : {}),
+      nullable: r.columnNullable === 'true',
+      identity: r.columnIdentity === 'true',
+      ...(r.columnUnsigned === 'true' ? { unsigned: true } : {}),
+      ...(r.columnDefault !== undefined ? { default: r.columnDefault } : {}),
+      ...(r.columnPrecision ? { precision: r.columnPrecision } : {}),
+      ...(r.columnScale ? { scale: r.columnScale } : {}),
+      ...(r.columnComment ? { comment: r.columnComment } : {}),
+      module: r.module,
+    }));
+
+  // Collect foreign keys from fk-ref-table refs (each FK produces one fk-ref-table ref)
+  const foreignKeys = allRefs
+    .filter((r) => r.kind === 'fk-ref-table' && !r.disabled)
+    .map((r) => ({
+      referenceId: r.fkReferenceId ?? null,
+      column: r.fkColumn ?? null,
+      referenceTable: r.fkRefTable ?? r.value,
+      referenceColumn: r.fkRefColumn ?? null,
+      onDelete: r.fkOnDelete ?? null,
+    }));
+
+  const declaredIn = Array.from(declaredInMap.entries()).map(([mod, file]) => ({
+    module: mod,
+    file,
+  }));
+
+  return {
+    tableName,
+    ...(comment ? { comment } : {}),
+    ...(resource ? { resource } : {}),
+    ...(engine ? { engine } : {}),
+    columns,
+    foreignKeys,
+    declaredIn,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // magento_search_symbols
 // ---------------------------------------------------------------------------
 
+/**
+ * Maximum total results returned by magento_search_symbols.
+ * Each category gets its own cap (MAX_PER_CATEGORY) so that broad queries
+ * like "customer" don't fill the entire result set with DI class matches
+ * before other categories (tables, ACL, routes) get a chance.
+ */
 const MAX_SEARCH_RESULTS = 100;
+const MAX_PER_CATEGORY = 25;
+
+type SymbolResult = { name: string; kind: string; file: string; classFile?: string };
 
 export async function handleSearchSymbols(
   pm: ProjectManager,
@@ -621,16 +761,19 @@ export async function handleSearchSymbols(
 
   const project = await resolveProject(pm, params.filePath);
   const root = project.root;
-  const results: { name: string; kind: string; file: string; classFile?: string }[] = [];
 
-  // Search DI-configured FQCNs
+  // Search each category independently with a per-category cap, then merge.
+  // This ensures every category gets representation for broad queries.
+
+  // DI-configured FQCNs
+  const classes: SymbolResult[] = [];
   for (const fqcn of project.index.getAllFqcns()) {
-    if (results.length >= MAX_SEARCH_RESULTS) break;
+    if (classes.length >= MAX_PER_CATEGORY) break;
     if (!fqcn.toLowerCase().includes(query)) continue;
     const refs = project.index.getReferencesForFqcn(fqcn);
     if (refs.length > 0) {
       const resolved = resolveClassFile(fqcn, project.psr4Map);
-      results.push({
+      classes.push({
         name: fqcn,
         kind: 'class',
         file: relPath(refs[0].file, root),
@@ -639,25 +782,77 @@ export async function handleSearchSymbols(
     }
   }
 
-  // Search virtual types
+  // Virtual types
+  const virtualTypes: SymbolResult[] = [];
   for (const name of project.index.getAllVirtualTypeNames()) {
-    if (results.length >= MAX_SEARCH_RESULTS) break;
+    if (virtualTypes.length >= MAX_PER_CATEGORY) break;
     if (!name.toLowerCase().includes(query)) continue;
     const decls = project.index.getAllVirtualTypeDecls(name);
     if (decls.length > 0) {
-      results.push({ name, kind: 'virtualType', file: relPath(decls[0].file, root) });
+      virtualTypes.push({ name, kind: 'virtualType', file: relPath(decls[0].file, root) });
     }
   }
 
-  // Search event names
+  // Event names
+  const events: SymbolResult[] = [];
   for (const eventName of project.eventsIndex.getAllEventNames()) {
-    if (results.length >= MAX_SEARCH_RESULTS) break;
+    if (events.length >= MAX_PER_CATEGORY) break;
     if (!eventName.toLowerCase().includes(query)) continue;
     const refs = project.eventsIndex.getEventNameRefs(eventName);
     if (refs.length > 0) {
-      results.push({ name: eventName, kind: 'event', file: relPath(refs[0].file, root) });
+      events.push({ name: eventName, kind: 'event', file: relPath(refs[0].file, root) });
     }
   }
+
+  // Database table names
+  const tables: SymbolResult[] = [];
+  for (const tableName of project.dbSchemaIndex.getAllTableNames()) {
+    if (tables.length >= MAX_PER_CATEGORY) break;
+    if (!tableName.toLowerCase().includes(query)) continue;
+    const defs = project.dbSchemaIndex.getTableDefs(tableName);
+    if (defs.length > 0) {
+      tables.push({ name: tableName, kind: 'table', file: relPath(defs[0].file, root) });
+    }
+  }
+
+  // System config paths (e.g., "payment/account/active")
+  const configPaths: SymbolResult[] = [];
+  for (const configPath of project.systemConfigIndex.getAllConfigPaths()) {
+    if (configPaths.length >= MAX_PER_CATEGORY) break;
+    if (!configPath.toLowerCase().includes(query)) continue;
+    const refs = project.systemConfigIndex.getRefsForPath(configPath);
+    if (refs.length > 0) {
+      configPaths.push({ name: configPath, kind: 'configPath', file: relPath(refs[0].file, root) });
+    }
+  }
+
+  // ACL resource IDs (e.g., "Magento_Catalog::catalog")
+  const aclResources: SymbolResult[] = [];
+  for (const resourceId of project.aclIndex.getAllResourceIds()) {
+    if (aclResources.length >= MAX_PER_CATEGORY) break;
+    if (!resourceId.toLowerCase().includes(query)) continue;
+    const resource = project.aclIndex.getResource(resourceId);
+    if (resource) {
+      aclResources.push({ name: resourceId, kind: 'aclResource', file: relPath(resource.file, root) });
+    }
+  }
+
+  // Route frontNames (e.g., "catalog", "customer", "checkout")
+  const routes: SymbolResult[] = [];
+  for (const frontName of project.routesIndex.getAllFrontNames()) {
+    if (routes.length >= MAX_PER_CATEGORY) break;
+    if (!frontName.toLowerCase().includes(query)) continue;
+    const refs = project.routesIndex.getRefsForFrontName(frontName);
+    if (refs.length > 0) {
+      routes.push({ name: frontName, kind: 'route', file: relPath(refs[0].file, root) });
+    }
+  }
+
+  // Merge all categories, capped at the global maximum
+  const results = [
+    ...classes, ...virtualTypes, ...events,
+    ...tables, ...configPaths, ...aclResources, ...routes,
+  ].slice(0, MAX_SEARCH_RESULTS);
 
   return { query: params.query as string, resultCount: results.length, results };
 }
@@ -711,5 +906,6 @@ export const toolHandlers = new Map<string, ToolHandler>([
   ['magento_resolve_class', handleResolveClass],
   ['magento_search_symbols', handleSearchSymbols],
   ['magento_get_class_hierarchy', handleGetClassHierarchy],
+  ['magento_get_db_schema', handleGetDbSchema],
   ['magento_reindex', handleReindex],
 ]);

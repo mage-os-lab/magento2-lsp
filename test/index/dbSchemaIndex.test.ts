@@ -216,4 +216,23 @@ describe('DbSchemaIndex', () => {
     expect(index.getRefsForTable('review')).toEqual([]);
     expect(index.getAllTableNames()).toEqual([]);
   });
+
+  it('getRefsByModule returns refs declared by a specific module', () => {
+    index.addFile('/module-a/etc/db_schema.xml', [
+      makeRef({ kind: 'table-name', value: 'tbl_a', tableName: 'tbl_a', module: 'Module_A' }),
+      makeRef({ kind: 'column-name', value: 'id', tableName: 'tbl_a', module: 'Module_A' }),
+    ]);
+    index.addFile('/module-b/etc/db_schema.xml', [
+      makeRef({ kind: 'table-name', value: 'tbl_a', tableName: 'tbl_a', module: 'Module_B' }),
+    ]);
+
+    const aRefs = index.getRefsByModule('Module_A');
+    expect(aRefs).toHaveLength(2);
+    expect(aRefs.every(r => r.module === 'Module_A')).toBe(true);
+
+    const bRefs = index.getRefsByModule('Module_B');
+    expect(bRefs).toHaveLength(1);
+
+    expect(index.getRefsByModule('Unknown_Module')).toEqual([]);
+  });
 });

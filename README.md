@@ -22,7 +22,7 @@ For the complete feature list, see [docs/features.md](docs/features.md).
 
 ## MCP Server for AI Coding Agents
 
-An MCP server exposes the same Magento 2 intelligence to AI coding agents. See [README_MCP.md](README_MCP.md).
+An MCP server exposes the same Magento 2 intelligence to AI coding agents. See [docs/mcp.md](docs/mcp.md) for design rationale and tool descriptions.
 
 ## Requirements
 

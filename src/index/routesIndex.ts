@@ -96,6 +96,16 @@ export class RoutesIndex {
     return this.fileToRefs.get(file) ?? [];
   }
 
+  /** Return all known frontName values across the index. Used by MCP search. */
+  getAllFrontNames(): string[] {
+    return Array.from(this.frontNameToRefs.keys());
+  }
+
+  /** Get all route references declared by a given module. */
+  getRefsByModule(moduleName: string): RoutesReference[] {
+    return this.moduleNameToRefs.get(moduleName) ?? [];
+  }
+
   /** Number of routes.xml files currently indexed. */
   getFileCount(): number {
     return this.fileToRefs.size;

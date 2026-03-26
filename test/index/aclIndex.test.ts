@@ -151,4 +151,19 @@ describe('AclIndex', () => {
     expect(index.getResourcesForFile(file)).toEqual(resources);
     expect(index.getResourcesForFile('/nonexistent.xml')).toEqual([]);
   });
+
+  it('getResourcesByModule returns resources declared by a specific module', () => {
+    index.addFile('/customer/acl.xml', [
+      makeResource({ id: 'Magento_Customer::manage', module: 'Magento_Customer', file: '/customer/acl.xml' }),
+    ]);
+    index.addFile('/sales/acl.xml', [
+      makeResource({ id: 'Magento_Sales::sales', module: 'Magento_Sales', file: '/sales/acl.xml' }),
+    ]);
+
+    const customerRes = index.getResourcesByModule('Magento_Customer');
+    expect(customerRes).toHaveLength(1);
+    expect(customerRes[0].id).toBe('Magento_Customer::manage');
+
+    expect(index.getResourcesByModule('Unknown_Module')).toEqual([]);
+  });
 });
