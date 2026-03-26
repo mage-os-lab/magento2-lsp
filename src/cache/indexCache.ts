@@ -15,10 +15,10 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { DiReference, VirtualTypeDecl, EventReference, ObserverReference, LayoutReference, SystemConfigReference, WebapiReference, AclResource, MenuReference, UiComponentAclReference } from '../indexer/types';
+import { DiReference, VirtualTypeDecl, EventReference, ObserverReference, LayoutReference, SystemConfigReference, WebapiReference, AclResource, MenuReference, UiComponentAclReference, RoutesReference } from '../indexer/types';
 
 /** Bump this when entry formats change to invalidate old caches. */
-const CACHE_VERSION = 8;
+const CACHE_VERSION = 9;
 const CACHE_FILENAME = '.magento2-lsp-cache.json';
 
 /** Cached parse results for a single di.xml file. */
@@ -65,6 +65,12 @@ export interface MenuCacheEntry {
   references: MenuReference[];
 }
 
+/** Cached parse results for a single routes.xml file. */
+export interface RoutesCacheEntry {
+  mtimeMs: number;
+  references: RoutesReference[];
+}
+
 /** Cached parse results for a single UI component XML file (aclResource only). */
 export interface UiComponentAclCacheEntry {
   mtimeMs: number;
@@ -82,6 +88,7 @@ export interface CacheFile {
   aclFiles: Record<string, AclCacheEntry>;
   menuFiles: Record<string, MenuCacheEntry>;
   uiComponentAclFiles: Record<string, UiComponentAclCacheEntry>;
+  routesFiles: Record<string, RoutesCacheEntry>;
 }
 
 export class IndexCache {
@@ -90,7 +97,7 @@ export class IndexCache {
 
   constructor(magentoRoot: string) {
     this.cachePath = path.join(magentoRoot, CACHE_FILENAME);
-    this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {}, systemConfigFiles: {}, webapiFiles: {}, aclFiles: {}, menuFiles: {}, uiComponentAclFiles: {} };
+    this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {}, systemConfigFiles: {}, webapiFiles: {}, aclFiles: {}, menuFiles: {}, uiComponentAclFiles: {}, routesFiles: {} };
   }
 
   /**
@@ -102,7 +109,7 @@ export class IndexCache {
       const raw = fs.readFileSync(this.cachePath, 'utf-8');
       const parsed = JSON.parse(raw) as CacheFile;
       if (parsed.version !== CACHE_VERSION) {
-        this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {}, systemConfigFiles: {}, webapiFiles: {}, aclFiles: {}, menuFiles: {}, uiComponentAclFiles: {} };
+        this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {}, systemConfigFiles: {}, webapiFiles: {}, aclFiles: {}, menuFiles: {}, uiComponentAclFiles: {}, routesFiles: {} };
         return false;
       }
       // Ensure all sections exist (forward-compat for caches without new sections)
@@ -114,10 +121,11 @@ export class IndexCache {
       parsed.aclFiles ??= {};
       parsed.menuFiles ??= {};
       parsed.uiComponentAclFiles ??= {};
+      parsed.routesFiles ??= {};
       this.data = parsed;
       return true;
     } catch {
-      this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {}, systemConfigFiles: {}, webapiFiles: {}, aclFiles: {}, menuFiles: {}, uiComponentAclFiles: {} };
+      this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {}, systemConfigFiles: {}, webapiFiles: {}, aclFiles: {}, menuFiles: {}, uiComponentAclFiles: {}, routesFiles: {} };
       return false;
     }
   }
@@ -298,6 +306,25 @@ export class IndexCache {
 
   removeUiComponentAclEntry(filePath: string): void {
     delete this.data.uiComponentAclFiles[filePath];
+  }
+
+  // --- routes.xml ---
+
+  getRoutesEntry(filePath: string, currentMtimeMs: number): RoutesCacheEntry | undefined {
+    const entry = this.data.routesFiles[filePath];
+    return entry && entry.mtimeMs === currentMtimeMs ? entry : undefined;
+  }
+
+  setRoutesEntry(filePath: string, mtimeMs: number, references: RoutesReference[]): void {
+    this.data.routesFiles[filePath] = { mtimeMs, references };
+  }
+
+  pruneRoutesFiles(existingFiles: Set<string>): void {
+    this.pruneSection(this.data.routesFiles, existingFiles);
+  }
+
+  removeRoutesEntry(filePath: string): void {
+    delete this.data.routesFiles[filePath];
   }
 
   /** List all di.xml file paths that have cached entries. */

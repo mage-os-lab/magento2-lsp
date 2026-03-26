@@ -175,8 +175,9 @@ export class DiIndex {
     const refs = this.fileToRefs.get(file);
     if (!refs) return undefined;
 
+    // Extend range by 1 on each side to include surrounding XML quote characters
     return refs.find(
-      (r) => r.line === line && col >= r.column && col < r.endColumn,
+      (r) => r.line === line && col >= r.column - 1 && col <= r.endColumn,
     );
   }
 

@@ -89,9 +89,13 @@ describe('AclIndex', () => {
     expect(index.getResourceAtPosition(file, 3, 20)).toBe(res);
     expect(index.getResourceAtPosition(file, 3, 34)).toBe(res);
 
-    // Cursor outside range
-    expect(index.getResourceAtPosition(file, 3, 9)).toBeUndefined();
-    expect(index.getResourceAtPosition(file, 3, 35)).toBeUndefined();
+    // Also matches on surrounding quote characters (column-1 and endColumn)
+    expect(index.getResourceAtPosition(file, 3, 9)).toBe(res);
+    expect(index.getResourceAtPosition(file, 3, 35)).toBe(res);
+
+    // Cursor outside extended range
+    expect(index.getResourceAtPosition(file, 3, 8)).toBeUndefined();
+    expect(index.getResourceAtPosition(file, 3, 36)).toBeUndefined();
     expect(index.getResourceAtPosition(file, 4, 10)).toBeUndefined();
 
     // Wrong file

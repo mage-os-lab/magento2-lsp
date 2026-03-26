@@ -41,8 +41,10 @@ export function removeFromMap<T extends { file: string }>(
  *
  * Used by LSP handlers to determine what the user's cursor is on in an XML file.
  * The comparison checks that the cursor line matches and the cursor column falls
- * within the reference's [column, endColumn) range (half-open interval — the
- * endColumn is exclusive, matching LSP Range semantics).
+ * within the reference's [column-1, endColumn] range. This is intentionally wider
+ * than the value itself: column/endColumn mark the text inside the quotes, so
+ * extending by one on each side lets the hover/definition trigger when the cursor
+ * is on the surrounding quote characters too.
  */
 export function findReferenceAtPosition<
   T extends { line: number; column: number; endColumn: number },
@@ -52,7 +54,8 @@ export function findReferenceAtPosition<
   col: number,
 ): T | undefined {
   if (!refs) return undefined;
+  // col >= column - 1 includes the opening quote, col <= endColumn includes the closing quote
   return refs.find(
-    (r) => r.line === line && col >= r.column && col < r.endColumn,
+    (r) => r.line === line && col >= r.column - 1 && col <= r.endColumn,
   );
 }

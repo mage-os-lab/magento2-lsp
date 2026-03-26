@@ -30,6 +30,7 @@ import { parseSystemXml, SystemXmlParseContext } from '../indexer/systemXmlParse
 import { parseWebapiXml, WebapiXmlParseContext } from '../indexer/webapiXmlParser';
 import { parseAclXml, AclXmlParseContext } from '../indexer/aclXmlParser';
 import { parseMenuXml, MenuXmlParseContext } from '../indexer/menuXmlParser';
+import { parseRoutesXml, RoutesXmlParseContext } from '../indexer/routesXmlParser';
 import { parseUiComponentAcl, UiComponentAclParseContext } from '../indexer/uiComponentAclParser';
 import {
   deriveDiXmlContext,
@@ -39,12 +40,13 @@ import {
   deriveWebapiXmlContext,
   deriveAclXmlContext,
   deriveMenuXmlContext,
+  deriveRoutesXmlContext,
   deriveUiComponentAclContext,
 } from '../project/moduleResolver';
 import { realpath } from '../utils/realpath';
 import { findAttributeValuePosition } from '../utils/xmlPositionUtil';
 import { getAttr, installErrorHandler } from '../utils/saxHelpers';
-import type { AclResource, SystemConfigReference } from '../indexer/types';
+import type { AclResource, RoutesReference, SystemConfigReference } from '../indexer/types';
 import * as sax from 'sax';
 import * as fs from 'fs';
 
@@ -88,6 +90,9 @@ export function handleDocumentSymbol(
   const aclContext = deriveAclXmlContext(filePath, project.modules);
   if (aclContext) return buildAclSymbols(content, aclContext);
 
+  const routesContext = deriveRoutesXmlContext(filePath, project.modules);
+  if (routesContext) return buildRoutesSymbols(content, routesContext);
+
   const menuContext = deriveMenuXmlContext(filePath, project.modules);
   if (menuContext) return buildMenuSymbols(content, menuContext);
 
@@ -114,6 +119,43 @@ function makeSymbol(
 ): DocumentSymbol {
   const range = Range.create(line, column, line, endColumn);
   return DocumentSymbol.create(name, detail, kind, range, range, children);
+}
+
+/**
+ * Expand a symbol's range to strictly encompass all its children's ranges.
+ * Keeps selectionRange narrow (the attribute text) while making range span
+ * the full subtree — required by clients like Aerial that use range containment
+ * to determine the symbol hierarchy.
+ *
+ * The parent's range.start is pushed to column 0 of its line (or one line before
+ * the first child if they share the same line) so it strictly contains children.
+ */
+function expandRangeToChildren(symbol: DocumentSymbol): void {
+  if (!symbol.children || symbol.children.length === 0) return;
+  for (const child of symbol.children) {
+    expandRangeToChildren(child);
+  }
+  const firstChild = symbol.children[0];
+  const lastChild = symbol.children[symbol.children.length - 1];
+
+  // Ensure start is strictly before the first child's start
+  let startLine = symbol.range.start.line;
+  let startChar = 0;
+  if (startLine === firstChild.range.start.line && startChar >= firstChild.range.start.character) {
+    // Same line and can't be before the child — move up one line
+    startLine = Math.max(0, startLine - 1);
+  }
+
+  // Ensure end is at or past the last child's end
+  let endLine = lastChild.range.end.line;
+  let endChar = lastChild.range.end.character;
+  if (endLine < symbol.range.end.line
+    || (endLine === symbol.range.end.line && endChar < symbol.range.end.character)) {
+    endLine = symbol.range.end.line;
+    endChar = symbol.range.end.character;
+  }
+
+  symbol.range = Range.create(startLine, startChar, endLine, endChar);
 }
 
 // --- di.xml symbols ---
@@ -566,6 +608,83 @@ function buildAclSymbols(content: string, context: AclXmlParseContext): Document
  * Shows menu items with their title (or ID) as the symbol name and
  * the ACL resource as the detail.
  */
+// --- routes.xml symbols ---
+
+/**
+ * Build document symbols for a routes.xml file.
+ *
+ * Hierarchy: Router (standard/admin) > Route (frontName) > Module
+ */
+function buildRoutesSymbols(content: string, context: RoutesXmlParseContext): DocumentSymbol[] | null {
+  const { references } = parseRoutesXml(content, context);
+  if (references.length === 0) return null;
+
+  // Group by routerType, then by routeId
+  const routers = new Map<string, Map<string, RoutesReference[]>>();
+  for (const ref of references) {
+    let routes = routers.get(ref.routerType);
+    if (!routes) {
+      routes = new Map();
+      routers.set(ref.routerType, routes);
+    }
+    let routeRefs = routes.get(ref.routeId);
+    if (!routeRefs) {
+      routeRefs = [];
+      routes.set(ref.routeId, routeRefs);
+    }
+    routeRefs.push(ref);
+  }
+
+  const symbols: DocumentSymbol[] = [];
+  for (const [routerType, routes] of routers) {
+    // Find the first ref in this router for position
+    const firstRef = [...routes.values()][0][0];
+    const routerSymbol = makeSymbol(
+      routerType,
+      'router',
+      SymbolKind.Namespace,
+      firstRef.line, firstRef.column, firstRef.endColumn,
+    );
+
+    const routeSymbols: DocumentSymbol[] = [];
+    for (const [routeId, refs] of routes) {
+      const idRef = refs.find((r) => r.kind === 'route-id');
+      const fnRef = refs.find((r) => r.kind === 'route-frontname');
+      const anchor = idRef ?? fnRef ?? refs[0];
+      const routeSymbol = makeSymbol(
+        fnRef?.value ?? routeId,
+        `id: ${routeId}`,
+        SymbolKind.Key,
+        anchor.line, anchor.column, anchor.endColumn,
+      );
+
+      const moduleSymbols: DocumentSymbol[] = [];
+      for (const ref of refs.filter((r) => r.kind === 'route-module')) {
+        const detail = ref.before ? `before: ${ref.before}` : ref.after ? `after: ${ref.after}` : undefined;
+        moduleSymbols.push(makeSymbol(
+          ref.value,
+          detail,
+          SymbolKind.Module,
+          ref.line, ref.column, ref.endColumn,
+        ));
+      }
+      if (moduleSymbols.length > 0) {
+        routeSymbol.children = moduleSymbols;
+      }
+      routeSymbols.push(routeSymbol);
+    }
+    if (routeSymbols.length > 0) {
+      routerSymbol.children = routeSymbols;
+    }
+    expandRangeToChildren(routerSymbol);
+    symbols.push(routerSymbol);
+  }
+
+  return symbols;
+}
+
+// --- menu.xml symbols ---
+
 function buildMenuSymbols(content: string, context: MenuXmlParseContext): DocumentSymbol[] | null {
   const { references } = parseMenuXml(content, context);
   const symbols: DocumentSymbol[] = [];

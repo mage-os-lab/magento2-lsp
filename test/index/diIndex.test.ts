@@ -116,7 +116,7 @@ describe('DiIndex', () => {
       expect(index.getReferenceAtPosition('/test/di.xml', 3, 19)).toEqual(ref);
     });
 
-    it('returns undefined for position outside reference', () => {
+    it('matches on surrounding quote characters', () => {
       const ref = makeRef({
         fqcn: 'Foo\\Bar',
         file: '/test/di.xml',
@@ -126,8 +126,23 @@ describe('DiIndex', () => {
       });
       index.addFile('/test/di.xml', [ref], []);
 
-      expect(index.getReferenceAtPosition('/test/di.xml', 3, 9)).toBeUndefined();
-      expect(index.getReferenceAtPosition('/test/di.xml', 3, 20)).toBeUndefined();
+      // column-1 is the opening quote, endColumn is the closing quote
+      expect(index.getReferenceAtPosition('/test/di.xml', 3, 9)).toEqual(ref);
+      expect(index.getReferenceAtPosition('/test/di.xml', 3, 20)).toEqual(ref);
+    });
+
+    it('returns undefined for position outside reference and quotes', () => {
+      const ref = makeRef({
+        fqcn: 'Foo\\Bar',
+        file: '/test/di.xml',
+        line: 3,
+        column: 10,
+        endColumn: 20,
+      });
+      index.addFile('/test/di.xml', [ref], []);
+
+      expect(index.getReferenceAtPosition('/test/di.xml', 3, 8)).toBeUndefined();
+      expect(index.getReferenceAtPosition('/test/di.xml', 3, 21)).toBeUndefined();
       expect(index.getReferenceAtPosition('/test/di.xml', 2, 15)).toBeUndefined();
     });
 

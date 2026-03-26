@@ -274,6 +274,38 @@ export function handleHover(
     return { contents: { kind: MarkupKind.Markdown, value }, range };
   }
 
+  // --- Try routes.xml ---
+  const routesRef = project.routesIndex.getReferenceAtPosition(filePath, line, character);
+  if (routesRef) {
+    const range = Range.create(routesRef.line, routesRef.column, routesRef.line, routesRef.endColumn);
+    const fnDisplay = routesRef.frontName || '*- empty -*';
+    let value = '';
+    if (routesRef.kind === 'route-frontname') {
+      value = `**Route** \`${routesRef.value}\`\n\nRouter: ${routesRef.routerType}  \nArea: ${routesRef.area}`;
+      const moduleRefs = project.routesIndex.getRefsForFrontName(routesRef.value)
+        .filter((r) => r.kind === 'route-module');
+      if (moduleRefs.length > 0) {
+        value += '\n\nModules:\n' + moduleRefs.map((r) => `- ${r.value}`).join('\n');
+      }
+    } else if (routesRef.kind === 'route-module') {
+      value = `**Route module** \`${routesRef.value}\`\n\nFrontName: ${fnDisplay}  \nRouter: ${routesRef.routerType}  \nArea: ${routesRef.area}`;
+      if (routesRef.before) value += `  \nBefore: ${routesRef.before}`;
+      if (routesRef.after) value += `  \nAfter: ${routesRef.after}`;
+      if (routesRef.frontName) {
+        value += `\n\nURL pattern: \`${routesRef.frontName}/{controller}/{action}\``;
+      }
+    } else {
+      // route-id
+      value = `**Route** \`${routesRef.value}\` (frontName: ${fnDisplay})\n\nRouter: ${routesRef.routerType}  \nArea: ${routesRef.area}`;
+      const moduleRefs = project.routesIndex.getRefsForRouteId(routesRef.value)
+        .filter((r) => r.kind === 'route-module');
+      if (moduleRefs.length > 0) {
+        value += '\n\nModules:\n' + moduleRefs.map((r) => `- ${r.value}`).join('\n');
+      }
+    }
+    return { contents: { kind: MarkupKind.Markdown, value }, range };
+  }
+
   // --- Try events.xml ---
   const eventsRef = project.eventsIndex.getReferenceAtPosition(filePath, line, character);
   if (eventsRef) {

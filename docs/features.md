@@ -98,6 +98,16 @@ Complete list of LSP features provided by magento2-lsp.
 - **Hover** on `<resource>` in `acl.xml`: shows resource title, hierarchy path, module, and usage counts by file type
 - **Hover** on ACL resource references in `webapi.xml`, `menu.xml`, `system.xml`, UI component XML, and PHP: shows resource title and hierarchy from acl.xml
 
+## routes.xml Navigation
+
+- **Go to Definition** from `<module name="Vendor_Module"/>` in `routes.xml`: jump to the module directory
+- **Go to Definition** from `frontName` or route `id` in `routes.xml`: jump to all route declarations across modules
+- **Find References** from a module name in `routes.xml`: shows all `routes.xml` files that register the same module
+- **Find References** from `frontName` or route `id`: shows all related references (route declarations and module registrations) across modules
+- **Hover** on `frontName`: shows router type, area, and all modules registered for that frontName
+- **Hover** on `<module name="...">`: shows frontName, router type, area, before/after priority, and URL pattern hint
+- **Hover** on route `id`: shows frontName, router type, area, and all registered modules
+
 ## Semantic Diagnostics
 
 - **Broken class references** in `di.xml`, `events.xml`, and layout XML: error when a FQCN doesn't resolve to a PHP file via PSR-4 (virtual types, generated classes like `\Proxy` and `Factory`, and uninstalled vendor namespaces are excluded)
@@ -108,6 +118,7 @@ Complete list of LSP features provided by magento2-lsp.
 - **Broken service class references** in `webapi.xml`: error when a `<service class="..."/>` FQCN doesn't resolve to a PHP file
 - **Missing service methods** in `webapi.xml`: warning when a `<service method="..."/>` method is not found on the service class (checked on save)
 - **Undefined ACL resource** in `webapi.xml`, `menu.xml`, `system.xml`, UI component XML, and PHP files: warning when an ACL resource reference is not defined in any acl.xml file
+- **Inactive module** in `routes.xml`: warning when a `<module name="..."/>` references a module not listed in `config.php`
 
 Diagnostics update on every keystroke (debounced). Expensive checks (duplicate plugins, ObserverInterface) also run on file open and save.
 
@@ -128,6 +139,7 @@ Diagnostics update on every keystroke (debounced). Expensive checks (duplicate p
 - **Hover** on `system.xml` elements: shows config path, label, module, and model class info
 - **Hover** on `webapi.xml` elements: shows REST route, HTTP method, service class/method, and ACL resource info
 - **Hover** on `acl.xml` resources: shows resource title, hierarchy path, module, and usage counts across file types
+- **Hover** on `routes.xml` elements: shows route frontName, router type, area, registered modules, and URL pattern
 - **Hover** on `menu.xml` resource attributes: shows ACL resource title, hierarchy, and menu item context
 - **Hover** on `<aclResource>` in UI components: shows ACL resource title and hierarchy
 - **Hover** on `<resource>` in `system.xml` sections: shows ACL resource title, hierarchy, and config section
@@ -141,6 +153,7 @@ Diagnostics update on every keystroke (debounced). Expensive checks (duplicate p
 - **system.xml**: hierarchical section > group > field tree, with source/backend/frontend model and ACL resource children
 - **webapi.xml**: service classes, methods, and ACL resources — each with HTTP method and route URL context
 - **acl.xml**: hierarchical resource tree reconstructed from parent-child relationships
+- **routes.xml**: router > route (frontName) > module hierarchy, with before/after priority info
 - **menu.xml**: menu items showing title and ACL resource
 - **UI component XML**: ACL resource references
 

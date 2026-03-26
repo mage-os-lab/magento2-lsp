@@ -23,6 +23,7 @@ import { SystemXmlParseContext } from '../indexer/systemXmlParser';
 import { WebapiXmlParseContext } from '../indexer/webapiXmlParser';
 import { AclXmlParseContext } from '../indexer/aclXmlParser';
 import { MenuXmlParseContext } from '../indexer/menuXmlParser';
+import { RoutesXmlParseContext } from '../indexer/routesXmlParser';
 import { UiComponentAclParseContext } from '../indexer/uiComponentAclParser';
 import { realpath } from '../utils/realpath';
 import { fileExists, isDirectory } from '../utils/fsHelpers';
@@ -378,6 +379,39 @@ export function deriveMenuXmlContext(
     const relPath = path.relative(mod.path, filePath);
     if (relPath === path.join('etc', 'adminhtml', 'menu.xml')) {
       return { file: filePath, module: mod.name };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Discover routes.xml files for a module.
+ * routes.xml lives at etc/frontend/routes.xml and etc/adminhtml/routes.xml (area-specific only).
+ */
+export function discoverRoutesXmlFiles(
+  modulePath: string,
+): { file: string; area: string }[] {
+  return discoverModuleXmlFiles(modulePath, 'routes.xml')
+    .filter((f) => f.area !== 'global');
+}
+
+/**
+ * Derive the routes.xml parse context for a file.
+ * Returns undefined if the file is not a routes.xml within a known module.
+ */
+export function deriveRoutesXmlContext(
+  filePath: string,
+  modules: ModuleInfo[],
+): RoutesXmlParseContext | undefined {
+  if (!filePath.endsWith('/routes.xml')) return undefined;
+
+  for (const mod of modules) {
+    if (!filePath.startsWith(mod.path)) continue;
+    const relPath = path.relative(mod.path, filePath);
+    const parts = relPath.split(path.sep);
+    // Must be etc/{area}/routes.xml (area-specific only)
+    if (parts.length === 3 && parts[0] === 'etc' && parts[2] === 'routes.xml') {
+      return { file: filePath, module: mod.name, area: parts[1] };
     }
   }
   return undefined;

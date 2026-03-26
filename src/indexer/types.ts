@@ -358,6 +358,65 @@ export interface MenuReference {
   module: string;
 }
 
+// ---- routes.xml types ----
+
+/**
+ * Identifies which kind of routes.xml element a reference comes from.
+ *
+ * Example routes.xml entries and their corresponding kinds:
+ *   <router id="standard">
+ *     <route id="catalog" frontName="catalog">    -> 'route-id' and 'route-frontname'
+ *       <module name="Magento_Catalog"/>           -> 'route-module'
+ *     </route>
+ *   </router>
+ */
+export type RoutesReferenceKind = 'route-frontname' | 'route-module' | 'route-id';
+
+/**
+ * A reference found in a routes.xml file.
+ *
+ * routes.xml maps URL frontNames to modules:
+ *   <config>
+ *     <router id="standard">
+ *       <route id="catalog" frontName="catalog">
+ *         <module name="Magento_Catalog"/>
+ *       </route>
+ *     </router>
+ *   </config>
+ *
+ * URLs follow the pattern {frontName}/{controller}/{action}, where the controller
+ * segment uses underscores for subdirectory nesting (e.g., billing_agreement/view
+ * maps to Controller/Billing/Agreement/View.php).
+ */
+export interface RoutesReference {
+  /** Which routes.xml element this reference comes from. */
+  kind: RoutesReferenceKind;
+  /** The attribute value: frontName string, module name, or route id. */
+  value: string;
+  /** Router type: 'standard', 'admin', 'default', etc. */
+  routerType: string;
+  /** The route's frontName (present on all refs for context). */
+  frontName: string;
+  /** The route's id attribute (present on all refs for context). */
+  routeId: string;
+  /** For route-module: the before attribute, if present. */
+  before?: string;
+  /** For route-module: the after attribute, if present. */
+  after?: string;
+  /** Area derived from file path: 'frontend', 'adminhtml', or 'global'. */
+  area: string;
+  /** Absolute filesystem path to the routes.xml file. */
+  file: string;
+  /** 0-based line number. */
+  line: number;
+  /** 0-based column where the value starts. */
+  column: number;
+  /** 0-based column where the value ends. */
+  endColumn: number;
+  /** Magento module name in Vendor_Module format. */
+  module: string;
+}
+
 // ---- UI component ACL types ----
 
 /**

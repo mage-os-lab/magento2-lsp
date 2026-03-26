@@ -39,6 +39,7 @@ import {
   discoverWebapiXmlFiles,
   discoverAclXmlFiles,
   discoverMenuXmlFiles,
+  discoverRoutesXmlFiles,
   discoverUiComponentAclFiles,
   deriveDiXmlContext,
   deriveEventsXmlContext,
@@ -46,6 +47,7 @@ import {
   deriveWebapiXmlContext,
   deriveAclXmlContext,
   deriveMenuXmlContext,
+  deriveRoutesXmlContext,
   deriveUiComponentAclContext,
 } from './project/moduleResolver';
 import { parseDiXml, DiXmlParseContext } from './indexer/diXmlParser';
@@ -55,6 +57,7 @@ import { parseSystemXml, SystemXmlParseContext } from './indexer/systemXmlParser
 import { parseWebapiXml, WebapiXmlParseContext } from './indexer/webapiXmlParser';
 import { parseAclXml, AclXmlParseContext } from './indexer/aclXmlParser';
 import { parseMenuXml, MenuXmlParseContext } from './indexer/menuXmlParser';
+import { parseRoutesXml, RoutesXmlParseContext } from './indexer/routesXmlParser';
 import { parseUiComponentAcl, UiComponentAclParseContext } from './indexer/uiComponentAclParser';
 import { resolveFileToFqcn } from './indexer/phpClassLocator';
 import { realpath } from './utils/realpath';
@@ -613,6 +616,44 @@ function setupFileWatchers(project: import('./project/projectManager').ProjectCo
     saveCache: () => project.cache.save(),
   });
   watchers.push(menuWatcher);
+
+  // --- routes.xml watcher ---
+  const routesWatchPatterns: string[] = [];
+  const routesContextMap = new Map<string, RoutesXmlParseContext>();
+
+  for (const mod of project.modules) {
+    const files = discoverRoutesXmlFiles(mod.path);
+    for (const f of files) {
+      routesWatchPatterns.push(f.file);
+      routesContextMap.set(f.file, { file: f.file, module: mod.name, area: f.area });
+    }
+    routesWatchPatterns.push(path.join(mod.path, 'etc', '**', 'routes.xml'));
+  }
+
+  function getRoutesContext(file: string): RoutesXmlParseContext | undefined {
+    const cached = routesContextMap.get(file);
+    if (cached) return cached;
+    const ctx = deriveRoutesXmlContext(file, project.modules);
+    if (ctx) routesContextMap.set(file, ctx);
+    return ctx;
+  }
+
+  const routesWatcher = createXmlWatcher({
+    patterns: routesWatchPatterns,
+    resolveContext: getRoutesContext,
+    parse: parseRoutesXml,
+    onParsed(file, mtimeMs, result) {
+      project.routesIndex.removeFile(file);
+      project.routesIndex.addFile(file, result.references);
+      project.cache.setRoutesEntry(file, mtimeMs, result.references);
+    },
+    onRemoved(file) {
+      project.routesIndex.removeFile(file);
+      project.cache.removeRoutesEntry(file);
+    },
+    saveCache: () => project.cache.save(),
+  });
+  watchers.push(routesWatcher);
 
   // --- UI component aclResource watcher ---
   const uiComponentWatchPatterns: string[] = [];

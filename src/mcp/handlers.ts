@@ -598,6 +598,7 @@ export async function handleReindex(
     diXmlFiles: project.index.getFileCount(),
     eventsXmlFiles: project.eventsIndex.getFileCount(),
     layoutXmlFiles: project.layoutIndex.getFileCount(),
+    routesXmlFiles: project.routesIndex.getFileCount(),
     themes: project.themeResolver.getAllThemes().length,
   };
 }

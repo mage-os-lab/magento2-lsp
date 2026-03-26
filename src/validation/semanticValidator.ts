@@ -25,6 +25,7 @@ import { parseLayoutXml } from '../indexer/layoutXmlParser';
 import { parseSystemXml } from '../indexer/systemXmlParser';
 import { parseWebapiXml } from '../indexer/webapiXmlParser';
 import { parseMenuXml } from '../indexer/menuXmlParser';
+import { parseRoutesXml } from '../indexer/routesXmlParser';
 import { parseUiComponentAcl } from '../indexer/uiComponentAclParser';
 import { extractPhpClass, extractPhpMethods } from '../utils/phpNamespace';
 import { createPhpAclRegex } from '../utils/phpAclGrep';
@@ -35,6 +36,7 @@ import {
   deriveSystemXmlContext,
   deriveWebapiXmlContext,
   deriveMenuXmlContext,
+  deriveRoutesXmlContext,
   deriveUiComponentAclContext,
 } from '../project/moduleResolver';
 import type { ProjectContext } from '../project/projectManager';
@@ -82,6 +84,11 @@ export function validateSemantics(
   const systemConfigContext = deriveSystemXmlContext(filePath, project.modules);
   if (systemConfigContext) {
     return validateSystemConfigXml(content, systemConfigContext, project);
+  }
+
+  const routesContext = deriveRoutesXmlContext(filePath, project.modules);
+  if (routesContext) {
+    return validateRoutesXml(content, routesContext, project);
   }
 
   const menuContext = deriveMenuXmlContext(filePath, project.modules);
@@ -387,6 +394,32 @@ function validateWebapiXml(
           // Can't read PHP file — don't warn
         }
       }
+    }
+  }
+
+  return diagnostics;
+}
+
+// --- menu.xml validation ---
+
+// --- routes.xml validation ---
+
+function validateRoutesXml(
+  content: string,
+  context: import('../indexer/routesXmlParser').RoutesXmlParseContext,
+  project: ProjectContext,
+): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  const { references } = parseRoutesXml(content, context);
+  const activeModuleNames = new Set(project.modules.map((m) => m.name));
+
+  for (const ref of references) {
+    if (ref.kind === 'route-module' && !activeModuleNames.has(ref.value)) {
+      diagnostics.push(makeDiagnostic(
+        ref.line, ref.column, ref.endColumn,
+        `Module "${ref.value}" is not an active module`,
+        DiagnosticSeverity.Warning,
+      ));
     }
   }
 

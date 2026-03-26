@@ -164,6 +164,21 @@ async function handleXmlReferences(
     return refsToLocations([...uiRefs, ...aclDefs]);
   }
 
+  // --- Try routes.xml ---
+  const routesRef = project.routesIndex.getReferenceAtPosition(filePath, line, character);
+  if (routesRef) {
+    if (routesRef.kind === 'route-module') {
+      // Show all declarations for the route this module is part of
+      return refsToLocations(project.routesIndex.getRefsForRouteId(routesRef.routeId));
+    } else {
+      // route-frontname or route-id: show same-kind refs from OTHER files only,
+      // since same-file refs are already visible and clients filter same-line results
+      const allRefs = project.routesIndex.getRefsForRouteId(routesRef.routeId);
+      const otherFileRefs = allRefs.filter((r) => r.file !== filePath);
+      return refsToLocations(otherFileRefs);
+    }
+  }
+
   // --- Try events.xml ---
   const eventsRef = project.eventsIndex.getReferenceAtPosition(filePath, line, character);
   if (eventsRef) {

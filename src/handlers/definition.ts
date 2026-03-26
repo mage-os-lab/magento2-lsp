@@ -50,6 +50,7 @@ import { resolveConcreteType, CALL_RE } from '../utils/diPreference';
 import { createScopeConfigRegex } from '../utils/configPathGrep';
 import { createPhpAclRegex } from '../utils/phpAclGrep';
 import * as fs from 'fs';
+import * as path from 'path';
 
 export function handleDefinition(
   params: DefinitionParams,
@@ -289,6 +290,39 @@ export function handleDefinition(
         URI.file(aclDef.file).toString(),
         Range.create(aclDef.line, aclDef.column, aclDef.line, aclDef.endColumn),
       );
+    }
+    return null;
+  }
+
+  // --- Try routes.xml ---
+  const routesRef = project.routesIndex.getReferenceAtPosition(
+    filePath,
+    params.position.line,
+    params.position.character,
+  );
+  if (routesRef) {
+    if (routesRef.kind === 'route-module') {
+      // Navigate to the module's Controller directory (or Controller/Adminhtml for admin routes)
+      const mod = project.modules.find((m) => m.name === routesRef.value);
+      if (mod) {
+        const controllerDir = routesRef.area === 'adminhtml'
+          ? path.join(mod.path, 'Controller', 'Adminhtml')
+          : path.join(mod.path, 'Controller');
+        const target = fs.existsSync(controllerDir) ? controllerDir : mod.path;
+        return Location.create(URI.file(target).toString(), Range.create(0, 0, 0, 0));
+      }
+    } else {
+      // route-frontname or route-id: show all route-id declarations for this route
+      const allRefs = project.routesIndex.getRefsForRouteId(routesRef.routeId);
+      const idRefs = allRefs.filter((r) => r.kind === 'route-id');
+      if (idRefs.length > 0) {
+        return idRefs.map((r) =>
+          Location.create(
+            URI.file(r.file).toString(),
+            Range.create(r.line, r.column, r.line, r.endColumn),
+          ),
+        );
+      }
     }
     return null;
   }
