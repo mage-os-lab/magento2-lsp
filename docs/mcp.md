@@ -13,6 +13,31 @@ This is why not every LSP capability is mirrored in the MCP. LSP features like g
 
 For the full parameter and response reference, see [MCP Tools Reference](mcp-tools-reference.md).
 
+## Installation
+
+### Claude Code
+
+Clone the repo first.  
+Then add the MCP server to your project so it's available in every Claude Code session:
+
+```bash
+claude mcp add magento2-lsp-mcp /absolute/path/to/magento2-lsp/bin/magento2-lsp-mcp
+```
+
+Or add it manually to `.mcp.json` in your project root:
+
+```json
+{
+  "mcpServers": {
+    "magento2-lsp-mcp": {
+      "command": "/absolute/path/to/magento2-lsp/bin/magento2-lsp-mcp"
+    }
+  }
+}
+```
+
+If `bin/` is already on your `$PATH`, you can use just `magento2-lsp-mcp` as the command.
+
 ## Available Tools
 
 ### magento_get_di_config
