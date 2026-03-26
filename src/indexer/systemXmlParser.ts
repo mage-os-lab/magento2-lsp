@@ -88,6 +88,8 @@ export function parseSystemXml(
   let collectingLabel = false;
   // True when we're inside a <resource> element (ACL resource for a section)
   let collectingResource = false;
+  // True when we're inside a <depends> element (field visibility dependency)
+  let inDepends = false;
 
   parser.onopentagstart = () => {
     currentTagStartLine = parser.line ?? 0;
@@ -106,6 +108,37 @@ export function parseSystemXml(
     }
 
     if (!inContent) return;
+
+    // <depends> inside a <field> — track state so nested <field id="..."> is parsed as a dependency
+    if (tagName === 'depends') {
+      inDepends = true;
+      return;
+    }
+
+    // <field id="X"> inside <depends> — references another field in the same group
+    if (inDepends && tagName === 'field') {
+      const depFieldId = getAttr(tag, 'id');
+      if (depFieldId) {
+        // Build the config path: the parent group path + the depends field id.
+        // pathStack currently ends with the parent field's id, so we need the
+        // group path (all but last) + the depends field id.
+        const groupPath = pathStack.slice(0, -1).join('/');
+        const depConfigPath = groupPath ? `${groupPath}/${depFieldId}` : depFieldId;
+        const pos = findAttributeValuePosition(lines, tagLine, 'id', tagStartLine);
+        if (pos) {
+          references.push({
+            kind: 'depends-field',
+            configPath: depConfigPath,
+            file: context.file,
+            line: pos.line,
+            column: pos.column,
+            endColumn: pos.endColumn,
+            module: context.module,
+          });
+        }
+      }
+      return;
+    }
 
     if (PATH_TAGS.has(tagName)) {
       const idValue = getAttr(tag, 'id');
@@ -177,6 +210,11 @@ export function parseSystemXml(
       return;
     }
 
+    if (name === 'depends') {
+      inDepends = false;
+      return;
+    }
+
     if (collectingResource && name === 'resource') {
       // <resource>Magento_Newsletter::newsletter</resource> — ACL resource for the section
       const trimmed = collectedText.trim();
@@ -242,7 +280,8 @@ export function parseSystemXml(
       return;
     }
 
-    if (PATH_TAGS.has(name)) {
+    // Only pop path stack for real config path elements, not <field> inside <depends>
+    if (PATH_TAGS.has(name) && !inDepends) {
       const hadId = hasIdStack.pop();
       if (hadId) {
         pathStack.pop();

@@ -32,6 +32,7 @@ import { handleCodeLens } from './handlers/codeLens';
 import { handleHover } from './handlers/hover';
 import { handleDocumentSymbol } from './handlers/documentSymbol';
 import { handleWorkspaceSymbol } from './handlers/workspaceSymbol';
+import { handlePrepareRename, handleRename } from './handlers/rename';
 import { FileWatcher, createXmlWatcher } from './watcher/fileWatcher';
 import {
   discoverDiXmlFiles,
@@ -156,6 +157,16 @@ connection.onDocumentSymbol((params, token) => {
 
 connection.onWorkspaceSymbol((params, token) => {
   return handleWorkspaceSymbol(params, () => projectManager.getAllProjects(), token);
+});
+
+connection.onPrepareRename((params) => {
+  const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
+  return handlePrepareRename(params, () => projectManager.getProjectForFile(filePath));
+});
+
+connection.onRenameRequest(async (params, token) => {
+  const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
+  return handleRename(params, () => projectManager.getProjectForFile(filePath), token);
 });
 
 // --- Lazy project initialization ---

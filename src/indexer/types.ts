@@ -241,7 +241,8 @@ export type SystemConfigReferenceKind =
   | 'source-model'
   | 'backend-model'
   | 'frontend-model'
-  | 'section-resource';
+  | 'section-resource'
+  | 'depends-field';
 
 /**
  * A reference found in a system.xml file (or an included partial).

@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Config:etc/system_file.xsd">
+    <system>
+        <section id="test_section" translate="label" sortOrder="10">
+            <label>Test Section</label>
+            <group id="test_group" translate="label" sortOrder="10">
+                <label>Test Group</label>
+                <field id="test_field" translate="label" type="text" sortOrder="10">
+                    <label>Test Field</label>
+                </field>
+                <field id="dependent_field" translate="label" type="text" sortOrder="20">
+                    <label>Dependent Field</label>
+                    <depends>
+                        <field id="test_field">1</field>
+                    </depends>
+                </field>
+            </group>
+        </section>
+    </system>
+</config>

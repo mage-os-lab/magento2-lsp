@@ -89,6 +89,26 @@ export class SystemConfigIndex {
     return this.fileToRefs.get(file) ?? [];
   }
 
+  /**
+   * Get all references whose config path starts with the given prefix.
+   * Used by rename to find all descendant fields when renaming a section or group.
+   *
+   * For example, prefix "customer/startup" matches:
+   *   - "customer/startup" (the group itself)
+   *   - "customer/startup/redirect_dashboard" (a field under the group)
+   *   - "customer/startup/redirect_dashboard" model refs (source/backend/frontend)
+   */
+  getRefsForPathPrefix(prefix: string): SystemConfigReference[] {
+    const results: SystemConfigReference[] = [];
+    const prefixWithSlash = prefix + '/';
+    for (const [path, refs] of this.pathToRefs) {
+      if (path === prefix || path.startsWith(prefixWithSlash)) {
+        results.push(...refs);
+      }
+    }
+    return results;
+  }
+
   /** Iterate all known config paths in the index. */
   getAllConfigPaths(): IterableIterator<string> {
     return this.pathToRefs.keys();

@@ -5,6 +5,8 @@
     <type name="Test\Foo\Model\Foo">
         <arguments>
             <argument name="bar" xsi:type="object">Custom\Bar\Model\Bar</argument>
+            <argument name="fooProxy" xsi:type="object">Test\Foo\Model\Foo\Proxy</argument>
+            <argument name="fooFactory" xsi:type="object">Test\Foo\Model\FooFactory</argument>
         </arguments>
     </type>
 </config>
