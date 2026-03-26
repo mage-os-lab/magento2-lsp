@@ -27,6 +27,7 @@ import { parseWebapiXml } from '../indexer/webapiXmlParser';
 import { parseMenuXml } from '../indexer/menuXmlParser';
 import { parseUiComponentAcl } from '../indexer/uiComponentAclParser';
 import { extractPhpClass, extractPhpMethods } from '../utils/phpNamespace';
+import { createPhpAclRegex } from '../utils/phpAclGrep';
 import {
   deriveDiXmlContext,
   deriveEventsXmlContext,
@@ -89,6 +90,11 @@ export function validateSemantics(
   const uiContext = deriveUiComponentAclContext(filePath, project.modules);
   if (uiContext) {
     return validateUiComponentAcl(content, uiContext, project);
+  }
+
+  // PHP files: validate ACL resource references in ADMIN_RESOURCE and isAllowed() patterns
+  if (filePath.endsWith('.php')) {
+    return validatePhpAcl(content, project);
   }
 
   return [];
@@ -433,6 +439,42 @@ function validateUiComponentAcl(
         `ACL resource "${ref.value}" not defined in any acl.xml`,
         DiagnosticSeverity.Warning,
       ));
+    }
+  }
+
+  return diagnostics;
+}
+
+// --- PHP ACL validation ---
+
+/**
+ * Validate ACL resource references in PHP files.
+ *
+ * Scans the PHP content for `const ADMIN_RESOURCE = '...'` and `->isAllowed('...')`
+ * patterns, and warns when the referenced ACL resource ID is not defined in any acl.xml.
+ */
+function validatePhpAcl(
+  content: string,
+  project: ProjectContext,
+): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  const lines = content.split('\n');
+
+  for (let lineNum = 0; lineNum < lines.length; lineNum++) {
+    const line = lines[lineNum];
+    const re = createPhpAclRegex();
+    let match;
+    while ((match = re.exec(line)) !== null) {
+      const aclId = match[1];
+      const idStart = match.index + match[0].indexOf(aclId);
+
+      if (project.aclIndex.getAllResources(aclId).length === 0) {
+        diagnostics.push(makeDiagnostic(
+          lineNum, idStart, idStart + aclId.length,
+          `ACL resource "${aclId}" not defined in any acl.xml`,
+          DiagnosticSeverity.Warning,
+        ));
+      }
     }
   }
 

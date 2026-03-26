@@ -48,6 +48,7 @@ import { realpath } from '../utils/realpath';
 import { resolveXmlUrn } from '../utils/xmlUrnResolver';
 import { resolveConcreteType, CALL_RE } from '../utils/diPreference';
 import { createScopeConfigRegex } from '../utils/configPathGrep';
+import { createPhpAclRegex } from '../utils/phpAclGrep';
 import * as fs from 'fs';
 
 export function handleDefinition(
@@ -431,6 +432,10 @@ function handlePhpDefinition(
   const configResult = handlePhpConfigPath(line, params.position.character, project);
   if (configResult) return configResult;
 
+  // --- ACL resource detection: const ADMIN_RESOURCE = '...' or ->isAllowed('...') ---
+  const aclResult = handlePhpAclResource(line, params.position.character, project);
+  if (aclResult) return aclResult;
+
   let match;
   CALL_RE.lastIndex = 0;
   while ((match = CALL_RE.exec(line)) !== null) {
@@ -552,6 +557,39 @@ function handlePhpConfigPath(
           URI.file(r.file).toString(),
           Range.create(r.line, r.column, r.line, r.endColumn),
         ),
+      );
+    }
+  }
+  return null;
+}
+
+/**
+ * Check if cursor is on an ACL resource ID in a PHP file.
+ * Matches `const ADMIN_RESOURCE = 'Vendor_Module::resource'` and
+ * `->isAllowed('Vendor_Module::resource')` patterns.
+ *
+ * Returns Location to the acl.xml resource declaration if found.
+ */
+function handlePhpAclResource(
+  line: string,
+  character: number,
+  project: ProjectContext,
+): Location | null {
+  const re = createPhpAclRegex();
+  let match;
+  while ((match = re.exec(line)) !== null) {
+    const fullMatch = match[0];
+    const aclId = match[1];
+    const idStart = match.index + fullMatch.indexOf(aclId);
+    const idEnd = idStart + aclId.length;
+
+    if (character >= idStart && character <= idEnd) {
+      const aclDef = project.aclIndex.getResource(aclId);
+      if (!aclDef) return null;
+
+      return Location.create(
+        URI.file(aclDef.file).toString(),
+        Range.create(aclDef.line, aclDef.column, aclDef.line, aclDef.endColumn),
       );
     }
   }

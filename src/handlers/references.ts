@@ -34,6 +34,7 @@ import { isObserverReference } from '../index/eventsIndex';
 import { realpath } from '../utils/realpath';
 import { reverseResolveTemplateId } from '../utils/templateId';
 import { createScopeConfigRegex, grepConfigPathInPhp } from '../utils/configPathGrep';
+import { createPhpAclRegex, grepAclResourceInPhp } from '../utils/phpAclGrep';
 import * as fs from 'fs';
 
 export async function handleReferences(
@@ -131,12 +132,13 @@ async function handleXmlReferences(
   // --- Try acl.xml ---
   const aclResource = project.aclIndex.getResourceAtPosition(filePath, line, character);
   if (aclResource) {
-    // From an acl.xml resource definition, find all references across XML types
+    // From an acl.xml resource definition, find all references across XML types and PHP files
     const webapiRefs = project.webapiIndex.getRefsForResource(aclResource.id);
     const systemRefs = project.systemConfigIndex.getRefsForAclResource(aclResource.id);
     const menuRefs = project.menuIndex.getRefsForResource(aclResource.id);
     const uiRefs = project.uiComponentAclIndex.getRefsForResource(aclResource.id);
-    return refsToLocations([...webapiRefs, ...systemRefs, ...menuRefs, ...uiRefs]);
+    const phpUsages = await grepAclResourceInPhp(aclResource.id, project.root, project.psr4Map);
+    return refsToLocations([...webapiRefs, ...systemRefs, ...menuRefs, ...uiRefs, ...phpUsages]);
   }
 
   // --- Try menu.xml ---
@@ -353,6 +355,10 @@ async function handlePhpReferences(
   if (currentLine) {
     const configRefs = await findPhpConfigPathRefs(currentLine, character, project);
     if (configRefs) return configRefs;
+
+    // --- ACL resource detection: const ADMIN_RESOURCE = '...' or ->isAllowed('...') ---
+    const aclRefs = await findPhpAclRefs(currentLine, character, project);
+    if (aclRefs) return aclRefs;
   }
 
   return null;
@@ -379,6 +385,43 @@ async function findPhpConfigPathRefs(
         .filter((r) => r.kind === 'field-id');
       const phpUsages = await grepConfigPathInPhp(configPath, project.root, project.psr4Map);
       return refsToLocations([...fieldRefs, ...phpUsages]);
+    }
+  }
+  return null;
+}
+
+/**
+ * Check if cursor is on an ACL resource ID in a PHP file.
+ * Matches `const ADMIN_RESOURCE = '...'` and `->isAllowed('...')` patterns.
+ *
+ * Returns all references to that ACL resource across:
+ *   - acl.xml definitions (the declaration sites)
+ *   - webapi.xml, system.xml, menu.xml, and UI component XML references
+ *   - PHP usages found by grepping PSR-4 directories
+ */
+async function findPhpAclRefs(
+  line: string,
+  character: number,
+  project: ProjectContext,
+): Promise<Location[] | null> {
+  const re = createPhpAclRegex();
+  let match;
+  while ((match = re.exec(line)) !== null) {
+    const aclId = match[1];
+    const idStart = match.index + match[0].indexOf(aclId);
+    const idEnd = idStart + aclId.length;
+
+    if (character >= idStart && character <= idEnd) {
+      // Collect references from all sources: acl.xml definitions + all XML indexes + PHP grep
+      const aclDefs = project.aclIndex.getAllResources(aclId);
+      const webapiRefs = project.webapiIndex.getRefsForResource(aclId);
+      const systemRefs = project.systemConfigIndex.getRefsForAclResource(aclId);
+      const menuRefs = project.menuIndex.getRefsForResource(aclId);
+      const uiRefs = project.uiComponentAclIndex.getRefsForResource(aclId);
+      const phpUsages = await grepAclResourceInPhp(aclId, project.root, project.psr4Map);
+      return refsToLocations([
+        ...aclDefs, ...webapiRefs, ...systemRefs, ...menuRefs, ...uiRefs, ...phpUsages,
+      ]);
     }
   }
   return null;

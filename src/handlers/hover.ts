@@ -1,10 +1,12 @@
 /**
  * LSP "textDocument/hover" handler.
  *
- * Shows contextual information when hovering over references in XML config files:
+ * Shows contextual information when hovering over references in XML config files
+ * and PHP files:
  *   - di.xml: effective DI config (preferences, plugins, virtualTypes)
  *   - events.xml: observer counts for events, event names for observers
  *   - layout XML: block class info, template resolution paths
+ *   - PHP: ACL resource info for ADMIN_RESOURCE constants and isAllowed() calls
  */
 
 import {
@@ -18,6 +20,8 @@ import { URI } from 'vscode-uri';
 import { ProjectContext } from '../project/projectManager';
 import { isObserverReference } from '../index/eventsIndex';
 import { realpath } from '../utils/realpath';
+import { createPhpAclRegex } from '../utils/phpAclGrep';
+import * as fs from 'fs';
 
 export function handleHover(
   params: HoverParams,
@@ -25,6 +29,12 @@ export function handleHover(
   _token?: CancellationToken,
 ): Hover | null {
   const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
+
+  // Handle PHP files: show ACL resource info for ADMIN_RESOURCE and isAllowed() patterns
+  if (filePath.endsWith('.php')) {
+    return handlePhpHover(filePath, params, getProject);
+  }
+
   if (!filePath.endsWith('.xml')) return null;
 
   const project = getProject(filePath);
@@ -301,6 +311,71 @@ export function handleHover(
 
     if (layoutRef.kind === 'block-class' || layoutRef.kind === 'argument-object') {
       const value = `**Block class**\n\n\`${layoutRef.value}\``;
+      return { contents: { kind: MarkupKind.Markdown, value }, range };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Handle hover for PHP files.
+ *
+ * Shows ACL resource information when hovering over resource IDs in:
+ *   - `const ADMIN_RESOURCE = 'Vendor_Module::resource'`
+ *   - `->isAllowed('Vendor_Module::resource')`
+ *
+ * Displays the resource title, hierarchy path, and module — matching
+ * the same format used for ACL hovers in menu.xml and UI component files.
+ */
+function handlePhpHover(
+  filePath: string,
+  params: HoverParams,
+  getProject: (uri: string) => ProjectContext | undefined,
+): Hover | null {
+  const project = getProject(filePath);
+  if (!project) return null;
+
+  let content: string;
+  try {
+    content = fs.readFileSync(filePath, 'utf-8');
+  } catch {
+    return null;
+  }
+
+  const lines = content.split('\n');
+  const line = lines[params.position.line];
+  if (!line) return null;
+
+  const re = createPhpAclRegex();
+  let match;
+  while ((match = re.exec(line)) !== null) {
+    const fullMatch = match[0];
+    const aclId = match[1];
+    const idStart = match.index + fullMatch.indexOf(aclId);
+    const idEnd = idStart + aclId.length;
+
+    if (params.position.character >= idStart && params.position.character <= idEnd) {
+      const range = Range.create(
+        params.position.line, idStart,
+        params.position.line, idEnd,
+      );
+      const aclDef = project.aclIndex.getResource(aclId);
+
+      let value = `**ACL Resource** \`${aclId}\``;
+      if (aclDef?.title) {
+        value += `\n\nTitle: ${aclDef.title}`;
+        // Show hierarchy path using titles where available
+        if (aclDef.hierarchyPath.length > 1) {
+          const pathTitles = aclDef.hierarchyPath.map((id) => {
+            const res = project.aclIndex.getResource(id);
+            return res?.title || id;
+          });
+          value += `\n\nPath: ${pathTitles.join(' > ')}`;
+        }
+        value += `\n\nModule: ${aclDef.module}`;
+      }
+
       return { contents: { kind: MarkupKind.Markdown, value }, range };
     }
   }

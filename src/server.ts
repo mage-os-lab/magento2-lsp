@@ -263,8 +263,8 @@ function validateAndPublish(
     try {
       const filePath = realpath(URI.parse(uri).fsPath);
 
-      // XSD diagnostics (requires xmllint)
-      const xsdDiags = xmllintEnabled
+      // XSD diagnostics (requires xmllint, XML files only)
+      const xsdDiags = xmllintEnabled && filePath.endsWith('.xml')
         ? await validateXmlFile(filePath, content, project.root, project.modules)
         : [];
 
@@ -280,7 +280,7 @@ function validateAndPublish(
 
 connection.onDidChangeTextDocument((params) => {
   const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
-  if (!filePath.endsWith('.xml')) return;
+  if (!filePath.endsWith('.xml') && !filePath.endsWith('.php')) return;
   const project = projectManager.getProjectForFile(filePath);
   if (!project) return;
 
@@ -293,7 +293,7 @@ connection.onDidChangeTextDocument((params) => {
 
 connection.onDidSaveTextDocument((params) => {
   const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
-  if (!filePath.endsWith('.xml')) return;
+  if (!filePath.endsWith('.xml') && !filePath.endsWith('.php')) return;
   const project = projectManager.getProjectForFile(filePath);
   if (!project) return;
 
