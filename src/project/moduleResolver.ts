@@ -420,6 +420,20 @@ export function deriveUiComponentAclContext(
 }
 
 /**
+ * Derive the layout XML context for a file.
+ * Layout XML lives in view/{area}/layout/ or view/{area}/page_layout/ directories.
+ * Returns undefined if the file is not a layout XML file.
+ */
+export function deriveLayoutXmlContext(
+  filePath: string,
+): { file: string } | undefined {
+  if (!filePath.endsWith('.xml')) return undefined;
+  const dir = path.basename(path.dirname(filePath));
+  if (dir !== 'layout' && dir !== 'page_layout') return undefined;
+  return { file: filePath };
+}
+
+/**
  * Recursively search for registration.php files in subdirectories.
  *
  * Some Composer packages bundle multiple Magento modules in subdirectories

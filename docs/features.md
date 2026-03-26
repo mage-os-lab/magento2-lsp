@@ -127,6 +127,17 @@ Diagnostics update on every keystroke (debounced). Expensive checks (duplicate p
 - **Hover** on `<resource>` in `system.xml` sections: shows ACL resource title, hierarchy, and config section
 - **Hover** on ACL resource IDs in PHP (`ADMIN_RESOURCE` constants and `isAllowed()` calls): shows resource title, hierarchy, and module
 
+## Document Symbols (Outline / Breadcrumbs)
+
+- **di.xml**: preferences (interface → implementation), type declarations with nested plugins, virtual types
+- **events.xml**: events with nested observers — tree view shows event_name > ObserverClass
+- **layout XML**: blocks, templates, object arguments, and handle updates
+- **system.xml**: hierarchical section > group > field tree, with source/backend/frontend model and ACL resource children
+- **webapi.xml**: service classes, methods, and ACL resources — each with HTTP method and route URL context
+- **acl.xml**: hierarchical resource tree reconstructed from parent-child relationships
+- **menu.xml**: menu items showing title and ACL resource
+- **UI component XML**: ACL resource references
+
 ## Workspace Symbol Search
 
 - **Workspace Symbol** search (e.g., `Ctrl+T` in VS Code, `:Telescope lsp_workspace_symbols` in Neovim): find DI preferences, plugins, virtual types, and event observers across all indexed projects

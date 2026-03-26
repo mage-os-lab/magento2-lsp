@@ -30,6 +30,7 @@ import { handleDefinition } from './handlers/definition';
 import { handleReferences } from './handlers/references';
 import { handleCodeLens } from './handlers/codeLens';
 import { handleHover } from './handlers/hover';
+import { handleDocumentSymbol } from './handlers/documentSymbol';
 import { handleWorkspaceSymbol } from './handlers/workspaceSymbol';
 import { FileWatcher, createXmlWatcher } from './watcher/fileWatcher';
 import {
@@ -140,6 +141,11 @@ connection.onHover((params, token) => {
     log(`onHover: ${filePath} line=${params.position.line} col=${params.position.character} sysConfigFiles=${project.systemConfigIndex.getFileCount()} sysRef=${sysRef ? `${sysRef.kind} ${sysRef.configPath} col=${sysRef.column}-${sysRef.endColumn}` : 'NONE'}`);
   }
   return handleHover(params, () => project, token);
+});
+
+connection.onDocumentSymbol((params, token) => {
+  const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
+  return handleDocumentSymbol(params, () => projectManager.getProjectForFile(filePath), token);
 });
 
 connection.onWorkspaceSymbol((params, token) => {

@@ -31,6 +31,7 @@ import { createPhpAclRegex } from '../utils/phpAclGrep';
 import {
   deriveDiXmlContext,
   deriveEventsXmlContext,
+  deriveLayoutXmlContext,
   deriveSystemXmlContext,
   deriveWebapiXmlContext,
   deriveMenuXmlContext,
@@ -68,7 +69,8 @@ export function validateSemantics(
     return validateEventsXml(content, eventsContext, project, includeExpensiveChecks);
   }
 
-  if (isLayoutXml(filePath)) {
+  const layoutContext = deriveLayoutXmlContext(filePath);
+  if (layoutContext) {
     return validateLayoutXml(content, filePath, project);
   }
 
@@ -98,14 +100,6 @@ export function validateSemantics(
   }
 
   return [];
-}
-
-// --- File type detection from path ---
-
-function isLayoutXml(filePath: string): boolean {
-  if (!filePath.endsWith('.xml')) return false;
-  const dir = path.basename(path.dirname(filePath));
-  return dir === 'layout' || dir === 'page_layout';
 }
 
 // --- di.xml validation ---
