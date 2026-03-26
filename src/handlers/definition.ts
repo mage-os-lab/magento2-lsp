@@ -399,6 +399,7 @@ function handleUrnDefinition(
   while ((match = URN_RE.exec(line)) !== null) {
     const start = match.index;
     const end = start + match[0].length;
+    // Use <= to give a slightly generous hit area (one char past the token)
     if (params.position.character >= start && params.position.character <= end) {
       const resolved = resolveXmlUrn(match[0], project.root, project.modules);
       if (resolved) {
@@ -567,6 +568,7 @@ function handlePhpConfigPath(
     const pathStart = match.index + fullMatch.indexOf(configPath);
     const pathEnd = pathStart + configPath.length;
 
+    // Use <= to give a slightly generous hit area (one char past the token)
     if (character >= pathStart && character <= pathEnd) {
       const refs = project.systemConfigIndex.getRefsForPath(configPath);
       // Jump to field-id declarations (not model refs)

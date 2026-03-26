@@ -117,9 +117,13 @@ export class ProjectManager {
     filePath: string,
     progress?: ProgressCallback,
   ): Promise<ProjectContext | undefined> {
-    const root = detectMagentoRoot(
-      fs.statSync(filePath).isDirectory() ? filePath : path.dirname(filePath),
-    );
+    let isDir: boolean;
+    try {
+      isDir = fs.statSync(filePath).isDirectory();
+    } catch {
+      return undefined;
+    }
+    const root = detectMagentoRoot(isDir ? filePath : path.dirname(filePath));
     if (!root) return undefined;
 
     const existing = this.projects.get(root);
@@ -174,29 +178,31 @@ export class ProjectManager {
     let diCacheHits = 0;
 
     index.beginBatch();
-    for (let i = 0; i < diXmlFiles.length; i++) {
-      const { file, area, module: moduleName, moduleOrder } = diXmlFiles[i];
-      progress?.onProgress(i + 1, total, file);
+    try {
+      for (let i = 0; i < diXmlFiles.length; i++) {
+        const { file, area, module: moduleName, moduleOrder } = diXmlFiles[i];
+        progress?.onProgress(i + 1, total, file);
 
-      try {
-        const stat = fs.statSync(file);
-        const cached = cache.getDiEntry(file, stat.mtimeMs);
+        try {
+          const stat = fs.statSync(file);
+          const cached = cache.getDiEntry(file, stat.mtimeMs);
 
-        if (cached) {
-          diCacheHits++;
-          index.addFile(file, cached.references, cached.virtualTypes);
-        } else {
-          const content = fs.readFileSync(file, 'utf-8');
-          const result = parseDiXml(content, { file, area, module: moduleName, moduleOrder });
-          index.addFile(file, result.references, result.virtualTypes);
-          cache.setDiEntry(file, stat.mtimeMs, result.references, result.virtualTypes);
+          if (cached) {
+            diCacheHits++;
+            index.addFile(file, cached.references, cached.virtualTypes);
+          } else {
+            const content = fs.readFileSync(file, 'utf-8');
+            const result = parseDiXml(content, { file, area, module: moduleName, moduleOrder });
+            index.addFile(file, result.references, result.virtualTypes);
+            cache.setDiEntry(file, stat.mtimeMs, result.references, result.virtualTypes);
+          }
+        } catch {
+          // Skip files that can't be read
         }
-      } catch {
-        // Skip files that can't be read
       }
+    } finally {
+      index.endBatch();
     }
-
-    index.endBatch();
     cache.pruneDiFiles(new Set(diXmlFiles.map((f) => f.file)));
     const t2 = Date.now();
     console.error(`[magento2-lsp]   di.xml (${diXmlFiles.length} files, ${diCacheHits} cached): ${t2 - t1}ms`);

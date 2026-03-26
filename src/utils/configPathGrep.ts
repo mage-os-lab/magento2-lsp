@@ -9,7 +9,7 @@
  * all PHP files for config path strings during startup would be too slow.
  */
 
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { Psr4Map } from '../indexer/types';
 
 /**
@@ -47,16 +47,14 @@ export async function grepConfigPathInPhp(
 
   const results: PhpConfigPathRef[] = [];
 
-  // Shell-escape the config path for safe use in the grep command
-  const escaped = configPath.replace(/'/g, "'\\''");
-
   const promises = [...searchDirs].map((dir) =>
     new Promise<void>((resolve) => {
-      exec(
-        `grep -rn --include='*.php' -F '${escaped}' '${dir}' 2>/dev/null || true`,
+      execFile(
+        'grep',
+        ['-rn', '--include=*.php', '-F', configPath, dir],
         { encoding: 'utf-8', timeout: 5000, maxBuffer: 1024 * 1024 },
         (err, stdout) => {
-          if (!err && stdout) {
+          if (stdout) {
             for (const line of stdout.split('\n')) {
               if (!line) continue;
               // Format: /path/to/file.php:42:    $this->scopeConfig->getValue('catalog/review/active')

@@ -406,6 +406,7 @@ async function findPhpConfigPathRefs(
     const pathStart = match.index + match[0].indexOf(configPath);
     const pathEnd = pathStart + configPath.length;
 
+    // Use <= to give a slightly generous hit area (one char past the token)
     if (character >= pathStart && character <= pathEnd) {
       const fieldRefs = project.systemConfigIndex.getRefsForPath(configPath)
         .filter((r) => r.kind === 'field-id');
@@ -437,6 +438,7 @@ async function findPhpAclRefs(
     const idStart = match.index + match[0].indexOf(aclId);
     const idEnd = idStart + aclId.length;
 
+    // Use <= to give a slightly generous hit area (one char past the token)
     if (character >= idStart && character <= idEnd) {
       // Collect references from all sources: acl.xml definitions + all XML indexes + PHP grep
       const aclDefs = project.aclIndex.getAllResources(aclId);

@@ -72,6 +72,10 @@ export function parseSystemXml(
   // so we can attach <label> text to the parent section/group/field.
   const refIndexStack: (number | undefined)[] = [];
 
+  // Tracks whether each PATH_TAG pushed a real id to pathStack/refIndexStack.
+  // Tags without id don't push to those stacks, so we skip the pop on close.
+  const hasIdStack: boolean[] = [];
+
   // True once we're inside <system> (main file) or <include> (partial).
   // Prevents emitting references for wrapper elements.
   let inContent = false;
@@ -106,6 +110,7 @@ export function parseSystemXml(
     if (PATH_TAGS.has(tagName)) {
       const idValue = getAttr(tag, 'id');
       if (idValue) {
+        hasIdStack.push(true);
         pathStack.push(idValue);
         const configPath = pathStack.join('/');
 
@@ -131,9 +136,9 @@ export function parseSystemXml(
           refIndexStack.push(undefined);
         }
       } else {
-        // Tag without id — push placeholder to keep stack aligned
-        pathStack.push('');
-        refIndexStack.push(undefined);
+        // Tag without id — skip pathStack push to avoid empty path segments.
+        // hasIdStack tracks this so onclosetag knows not to pop.
+        hasIdStack.push(false);
       }
     } else if (MODEL_TAGS[tagName]) {
       // source_model, backend_model, frontend_model — collect text content
@@ -238,8 +243,11 @@ export function parseSystemXml(
     }
 
     if (PATH_TAGS.has(name)) {
-      pathStack.pop();
-      refIndexStack.pop();
+      const hadId = hasIdStack.pop();
+      if (hadId) {
+        pathStack.pop();
+        refIndexStack.pop();
+      }
     }
   };
 

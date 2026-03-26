@@ -394,6 +394,7 @@ function handlePhpHover(
     const idStart = match.index + fullMatch.indexOf(aclId);
     const idEnd = idStart + aclId.length;
 
+    // Use <= to give a slightly generous hit area (one char past the token)
     if (params.position.character >= idStart && params.position.character <= idEnd) {
       const range = Range.create(
         params.position.line, idStart,

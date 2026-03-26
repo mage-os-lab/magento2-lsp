@@ -12,7 +12,7 @@
  * This mirrors the approach used by configPathGrep.ts for config path strings.
  */
 
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { Psr4Map } from '../indexer/types';
 
 /**
@@ -57,16 +57,14 @@ export async function grepAclResourceInPhp(
 
   const results: PhpAclRef[] = [];
 
-  // Shell-escape the resource ID for safe use in the grep command
-  const escaped = resourceId.replace(/'/g, "'\\''");
-
   const promises = [...searchDirs].map((dir) =>
     new Promise<void>((resolve) => {
-      exec(
-        `grep -rn --include='*.php' -F '${escaped}' '${dir}' 2>/dev/null || true`,
+      execFile(
+        'grep',
+        ['-rn', '--include=*.php', '-F', resourceId, dir],
         { encoding: 'utf-8', timeout: 5000, maxBuffer: 1024 * 1024 },
         (err, stdout) => {
-          if (!err && stdout) {
+          if (stdout) {
             for (const line of stdout.split('\n')) {
               if (!line) continue;
               // Format: /path/to/file.php:42:    const ADMIN_RESOURCE = 'Magento_Customer::manage';
