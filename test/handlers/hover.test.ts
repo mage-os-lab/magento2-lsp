@@ -127,4 +127,52 @@ describe('handleHover', () => {
     expect('value' in content && content.value).toContain('Event');
     expect('value' in content && content.value).toContain('2 observers');
   });
+
+  // --- layout XML hover ---
+
+  it('shows block class on block-name hover', () => {
+    // Add a block-name ref to the index directly (cache may not have new ref kinds)
+    const layoutXml = '/tmp/test-block-hover.xml';
+    const ref = {
+      kind: 'block-name' as const,
+      value: 'foo.list',
+      blockClass: 'Test\\Foo\\Block\\FooList',
+      file: layoutXml,
+      line: 0,
+      column: 0,
+      endColumn: 8,
+    };
+    project.layoutIndex.addFile(layoutXml, [ref]);
+    try {
+      const result = handleHover(makeParams(layoutXml, 0, 0), getProject);
+      expect(result).not.toBeNull();
+      const content = result!.contents;
+      expect('value' in content && content.value).toContain('**Block**');
+      expect('value' in content && content.value).toContain('Test\\Foo\\Block\\FooList');
+    } finally {
+      project.layoutIndex.removeFile(layoutXml);
+    }
+  });
+
+  it('shows default block class when block has no class attribute', () => {
+    const layoutXml = '/tmp/test-block-no-class-hover.xml';
+    const ref = {
+      kind: 'block-name' as const,
+      value: 'no.class.block',
+      file: layoutXml,
+      line: 0,
+      column: 0,
+      endColumn: 14,
+    };
+    project.layoutIndex.addFile(layoutXml, [ref]);
+    try {
+      const result = handleHover(makeParams(layoutXml, 0, 0), getProject);
+      expect(result).not.toBeNull();
+      const content = result!.contents;
+      expect('value' in content && content.value).toContain('**Block**');
+      expect('value' in content && content.value).toContain('Magento\\Framework\\View\\Element\\Template');
+    } finally {
+      project.layoutIndex.removeFile(layoutXml);
+    }
+  });
 });

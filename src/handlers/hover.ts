@@ -23,6 +23,9 @@ import { realpath } from '../utils/realpath';
 import { createPhpAclRegex } from '../utils/phpAclGrep';
 import * as fs from 'fs';
 
+/** Magento's default block class when no class attribute is specified in layout XML. */
+const MAGENTO_DEFAULT_BLOCK_CLASS = 'Magento\\Framework\\View\\Element\\Template';
+
 export function handleHover(
   params: HoverParams,
   getProject: (uri: string) => ProjectContext | undefined,
@@ -311,6 +314,42 @@ export function handleHover(
 
     if (layoutRef.kind === 'block-class' || layoutRef.kind === 'argument-object') {
       const value = `**Block class**\n\n\`${layoutRef.value}\``;
+      return { contents: { kind: MarkupKind.Markdown, value }, range };
+    }
+
+    if (layoutRef.kind === 'block-name') {
+      let value = `**Block** \`${layoutRef.value}\``;
+      const blockClass = layoutRef.blockClass || MAGENTO_DEFAULT_BLOCK_CLASS;
+      value += `\n\nClass: \`${blockClass}\``;
+      return { contents: { kind: MarkupKind.Markdown, value }, range };
+    }
+
+    if (layoutRef.kind === 'container-name') {
+      let value = `**Container** \`${layoutRef.value}\``;
+      if (layoutRef.containerLabel) {
+        value += `\n\nLabel: ${layoutRef.containerLabel}`;
+      }
+      return { contents: { kind: MarkupKind.Markdown, value }, range };
+    }
+
+    if (layoutRef.kind === 'reference-block') {
+      let value = `**referenceBlock** \`${layoutRef.value}\``;
+      // Look up the original block declaration to show its class
+      const decl = project.layoutIndex.getRefsForName(layoutRef.value)
+        .find((r) => r.kind === 'block-name');
+      const blockClass = decl?.blockClass || MAGENTO_DEFAULT_BLOCK_CLASS;
+      value += `\n\nClass: \`${blockClass}\``;
+      return { contents: { kind: MarkupKind.Markdown, value }, range };
+    }
+
+    if (layoutRef.kind === 'reference-container') {
+      let value = `**referenceContainer** \`${layoutRef.value}\``;
+      // Look up the original container declaration to show its label
+      const decl = project.layoutIndex.getRefsForName(layoutRef.value)
+        .find((r) => r.kind === 'container-name' && r.containerLabel);
+      if (decl?.containerLabel) {
+        value += `\n\nLabel: ${decl.containerLabel}`;
+      }
       return { contents: { kind: MarkupKind.Markdown, value }, range };
     }
   }

@@ -153,6 +153,68 @@ describe('parseLayoutXml', () => {
     });
   });
 
+  describe('block and container names', () => {
+    it('extracts block name attribute', () => {
+      const xml = `<?xml version="1.0"?>
+<page><body>
+    <block class="Foo\\Block\\Bar" name="product.info" />
+</body></page>`;
+      const result = parseLayoutXml(xml, '/test/layout.xml');
+      const ref = result.references.find((r) => r.kind === 'block-name');
+      expect(ref).toBeDefined();
+      expect(ref!.value).toBe('product.info');
+      expect(ref!.blockClass).toBe('Foo\\Block\\Bar');
+    });
+
+    it('extracts container name attribute', () => {
+      const xml = `<?xml version="1.0"?>
+<page><body>
+    <container name="content" label="Main Content Area" htmlTag="div" />
+</body></page>`;
+      const result = parseLayoutXml(xml, '/test/layout.xml');
+      const ref = result.references.find((r) => r.kind === 'container-name');
+      expect(ref).toBeDefined();
+      expect(ref!.value).toBe('content');
+      expect(ref!.containerLabel).toBe('Main Content Area');
+    });
+
+    it('extracts referenceBlock name attribute', () => {
+      const xml = `<?xml version="1.0"?>
+<page><body>
+    <referenceBlock name="product.info" remove="true" />
+</body></page>`;
+      const result = parseLayoutXml(xml, '/test/layout.xml');
+      const ref = result.references.find((r) => r.kind === 'reference-block');
+      expect(ref).toBeDefined();
+      expect(ref!.value).toBe('product.info');
+    });
+
+    it('extracts referenceContainer name attribute', () => {
+      const xml = `<?xml version="1.0"?>
+<page><body>
+    <referenceContainer name="content">
+        <block class="Foo\\Block\\Bar" name="test" />
+    </referenceContainer>
+</body></page>`;
+      const result = parseLayoutXml(xml, '/test/layout.xml');
+      const ref = result.references.find((r) => r.kind === 'reference-container');
+      expect(ref).toBeDefined();
+      expect(ref!.value).toBe('content');
+    });
+
+    it('emits block-name without blockClass when class attribute is absent', () => {
+      const xml = `<?xml version="1.0"?>
+<page><body>
+    <block name="no.class.block" template="Module::template.phtml" />
+</body></page>`;
+      const result = parseLayoutXml(xml, '/test/layout.xml');
+      const ref = result.references.find((r) => r.kind === 'block-name');
+      expect(ref).toBeDefined();
+      expect(ref!.value).toBe('no.class.block');
+      expect(ref!.blockClass).toBeUndefined();
+    });
+  });
+
   describe('column positions', () => {
     it('tracks accurate positions for block class', () => {
       const xml = `<?xml version="1.0"?>

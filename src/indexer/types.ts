@@ -182,19 +182,24 @@ export interface ObserverReference {
 // ---- Layout XML types ----
 
 export type LayoutReferenceKind =
-  | 'block-class'         // <block class="Magento\Catalog\Block\Product\View">
-  | 'block-template'      // <block template="Magento_Catalog::product/view.phtml">
-  | 'refblock-template'   // <referenceBlock template="...">
-  | 'argument-object'     // <argument xsi:type="object">ClassName</argument>
-  | 'update-handle';      // <update handle="checkout_cart_index"/>
+  | 'block-class'           // <block class="Magento\Catalog\Block\Product\View">
+  | 'block-name'            // <block name="product.info.main">
+  | 'block-template'        // <block template="Magento_Catalog::product/view.phtml">
+  | 'refblock-template'     // <referenceBlock template="...">
+  | 'argument-object'       // <argument xsi:type="object">ClassName</argument>
+  | 'update-handle'         // <update handle="checkout_cart_index"/>
+  | 'container-name'        // <container name="content">
+  | 'reference-block'       // <referenceBlock name="product.info">
+  | 'reference-container';  // <referenceContainer name="content">
 
 /**
  * A reference found in a layout or page_layout XML file.
- * Can be a block PHP class, a template identifier, or an object argument.
+ * Can be a block PHP class, a template identifier, a block/container name,
+ * a reference to a block/container, or an object argument.
  */
 export interface LayoutReference {
   kind: LayoutReferenceKind;
-  /** The raw value from the XML: FQCN or template identifier. */
+  /** The raw value from the XML: FQCN, template identifier, or block/container name. */
   value: string;
   /**
    * For templates: the fully resolved identifier (Module_Name::path).
@@ -202,6 +207,10 @@ export interface LayoutReference {
    * the parent block's class attribute via Magento's extractModuleName convention.
    */
   resolvedTemplateId?: string;
+  /** For block-name refs: the block's PHP class FQCN, if a class attribute was present. */
+  blockClass?: string;
+  /** For container-name refs: the label attribute value, if present. */
+  containerLabel?: string;
   /** Absolute path to the layout XML file. */
   file: string;
   /** 0-based line. */

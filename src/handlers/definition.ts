@@ -145,6 +145,27 @@ export function handleDefinition(
       }
       return null;
     }
+    // referenceBlock/referenceContainer name -> jump to the original block/container declaration
+    if (layoutRef.kind === 'reference-block' || layoutRef.kind === 'reference-container') {
+      const targetKind = layoutRef.kind === 'reference-block' ? 'block-name' : 'container-name';
+      const targets = project.layoutIndex.getRefsForName(layoutRef.value)
+        .filter((r) => r.kind === targetKind);
+      if (targets.length > 0) {
+        return targets.map((r) =>
+          Location.create(
+            URI.file(r.file).toString(),
+            Range.create(r.line, r.column, r.line, r.endColumn),
+          ),
+        );
+      }
+      return null;
+    }
+
+    // block-name, container-name -> no definition to navigate to (they ARE the definition)
+    if (layoutRef.kind === 'block-name' || layoutRef.kind === 'container-name') {
+      return null;
+    }
+
     // block-class or argument-object -> resolve to PHP file
     const loc = locatePhpClass(layoutRef.value, project.psr4Map);
     if (loc) {

@@ -102,26 +102,27 @@ describe('handleDocumentSymbol', () => {
   // --- layout XML ---
 
   describe('layout XML', () => {
-    it('returns symbols for blocks, templates, and arguments', () => {
+    it('returns hierarchical symbols with body as root', () => {
       const result = callHandler(path.join(MODULE_FOO, 'view/frontend/layout/test_foo_index.xml'));
       expect(result).not.toBeNull();
 
-      const blockClasses = result!.filter((s) => s.detail === 'Block');
-      expect(blockClasses.length).toBeGreaterThanOrEqual(1);
-      expect(blockClasses[0].name).toBe('Test\\Foo\\Block\\FooList');
+      // Root should be <body>
+      const body = result!.find((s) => s.name === 'body');
+      expect(body).toBeDefined();
+      expect(body!.kind).toBe(SymbolKind.Namespace);
     });
 
-    it('includes template symbols', () => {
+    it('nests blocks under body with class as detail', () => {
       const result = callHandler(path.join(MODULE_FOO, 'view/frontend/layout/test_foo_index.xml'))!;
-      const templates = result.filter((s) => s.detail === 'Template');
-      expect(templates.length).toBeGreaterThanOrEqual(1);
-    });
+      const body = result.find((s) => s.name === 'body')!;
 
-    it('includes argument object symbols', () => {
-      const result = callHandler(path.join(MODULE_FOO, 'view/frontend/layout/test_foo_index.xml'))!;
-      const args = result.filter((s) => s.detail === 'Argument');
-      expect(args.length).toBeGreaterThanOrEqual(1);
-      expect(args[0].name).toBe('Test\\Foo\\ViewModel\\FooViewModel');
+      // <block name="foo.list" class="Test\Foo\Block\FooList"> nested under body
+      expect(body.children).toBeDefined();
+      const block = body.children!.find((s) => s.name === 'foo.list');
+      expect(block).toBeDefined();
+      expect(block!.kind).toBe(SymbolKind.Class);
+      // Detail shows short class name
+      expect(block!.detail).toBe('FooList');
     });
   });
 

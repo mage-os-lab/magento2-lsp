@@ -3,8 +3,11 @@
  *
  * Extracts navigable references:
  *   - Block PHP classes from `class` attributes on `<block>` elements
+ *   - Block and container names from `name` attributes
  *   - Template identifiers from `template` attributes on `<block>` and `<referenceBlock>`
  *   - PHP classes from `<argument xsi:type="object">` (ViewModels, etc.)
+ *   - Layout handle references from `<update handle="...">`
+ *   - `<referenceBlock>` and `<referenceContainer>` name references for navigation
  *
  * Template identifiers can be:
  *   - Full: `Magento_Catalog::product/view.phtml` (module + :: + path)
@@ -77,6 +80,10 @@ export function parseLayoutXml(
       handleBlock(tag, tagLine, currentTagStartLine, lines, file, references, blockClassStack);
     } else if (tagName === 'referenceblock') {
       handleReferenceBlock(tag, tagLine, currentTagStartLine, lines, file, references, blockClassStack);
+    } else if (tagName === 'container') {
+      handleContainer(tag, tagLine, currentTagStartLine, lines, file, references);
+    } else if (tagName === 'referencecontainer') {
+      handleReferenceContainer(tag, tagLine, currentTagStartLine, lines, file, references);
     } else if (tagName === 'update') {
       const handleAttr = getAttr(tag, 'handle');
       if (handleAttr) {
@@ -155,12 +162,29 @@ function handleBlock(
   references: LayoutReference[],
   blockClassStack: string[],
 ): void {
+  const nameAttr = getAttr(tag, 'name');
   const classAttr = getAttr(tag, 'class');
   const templateAttr = getAttr(tag, 'template');
 
   // Track block class for short template resolution
   const blockClass = classAttr ? normalizeFqcn(classAttr) : '';
   blockClassStack.push(blockClass);
+
+  // Block name reference (for navigation from referenceBlock)
+  if (nameAttr) {
+    const pos = findAttributeValuePosition(lines, tagLine, 'name', tagStartLine);
+    if (pos) {
+      references.push({
+        kind: 'block-name',
+        value: nameAttr,
+        blockClass: blockClass || undefined,
+        file,
+        line: pos.line,
+        column: pos.column,
+        endColumn: pos.endColumn,
+      });
+    }
+  }
 
   // Block class reference
   if (classAttr) {
@@ -205,6 +229,22 @@ function handleReferenceBlock(
   references: LayoutReference[],
   blockClassStack: string[],
 ): void {
+  // referenceBlock name reference (for navigation to the original block declaration)
+  const nameAttr = getAttr(tag, 'name');
+  if (nameAttr) {
+    const pos = findAttributeValuePosition(lines, tagLine, 'name', tagStartLine);
+    if (pos) {
+      references.push({
+        kind: 'reference-block',
+        value: nameAttr,
+        file,
+        line: pos.line,
+        column: pos.column,
+        endColumn: pos.endColumn,
+      });
+    }
+  }
+
   const templateAttr = getAttr(tag, 'template');
 
   if (templateAttr) {
@@ -219,6 +259,56 @@ function handleReferenceBlock(
         kind: 'refblock-template',
         value: templateAttr,
         resolvedTemplateId: resolved,
+        file,
+        line: pos.line,
+        column: pos.column,
+        endColumn: pos.endColumn,
+      });
+    }
+  }
+}
+
+function handleContainer(
+  tag: sax.Tag | sax.QualifiedTag,
+  tagLine: number,
+  tagStartLine: number,
+  lines: string[],
+  file: string,
+  references: LayoutReference[],
+): void {
+  const nameAttr = getAttr(tag, 'name');
+  if (nameAttr) {
+    const labelAttr = getAttr(tag, 'label');
+    const pos = findAttributeValuePosition(lines, tagLine, 'name', tagStartLine);
+    if (pos) {
+      references.push({
+        kind: 'container-name',
+        value: nameAttr,
+        containerLabel: labelAttr || undefined,
+        file,
+        line: pos.line,
+        column: pos.column,
+        endColumn: pos.endColumn,
+      });
+    }
+  }
+}
+
+function handleReferenceContainer(
+  tag: sax.Tag | sax.QualifiedTag,
+  tagLine: number,
+  tagStartLine: number,
+  lines: string[],
+  file: string,
+  references: LayoutReference[],
+): void {
+  const nameAttr = getAttr(tag, 'name');
+  if (nameAttr) {
+    const pos = findAttributeValuePosition(lines, tagLine, 'name', tagStartLine);
+    if (pos) {
+      references.push({
+        kind: 'reference-container',
+        value: nameAttr,
         file,
         line: pos.line,
         column: pos.column,

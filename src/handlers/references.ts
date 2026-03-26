@@ -80,6 +80,13 @@ async function handleXmlReferences(
       const templateId = layoutRef.resolvedTemplateId ?? layoutRef.value;
       return refsToLocations(project.layoutIndex.getReferencesForTemplate(templateId));
     }
+    // block/container name or reference -> find all declarations and references for this name
+    if (
+      layoutRef.kind === 'block-name' || layoutRef.kind === 'container-name'
+      || layoutRef.kind === 'reference-block' || layoutRef.kind === 'reference-container'
+    ) {
+      return refsToLocations(project.layoutIndex.getRefsForName(layoutRef.value));
+    }
     // block-class or argument-object -> find all layout + di.xml refs for this FQCN
     const layoutRefs = project.layoutIndex.getReferencesForFqcn(layoutRef.value);
     const diRefs = project.index.getReferencesForFqcn(layoutRef.value);

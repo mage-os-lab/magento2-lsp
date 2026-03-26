@@ -33,8 +33,11 @@ Complete list of LSP features provided by magento2-lsp.
 - **Go to Definition** from `<argument xsi:type="object">` values (ViewModels, etc.): jump to the PHP class file
 - **Go to Definition** from a `template` attribute on `<block>` or `<referenceBlock>`: jump to the `.phtml` file, resolved through the theme fallback hierarchy
 - **Go to Definition** from `<update handle="..."/>`: jump to the layout XML files that define that handle (including Hyvä `hyva_` prefixed variants), filtered by area and theme fallback chain
+- **Go to Definition** from `<referenceBlock name="...">`: jump to the original `<block name="...">` declaration (cross-file)
+- **Go to Definition** from `<referenceContainer name="...">`: jump to the original `<container name="...">` declaration
 - **Find References** from a class name in layout XML: shows all layout XML and `di.xml` locations referencing that class
 - **Find References** from a template identifier in layout XML: shows all layout XML files using that template
+- **Find References** from a block or container name: shows all declarations and `<referenceBlock>`/`<referenceContainer>` usages across layout files
 - **Find References** from a PHP class declaration: includes layout XML references (block classes and object arguments)
 - **Find References** from a `.phtml` template file: shows all layout XML files that reference the template
 - **Template resolution** follows Magento's full fallback chain: current theme → parent themes → module area-specific (`view/frontend/templates/`) → module base (`view/base/templates/`)
@@ -119,6 +122,9 @@ Diagnostics update on every keystroke (debounced). Expensive checks (duplicate p
 - **Hover** on event names in `events.xml`: shows observer count and registrations
 - **Hover** on observer `instance` in `events.xml`: shows which events the observer handles
 - **Hover** on class and template references in layout XML: shows block class info and template resolution paths
+- **Hover** on block names in layout XML: shows block class (or default `Magento\Framework\View\Element\Template`)
+- **Hover** on container names in layout XML: shows container label when available
+- **Hover** on `<referenceBlock>` / `<referenceContainer>` names: shows class or label from the original declaration
 - **Hover** on `system.xml` elements: shows config path, label, module, and model class info
 - **Hover** on `webapi.xml` elements: shows REST route, HTTP method, service class/method, and ACL resource info
 - **Hover** on `acl.xml` resources: shows resource title, hierarchy path, module, and usage counts across file types
@@ -131,7 +137,7 @@ Diagnostics update on every keystroke (debounced). Expensive checks (duplicate p
 
 - **di.xml**: preferences (interface → implementation), type declarations with nested plugins, virtual types
 - **events.xml**: events with nested observers — tree view shows event_name > ObserverClass
-- **layout XML**: blocks, templates, object arguments, and handle updates
+- **layout XML**: hierarchical tree of body, containers, blocks, referenceBlock/referenceContainer, and handle updates — nesting reflects actual XML structure
 - **system.xml**: hierarchical section > group > field tree, with source/backend/frontend model and ACL resource children
 - **webapi.xml**: service classes, methods, and ACL resources — each with HTTP method and route URL context
 - **acl.xml**: hierarchical resource tree reconstructed from parent-child relationships

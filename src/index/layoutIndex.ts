@@ -5,6 +5,7 @@
  *   - FQCN -> all layout XML references (block classes + argument objects)
  *   - templateId -> all layout XML references using that template
  *   - handle name -> all layout XML files defining that handle
+ *   - block/container name -> declarations and references for navigation
  *   - file + position -> which reference the cursor is on
  */
 
@@ -21,6 +22,8 @@ export class LayoutIndex {
   private fileToRefs = new Map<string, LayoutReference[]>();
   /** Handle name -> all layout files defining that handle (derived from filename). */
   private handleToFiles = new Map<string, Set<string>>();
+  /** Block/container name -> declaration and reference refs for navigation. */
+  private nameToRefs = new Map<string, LayoutReference[]>();
 
   addFile(file: string, refs: LayoutReference[]): void {
     this.fileToRefs.set(file, refs);
@@ -43,6 +46,13 @@ export class LayoutIndex {
         const existing = this.templateToRefs.get(key) ?? [];
         existing.push(ref);
         this.templateToRefs.set(key, existing);
+      } else if (
+        ref.kind === 'block-name' || ref.kind === 'container-name'
+        || ref.kind === 'reference-block' || ref.kind === 'reference-container'
+      ) {
+        const existing = this.nameToRefs.get(ref.value) ?? [];
+        existing.push(ref);
+        this.nameToRefs.set(ref.value, existing);
       }
     }
   }
@@ -69,6 +79,11 @@ export class LayoutIndex {
       } else if (ref.kind === 'block-template' || ref.kind === 'refblock-template') {
         const key = ref.resolvedTemplateId ?? ref.value;
         removeFromMap(this.templateToRefs, key, file);
+      } else if (
+        ref.kind === 'block-name' || ref.kind === 'container-name'
+        || ref.kind === 'reference-block' || ref.kind === 'reference-container'
+      ) {
+        removeFromMap(this.nameToRefs, ref.value, file);
       }
     }
 
@@ -89,6 +104,11 @@ export class LayoutIndex {
   getFilesForHandle(handle: string): string[] {
     const files = this.handleToFiles.get(handle);
     return files ? Array.from(files) : [];
+  }
+
+  /** Get all layout XML references for a given block or container name. */
+  getRefsForName(name: string): LayoutReference[] {
+    return this.nameToRefs.get(name) ?? [];
   }
 
   /** Find which reference the cursor is on in a layout XML file. */
@@ -114,6 +134,7 @@ export class LayoutIndex {
     this.templateToRefs.clear();
     this.fileToRefs.clear();
     this.handleToFiles.clear();
+    this.nameToRefs.clear();
   }
 
 }

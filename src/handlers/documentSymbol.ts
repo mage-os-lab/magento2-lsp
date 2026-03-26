@@ -26,7 +26,6 @@ import { URI } from 'vscode-uri';
 import { ProjectContext } from '../project/projectManager';
 import { parseDiXml, DiXmlParseContext } from '../indexer/diXmlParser';
 import { parseEventsXml, EventsXmlParseContext } from '../indexer/eventsXmlParser';
-import { parseLayoutXml } from '../indexer/layoutXmlParser';
 import { parseSystemXml, SystemXmlParseContext } from '../indexer/systemXmlParser';
 import { parseWebapiXml, WebapiXmlParseContext } from '../indexer/webapiXmlParser';
 import { parseAclXml, AclXmlParseContext } from '../indexer/aclXmlParser';
@@ -43,7 +42,10 @@ import {
   deriveUiComponentAclContext,
 } from '../project/moduleResolver';
 import { realpath } from '../utils/realpath';
+import { findAttributeValuePosition } from '../utils/xmlPositionUtil';
+import { getAttr, installErrorHandler } from '../utils/saxHelpers';
 import type { AclResource, SystemConfigReference } from '../indexer/types';
+import * as sax from 'sax';
 import * as fs from 'fs';
 
 export function handleDocumentSymbol(
@@ -242,38 +244,154 @@ function buildEventsSymbols(content: string, context: EventsXmlParseContext): Do
 // --- layout XML symbols ---
 
 /**
- * Build document symbols for a layout XML file.
- *
- * Shows blocks, templates, object arguments, and handle updates as a flat list.
+ * Structural element types tracked for the layout outline tree.
+ * Elements not in this set are transparent — their children bubble up
+ * to the nearest tracked ancestor.
  */
-function buildLayoutSymbols(content: string, file: string): DocumentSymbol[] | null {
-  const { references } = parseLayoutXml(content, file);
-  const symbols: DocumentSymbol[] = [];
+const LAYOUT_STRUCTURAL_TAGS = new Set([
+  'body', 'head', 'block', 'container', 'referenceblock', 'referencecontainer',
+]);
 
-  for (const ref of references) {
-    switch (ref.kind) {
-      case 'block-class':
-        symbols.push(makeSymbol(ref.value, 'Block', SymbolKind.Class, ref.line, ref.column, ref.endColumn));
-        break;
-      case 'block-template':
-      case 'refblock-template':
-        symbols.push(makeSymbol(
-          ref.resolvedTemplateId ?? ref.value,
-          'Template',
-          SymbolKind.File,
-          ref.line, ref.column, ref.endColumn,
-        ));
-        break;
-      case 'argument-object':
-        symbols.push(makeSymbol(ref.value, 'Argument', SymbolKind.Class, ref.line, ref.column, ref.endColumn));
-        break;
-      case 'update-handle':
-        symbols.push(makeSymbol(ref.value, 'Handle update', SymbolKind.Key, ref.line, ref.column, ref.endColumn));
-        break;
+/**
+ * Build hierarchical document symbols for a layout XML file.
+ *
+ * Uses a lightweight SAX parse (separate from the index parser) to reconstruct
+ * the XML nesting structure. Tracked elements (body, block, container,
+ * referenceBlock, referenceContainer) become tree nodes; everything else
+ * (page, arguments, items, actions) is transparent.
+ *
+ * <update handle="..."> is added as a leaf to the nearest tracked ancestor.
+ */
+function buildLayoutSymbols(content: string, _file: string): DocumentSymbol[] | null {
+  const lines = content.split('\n');
+  const parser = sax.parser(true, { position: true, trim: false });
+
+  // Stack of tracked ancestor symbols. Children are attached to the top of the stack.
+  // rootChildren collects top-level symbols (children of <page> or file root).
+  const rootChildren: DocumentSymbol[] = [];
+  const stack: DocumentSymbol[] = [];
+  // Parallel boolean stack: true if this depth is a tracked structural element.
+  const isTracked: boolean[] = [];
+
+  let currentTagStartLine = 0;
+
+  parser.onopentagstart = () => {
+    currentTagStartLine = parser.line ?? 0;
+  };
+
+  parser.onopentag = (tag) => {
+    const tagLine = parser.line ?? 0;
+    const tagName = tag.name.toLowerCase();
+
+    // Handle <update handle="..."> as a leaf symbol (no children)
+    if (tagName === 'update') {
+      const handleAttr = getAttr(tag, 'handle');
+      if (handleAttr) {
+        const pos = findAttributeValuePosition(lines, tagLine, 'handle', currentTagStartLine);
+        if (pos) {
+          const sym = makeSymbol(handleAttr, 'Handle update', SymbolKind.Key, pos.line, pos.column, pos.endColumn);
+          attachToParent(stack, rootChildren, sym);
+        }
+      }
+      isTracked.push(false);
+      return;
     }
+
+    if (!LAYOUT_STRUCTURAL_TAGS.has(tagName)) {
+      isTracked.push(false);
+      return;
+    }
+
+    // Build a DocumentSymbol for this structural element
+    const sym = buildLayoutElementSymbol(tag, tagName, tagLine, currentTagStartLine, lines);
+    if (!sym) {
+      // Structural tag without a name attribute — treat as transparent
+      isTracked.push(false);
+      return;
+    }
+
+    attachToParent(stack, rootChildren, sym);
+    stack.push(sym);
+    isTracked.push(true);
+  };
+
+  parser.onclosetag = () => {
+    const tracked = isTracked.pop();
+    if (tracked) {
+      stack.pop();
+    }
+  };
+
+  installErrorHandler(parser);
+  parser.write(content).close();
+
+  return rootChildren.length > 0 ? rootChildren : null;
+}
+
+/** Attach a symbol as a child of the nearest tracked ancestor, or to the root list. */
+function attachToParent(
+  stack: DocumentSymbol[],
+  rootChildren: DocumentSymbol[],
+  sym: DocumentSymbol,
+): void {
+  if (stack.length > 0) {
+    const parent = stack[stack.length - 1];
+    if (!parent.children) parent.children = [];
+    parent.children.push(sym);
+  } else {
+    rootChildren.push(sym);
+  }
+}
+
+/**
+ * Create a DocumentSymbol for a structural layout element.
+ * Returns undefined if the element has no name attribute (e.g., bare <body>
+ * still gets a symbol with name "body").
+ */
+function buildLayoutElementSymbol(
+  tag: sax.Tag | sax.QualifiedTag,
+  tagName: string,
+  tagLine: number,
+  tagStartLine: number,
+  lines: string[],
+): DocumentSymbol | undefined {
+  const nameAttr = getAttr(tag, 'name');
+
+  // <body> and <head> always get a symbol even without a name attribute
+  if (tagName === 'body' || tagName === 'head') {
+    if (nameAttr) {
+      const pos = findAttributeValuePosition(lines, tagLine, 'name', tagStartLine);
+      if (pos) return makeSymbol(nameAttr, tagName, SymbolKind.Namespace, pos.line, pos.column, pos.endColumn);
+    }
+    // Use the tag itself as the symbol — position at column 0 of the tag line
+    return makeSymbol(tagName, undefined, SymbolKind.Namespace, tagStartLine, 0, tagName.length);
   }
 
-  return symbols.length > 0 ? symbols : null;
+  // All other tracked elements require a name attribute
+  if (!nameAttr) return undefined;
+
+  const pos = findAttributeValuePosition(lines, tagLine, 'name', tagStartLine);
+  if (!pos) return undefined;
+
+  switch (tagName) {
+    case 'block': {
+      const classAttr = getAttr(tag, 'class');
+      // Use short class name (last segment) as detail for readability
+      const shortClass = classAttr ? classAttr.split('\\').pop() : undefined;
+      const kind = classAttr?.endsWith('Interface') ? SymbolKind.Interface : SymbolKind.Class;
+      return makeSymbol(nameAttr, shortClass, kind, pos.line, pos.column, pos.endColumn);
+    }
+    case 'container': {
+      const label = getAttr(tag, 'label');
+      return makeSymbol(nameAttr, label || undefined, SymbolKind.Namespace, pos.line, pos.column, pos.endColumn);
+    }
+    case 'referenceblock':
+      return makeSymbol(nameAttr, 'referenceBlock', SymbolKind.Object, pos.line, pos.column, pos.endColumn);
+    case 'referencecontainer':
+      return makeSymbol(nameAttr, 'referenceContainer', SymbolKind.Object, pos.line, pos.column, pos.endColumn);
+    default:
+      return undefined;
+  }
 }
 
 // --- system.xml symbols ---
