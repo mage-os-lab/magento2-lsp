@@ -16,9 +16,8 @@
  *   - On theme override templates: "overrides Module_Name::path/to/template.phtml"
  *     (e.g., on app/design/frontend/Hyva/default/Magento_Catalog/templates/product/view.phtml)
  *
- * The code lens command triggers "find references" to show the related locations,
- * allowing the user to navigate to the overrides/original via grr (find references)
- * or gd (go to definition).
+ * Code lenses are display-only (no command). The user can navigate to related
+ * locations via grr (find references) or gd (go to definition) on the same line.
  */
 
 import {
@@ -40,8 +39,12 @@ import {
 import { resolveConcreteType, CALL_RE } from '../utils/diPreference';
 import * as fs from 'fs';
 
-/** Custom command ID that the client uses to trigger "find references". */
-export const SHOW_PLUGIN_REFERENCES_COMMAND = 'magento2-lsp.showPluginReferences';
+/**
+ * Empty command ID for display-only code lenses.
+ * Code lenses are informational — the user can use "find references" (grr) on the
+ * same line to navigate to related locations.
+ */
+const NO_COMMAND = '';
 
 export function handleCodeLens(
   params: CodeLensParams,
@@ -51,11 +54,11 @@ export function handleCodeLens(
   const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
 
   if (filePath.endsWith('.phtml')) {
-    return handlePhtmlCodeLens(filePath, params, getProject);
+    return handlePhtmlCodeLens(filePath, getProject);
   }
 
   if (filePath.endsWith('.php')) {
-    return handlePhpCodeLens(filePath, params, getProject, token);
+    return handlePhpCodeLens(filePath, getProject, token);
   }
 
   return null;
@@ -78,12 +81,11 @@ export function handleCodeLens(
  * For a Hyvä compat module override template:
  *   → Shows "Hyvä compat override: Module_Name::path/to/template.phtml"
  *
- * All lenses appear on line 0 (top of the file) and trigger "find references"
- * so the user can navigate with grr to see all related files.
+ * All lenses appear on line 0 (top of the file). The user can navigate with
+ * grr (find references) to see all related files.
  */
 function handlePhtmlCodeLens(
   filePath: string,
-  params: CodeLensParams,
   getProject: (uri: string) => ProjectContext | undefined,
 ): CodeLens[] | null {
   const project = getProject(filePath);
@@ -107,13 +109,7 @@ function handlePhtmlCodeLens(
       if (original) {
         lenses.push({
           range: Range.create(0, 0, 0, 0),
-          command: Command.create(
-            `overrides ${templateId}`,
-            SHOW_PLUGIN_REFERENCES_COMMAND,
-            params.textDocument.uri,
-            0,
-            0,
-          ),
+          command: Command.create(`overrides ${templateId}`, NO_COMMAND),
         });
       }
     }
@@ -124,13 +120,7 @@ function handlePhtmlCodeLens(
     if (original) {
       lenses.push({
         range: Range.create(0, 0, 0, 0),
-        command: Command.create(
-          `Hyvä compat override: ${templateId}`,
-          SHOW_PLUGIN_REFERENCES_COMMAND,
-          params.textDocument.uri,
-          0,
-          0,
-        ),
+        command: Command.create(`Hyvä compat override: ${templateId}`, NO_COMMAND),
       });
     }
   } else {
@@ -143,13 +133,7 @@ function handlePhtmlCodeLens(
         const count = themeOverrides.length;
         lenses.push({
           range: Range.create(0, 0, 0, 0),
-          command: Command.create(
-            `overridden in ${count} theme${count === 1 ? '' : 's'}`,
-            SHOW_PLUGIN_REFERENCES_COMMAND,
-            params.textDocument.uri,
-            0,
-            0,
-          ),
+          command: Command.create(`overridden in ${count} theme${count === 1 ? '' : 's'}`, NO_COMMAND),
         });
       }
     }
@@ -165,13 +149,7 @@ function handlePhtmlCodeLens(
       if (override.filePath === filePath) continue;
       lenses.push({
         range: Range.create(0, 0, 0, 0),
-        command: Command.create(
-          `overridden in Hyvä compat module ${override.compatModule}`,
-          SHOW_PLUGIN_REFERENCES_COMMAND,
-          params.textDocument.uri,
-          0,
-          0,
-        ),
+        command: Command.create(`overridden in Hyvä compat module ${override.compatModule}`, NO_COMMAND),
       });
     }
   }
@@ -185,7 +163,6 @@ function handlePhtmlCodeLens(
 
 function handlePhpCodeLens(
   filePath: string,
-  params: CodeLensParams,
   getProject: (uri: string) => ProjectContext | undefined,
   token?: CancellationToken,
 ): CodeLens[] | null {
@@ -213,13 +190,7 @@ function handlePhpCodeLens(
     if (totalPlugins > 0) {
       lenses.push({
         range: Range.create(classInfo.line, classInfo.column, classInfo.line, classInfo.endColumn),
-        command: Command.create(
-          `${totalPlugins} plugin${totalPlugins === 1 ? '' : 's'}`,
-          SHOW_PLUGIN_REFERENCES_COMMAND,
-          params.textDocument.uri,
-          classInfo.line,
-          classInfo.column,
-        ),
+        command: Command.create(`${totalPlugins} plugin${totalPlugins === 1 ? '' : 's'}`, NO_COMMAND),
       });
     }
 
@@ -233,13 +204,7 @@ function handlePhpCodeLens(
           const count = uniquePlugins.size;
           lenses.push({
             range: Range.create(method.line, method.column, method.line, method.endColumn),
-            command: Command.create(
-              `${count} plugin${count === 1 ? '' : 's'}`,
-              SHOW_PLUGIN_REFERENCES_COMMAND,
-              params.textDocument.uri,
-              method.line,
-              method.column,
-            ),
+            command: Command.create(`${count} plugin${count === 1 ? '' : 's'}`, NO_COMMAND),
           });
         }
       }
@@ -257,13 +222,7 @@ function handlePhpCodeLens(
       if (reverseEntry) {
         lenses.push({
           range: Range.create(method.line, method.column, method.line, method.endColumn),
-          command: Command.create(
-            `→ ${reverseEntry.targetFqcn}::${reverseEntry.targetMethodName}`,
-            SHOW_PLUGIN_REFERENCES_COMMAND,
-            params.textDocument.uri,
-            method.line,
-            method.column,
-          ),
+          command: Command.create(`→ ${reverseEntry.targetFqcn}::${reverseEntry.targetMethodName}`, NO_COMMAND),
         });
       }
     }
@@ -279,13 +238,7 @@ function handlePhpCodeLens(
       for (const eventName of eventNames) {
         lenses.push({
           range: Range.create(executeMethod.line, executeMethod.column, executeMethod.line, executeMethod.endColumn),
-          command: Command.create(
-            `→ ${eventName}`,
-            SHOW_PLUGIN_REFERENCES_COMMAND,
-            params.textDocument.uri,
-            executeMethod.line,
-            executeMethod.column,
-          ),
+          command: Command.create(`→ ${eventName}`, NO_COMMAND),
         });
       }
     }
@@ -306,20 +259,14 @@ function handlePhpCodeLens(
       for (const route of methodRefs) {
         lenses.push({
           range: Range.create(method.line, method.column, method.line, method.endColumn),
-          command: Command.create(
-            `${route.httpMethod} ${route.routeUrl}`,
-            SHOW_PLUGIN_REFERENCES_COMMAND,
-            params.textDocument.uri,
-            method.line,
-            method.column,
-          ),
+          command: Command.create(`${route.httpMethod} ${route.routeUrl}`, NO_COMMAND),
         });
       }
     }
   }
 
   // --- Magic method calls: show "→ ClassName::method" or "→ ClassName::__call" ---
-  const magicLenses = computeMagicMethodLenses(content, classInfo, params, project, token);
+  const magicLenses = computeMagicMethodLenses(content, classInfo, project, token);
   lenses.push(...magicLenses);
 
   return lenses.length > 0 ? lenses : null;
@@ -337,7 +284,6 @@ function handlePhpCodeLens(
 function computeMagicMethodLenses(
   content: string,
   classInfo: { fqcn: string; namespace: string; useImports: Map<string, string> },
-  params: CodeLensParams,
   project: ProjectContext,
   token?: CancellationToken,
 ): CodeLens[] {
@@ -402,13 +348,7 @@ function computeMagicMethodLenses(
 
       lenses.push({
         range: Range.create(i, methodStart, i, methodEnd),
-        command: Command.create(
-          label,
-          SHOW_PLUGIN_REFERENCES_COMMAND,
-          params.textDocument.uri,
-          i,
-          methodStart,
-        ),
+        command: Command.create(label, NO_COMMAND),
       });
     }
   }

@@ -54,10 +54,11 @@ describe('handleReferences', () => {
     expect(result).not.toBeNull();
     expect(result!.length).toBeGreaterThanOrEqual(1);
 
-    // All results should be di.xml locations
-    for (const loc of result!) {
-      expect(URI.parse(loc.uri).fsPath).toMatch(/\.xml$/);
-    }
+    // Results should include XML refs and plugin PHP method locations
+    const paths = result!.map((l) => URI.parse(l.uri).fsPath);
+    expect(paths.some((p) => p.endsWith('.xml'))).toBe(true);
+    // Plugin PHP method locations should also be included
+    expect(paths.some((p) => p.endsWith('.php'))).toBe(true);
   });
 
   it('returns null from PHP when cursor is not on class name', async () => {

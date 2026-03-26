@@ -7,7 +7,7 @@ Complete list of LSP features provided by magento2-lsp.
 - **Go to Definition** from `di.xml`: jump from a class name to the PHP file, or from a virtualType reference to its `<virtualType>` declaration
 - **Go to Definition** from a preference `for` attribute: jump directly to the effective implementation class (after config merging)
 - **Find References** from `di.xml`: find all `di.xml` locations referencing a class (preferences, plugins, type declarations, constructor arguments, virtualTypes)
-- **Find References** from PHP: cursor on a class/interface declaration shows all `di.xml` references, including those inherited from parent classes and interfaces
+- **Find References** from PHP: cursor on a class/interface declaration shows all `di.xml` references (including inherited from parent classes and interfaces) and plugin PHP method locations
 
 ## Plugin (Interceptor) Navigation
 

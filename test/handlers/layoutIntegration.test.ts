@@ -426,6 +426,45 @@ describe('layout XML integration', () => {
     });
   });
 
+  // -----------------------------------------------------------------------
+  // Vendor theme with hyphenated name (e.g. Hyva/default-csp)
+  //
+  // Fixture layout:
+  //   Vendor theme: vendor/test/theme-hyphen/ (registered as frontend/Test/my-theme)
+  //   Layout file:  vendor/test/theme-hyphen/Test_Foo/layout/test_foo_index.xml
+  // -----------------------------------------------------------------------
+
+  const vendorThemeLayoutFile = path.join(
+    FIXTURE_ROOT,
+    'vendor/test/theme-hyphen/Test_Foo/layout/test_foo_index.xml',
+  );
+
+  describe('vendor theme with hyphenated name', () => {
+    it('indexes layout files from vendor theme with hyphenated name', () => {
+      const refs = project.layoutIndex.getRefsForFile(vendorThemeLayoutFile);
+      expect(refs.length).toBeGreaterThan(0);
+    });
+
+    it('navigates from block class in vendor theme layout to definition', () => {
+      // Line 3 (0-based): <block class="Test\Foo\Block\FooList" .../>
+      // class=" starts at col 15, value at col 22
+      const ref = project.layoutIndex.getReferenceAtPosition(
+        vendorThemeLayoutFile,
+        3, // line of <block class="Test\Foo\Block\FooList" .../>
+        25, // character within the class value
+      );
+      expect(ref).toBeDefined();
+      expect(ref!.kind).toBe('block-class');
+      expect(ref!.value).toBe('Test\\Foo\\Block\\FooList');
+    });
+
+    it('includes vendor theme layout refs in references for block class', async () => {
+      const refs = project.layoutIndex.getReferencesForFqcn('Test\\Foo\\Block\\FooList');
+      const files = refs.map((r) => r.file);
+      expect(files.some((f) => f.includes('theme-hyphen'))).toBe(true);
+    });
+  });
+
   describe('definition from Hyvä compat module override', () => {
     it('navigates from compat override to original module template (gd)', async () => {
       const result = handleDefinition(

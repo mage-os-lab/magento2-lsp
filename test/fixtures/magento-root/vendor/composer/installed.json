@@ -25,6 +25,16 @@
           "registration.php"
         ]
       }
+    },
+    {
+      "name": "test/theme-hyphen",
+      "type": "magento2-theme",
+      "install-path": "../test/theme-hyphen",
+      "autoload": {
+        "files": [
+          "registration.php"
+        ]
+      }
     }
   ]
 }

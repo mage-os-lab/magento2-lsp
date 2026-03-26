@@ -41,10 +41,10 @@ export interface ThemeInfo {
 }
 
 /** Matches: ComponentRegistrar::register(ComponentRegistrar::THEME, 'frontend/Vendor/name', __DIR__) */
-const THEME_REG_RE = /THEME\s*,\s*'((?:frontend|adminhtml)\/[\w]+\/[\w]+)'/;
+const THEME_REG_RE = /THEME\s*,\s*'((?:frontend|adminhtml)\/[\w-]+\/[\w-]+)'/;
 
 /** Matches: <parent>Vendor/name</parent> */
-const PARENT_RE = /<parent>([\w]+\/[\w]+)<\/parent>/;
+const PARENT_RE = /<parent>([\w-]+\/[\w-]+)<\/parent>/;
 
 export class ThemeResolver {
   private themes = new Map<string, ThemeInfo>();

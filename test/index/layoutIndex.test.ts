@@ -18,13 +18,15 @@ describe('LayoutIndex', () => {
 
   it('finds block class references', () => {
     const refs = project.layoutIndex.getReferencesForFqcn('Test\\Foo\\Block\\FooList');
-    expect(refs).toHaveLength(1);
+    // Module layout + vendor theme (test/theme-hyphen) layout
+    expect(refs).toHaveLength(2);
     expect(refs[0].kind).toBe('block-class');
   });
 
   it('finds template references', () => {
     const refs = project.layoutIndex.getReferencesForTemplate('Test_Foo::product/list.phtml');
-    expect(refs).toHaveLength(1);
+    // Module layout + vendor theme (test/theme-hyphen) layout
+    expect(refs).toHaveLength(2);
     expect(refs[0].kind).toBe('block-template');
   });
 

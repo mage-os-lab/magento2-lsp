@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<page xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <body>
+        <block class="Test\Foo\Block\FooList" name="foo.list" template="Test_Foo::product/list.phtml"/>
+    </body>
+</page>

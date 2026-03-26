@@ -213,7 +213,7 @@ async function handlePhpReferences(
     character >= classInfo.column &&
     character < classInfo.endColumn
   ) {
-    // Include di.xml, events.xml, layout XML, system.xml, and webapi.xml refs for this class,
+    // Include di.xml, events.xml, layout XML, system.xml, webapi.xml, and plugin method refs,
     // plus inherited di.xml/webapi refs from ancestor classes/interfaces.
     const allRefs: { file: string; line: number; column: number; endColumn: number }[] = [
       ...project.index.getReferencesForFqcn(classInfo.fqcn),
@@ -225,6 +225,25 @@ async function handlePhpReferences(
     for (const ancestor of project.pluginMethodIndex.getAncestors(classInfo.fqcn)) {
       allRefs.push(...project.index.getReferencesForFqcn(ancestor));
       allRefs.push(...project.webapiIndex.getRefsForFqcn(ancestor).filter((r) => r.kind === 'service-class'));
+    }
+    // Include plugin PHP method locations (before/after/around methods)
+    const interceptedMethods = project.pluginMethodIndex.getInterceptedMethods(classInfo.fqcn);
+    if (interceptedMethods) {
+      const seen = new Set<string>();
+      for (const interceptions of interceptedMethods.values()) {
+        for (const p of interceptions) {
+          const key = `${p.pluginMethodFile}:${p.pluginMethodLine}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            allRefs.push({
+              file: p.pluginMethodFile,
+              line: p.pluginMethodLine,
+              column: p.pluginMethodColumn,
+              endColumn: p.pluginMethodEndColumn,
+            });
+          }
+        }
+      }
     }
     return refsToLocations(allRefs);
   }

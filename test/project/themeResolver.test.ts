@@ -24,6 +24,19 @@ describe('ThemeResolver', () => {
       expect(codes).toContain('frontend/Test/parent');
     });
 
+    it('discovers vendor theme with hyphenated name', () => {
+      const themes = resolver.getAllThemes();
+      const codes = themes.map((t) => t.code);
+      expect(codes).toContain('frontend/Test/my-theme');
+    });
+
+    it('parses parent from theme.xml for hyphenated vendor theme', () => {
+      const themes = resolver.getAllThemes();
+      const theme = themes.find((t) => t.code === 'frontend/Test/my-theme');
+      expect(theme).toBeDefined();
+      expect(theme!.parentCode).toBe('Test/parent');
+    });
+
     it('parses theme area correctly', () => {
       const themes = resolver.getAllThemes();
       const child = themes.find((t) => t.code === 'frontend/Test/child');
@@ -56,6 +69,13 @@ describe('ThemeResolver', () => {
       const chain = resolver.getFallbackChain('frontend/Test/parent');
       expect(chain).toHaveLength(1);
       expect(chain[0].code).toBe('frontend/Test/parent');
+    });
+
+    it('builds chain for hyphenated vendor theme', () => {
+      const chain = resolver.getFallbackChain('frontend/Test/my-theme');
+      expect(chain).toHaveLength(2);
+      expect(chain[0].code).toBe('frontend/Test/my-theme');
+      expect(chain[1].code).toBe('frontend/Test/parent');
     });
 
     it('returns empty chain for unknown theme', () => {
