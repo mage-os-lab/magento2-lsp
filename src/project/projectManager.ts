@@ -151,8 +151,6 @@ export class ProjectManager {
 
     const modules = resolveActiveModules(root);
     const psr4Map = buildPsr4Map(root);
-    const t1 = Date.now();
-    console.error(`[magento2-lsp]   modules + psr4: ${t1 - t0}ms`);
 
     const index = new DiIndex();
     const cache = new IndexCache(root);
@@ -175,7 +173,7 @@ export class ProjectManager {
 
     const total = diXmlFiles.length;
     progress?.onBegin(total);
-    let diCacheHits = 0;
+
 
     index.beginBatch();
     try {
@@ -188,7 +186,7 @@ export class ProjectManager {
           const cached = cache.getDiEntry(file, stat.mtimeMs);
 
           if (cached) {
-            diCacheHits++;
+  
             index.addFile(file, cached.references, cached.virtualTypes);
           } else {
             const content = fs.readFileSync(file, 'utf-8');
@@ -204,13 +202,11 @@ export class ProjectManager {
       index.endBatch();
     }
     cache.pruneDiFiles(new Set(diXmlFiles.map((f) => f.file)));
-    const t2 = Date.now();
-    console.error(`[magento2-lsp]   di.xml (${diXmlFiles.length} files, ${diCacheHits} cached): ${t2 - t1}ms`);
 
     // --- Index events.xml files (cached) ---
     const eventsIndex = new EventsIndex();
     const allEventsFiles: string[] = [];
-    let eventsCacheHits = 0;
+
 
     for (const mod of modules) {
       const eventsFiles = discoverEventsXmlFiles(mod.path);
@@ -221,7 +217,7 @@ export class ProjectManager {
           const cached = cache.getEventsEntry(f.file, stat.mtimeMs);
 
           if (cached) {
-            eventsCacheHits++;
+
             eventsIndex.addFile(f.file, cached.events, cached.observers);
           } else {
             const content = fs.readFileSync(f.file, 'utf-8');
@@ -236,13 +232,11 @@ export class ProjectManager {
     }
 
     cache.pruneEventsFiles(new Set(allEventsFiles));
-    const t3 = Date.now();
-    console.error(`[magento2-lsp]   events.xml (${allEventsFiles.length} files, ${eventsCacheHits} cached): ${t3 - t2}ms`);
 
     // --- Index system.xml files (cached) ---
     const systemConfigIndex = new SystemConfigIndex();
     const allSystemConfigFiles: string[] = [];
-    let systemConfigCacheHits = 0;
+
 
     for (const mod of modules) {
       // Main system.xml
@@ -261,7 +255,7 @@ export class ProjectManager {
           const cached = cache.getSystemConfigEntry(xmlFile, stat.mtimeMs);
 
           if (cached) {
-            systemConfigCacheHits++;
+
             systemConfigIndex.addFile(xmlFile, cached.references);
           } else {
             const content = fs.readFileSync(xmlFile, 'utf-8');
@@ -276,13 +270,11 @@ export class ProjectManager {
     }
 
     cache.pruneSystemConfigFiles(new Set(allSystemConfigFiles));
-    const t3b = Date.now();
-    console.error(`[magento2-lsp]   system.xml (${allSystemConfigFiles.length} files, ${systemConfigCacheHits} cached): ${t3b - t3}ms`);
 
     // --- Index webapi.xml files (cached) ---
     const webapiIndex = new WebapiIndex();
     const allWebapiFiles: string[] = [];
-    let webapiCacheHits = 0;
+
 
     for (const mod of modules) {
       const webapiFiles = discoverWebapiXmlFiles(mod.path);
@@ -293,7 +285,7 @@ export class ProjectManager {
           const cached = cache.getWebapiEntry(f.file, stat.mtimeMs);
 
           if (cached) {
-            webapiCacheHits++;
+
             webapiIndex.addFile(f.file, cached.references);
           } else {
             const content = fs.readFileSync(f.file, 'utf-8');
@@ -308,13 +300,11 @@ export class ProjectManager {
     }
 
     cache.pruneWebapiFiles(new Set(allWebapiFiles));
-    const t3c = Date.now();
-    console.error(`[magento2-lsp]   webapi.xml (${allWebapiFiles.length} files, ${webapiCacheHits} cached): ${t3c - t3b}ms`);
 
     // --- Index acl.xml files (cached) ---
     const aclIndex = new AclIndex();
     const allAclFiles: string[] = [];
-    let aclCacheHits = 0;
+
 
     for (const mod of modules) {
       const aclFiles = discoverAclXmlFiles(mod.path);
@@ -325,7 +315,7 @@ export class ProjectManager {
           const cached = cache.getAclEntry(f.file, stat.mtimeMs);
 
           if (cached) {
-            aclCacheHits++;
+
             aclIndex.addFile(f.file, cached.resources);
           } else {
             const content = fs.readFileSync(f.file, 'utf-8');
@@ -340,13 +330,11 @@ export class ProjectManager {
     }
 
     cache.pruneAclFiles(new Set(allAclFiles));
-    const t3d = Date.now();
-    console.error(`[magento2-lsp]   acl.xml (${allAclFiles.length} files, ${aclCacheHits} cached): ${t3d - t3c}ms`);
 
     // --- Index menu.xml files (cached) ---
     const menuIndex = new MenuIndex();
     const allMenuFiles: string[] = [];
-    let menuCacheHits = 0;
+
 
     for (const mod of modules) {
       const menuFiles = discoverMenuXmlFiles(mod.path);
@@ -357,7 +345,7 @@ export class ProjectManager {
           const cached = cache.getMenuEntry(f.file, stat.mtimeMs);
 
           if (cached) {
-            menuCacheHits++;
+
             menuIndex.addFile(f.file, cached.references);
           } else {
             const content = fs.readFileSync(f.file, 'utf-8');
@@ -372,13 +360,11 @@ export class ProjectManager {
     }
 
     cache.pruneMenuFiles(new Set(allMenuFiles));
-    const t3e = Date.now();
-    console.error(`[magento2-lsp]   menu.xml (${allMenuFiles.length} files, ${menuCacheHits} cached): ${t3e - t3d}ms`);
 
     // --- Index UI component aclResource files (cached) ---
     const uiComponentAclIndex = new UiComponentAclIndex();
     const allUiComponentFiles: string[] = [];
-    let uiComponentCacheHits = 0;
+
 
     for (const mod of modules) {
       const uiFiles = discoverUiComponentAclFiles(mod.path);
@@ -389,7 +375,7 @@ export class ProjectManager {
           const cached = cache.getUiComponentAclEntry(f.file, stat.mtimeMs);
 
           if (cached) {
-            uiComponentCacheHits++;
+
             uiComponentAclIndex.addFile(f.file, cached.references);
           } else {
             const content = fs.readFileSync(f.file, 'utf-8');
@@ -404,8 +390,6 @@ export class ProjectManager {
     }
 
     cache.pruneUiComponentAclFiles(new Set(allUiComponentFiles));
-    const t3f = Date.now();
-    console.error(`[magento2-lsp]   ui_component acl (${allUiComponentFiles.length} files, ${uiComponentCacheHits} cached): ${t3f - t3e}ms`);
 
     // --- Discover themes and index layout XML files (cached) ---
     const themeResolver = new ThemeResolver();
@@ -413,7 +397,7 @@ export class ProjectManager {
 
     const layoutIndex = new LayoutIndex();
     const allLayoutFiles: string[] = [];
-    let layoutCacheHits = 0;
+
 
     function indexLayoutFile(xmlFile: string): void {
       allLayoutFiles.push(xmlFile);
@@ -422,7 +406,7 @@ export class ProjectManager {
         const cached = cache.getLayoutEntry(xmlFile, stat.mtimeMs);
 
         if (cached) {
-          layoutCacheHits++;
+
           layoutIndex.addFile(xmlFile, cached.references);
         } else {
           const content = fs.readFileSync(xmlFile, 'utf-8');
@@ -466,8 +450,6 @@ export class ProjectManager {
     }
 
     cache.pruneLayoutFiles(new Set(allLayoutFiles));
-    const t4 = Date.now();
-    console.error(`[magento2-lsp]   themes + layout (${allLayoutFiles.length} files, ${layoutCacheHits} cached): ${t4 - t3}ms`);
 
     // --- Discover Hyvä compat module registrations ---
     // Compat modules register in etc/frontend/di.xml by adding arguments to
@@ -489,18 +471,17 @@ export class ProjectManager {
         // No frontend/di.xml or unreadable — skip
       }
     }
-    const t5 = Date.now();
-    console.error(`[magento2-lsp]   compat modules: ${t5 - t4}ms`);
-
     // Build the plugin method index: maps target class methods to their plugin interceptions.
     const pluginMethodIndex = new PluginMethodIndex();
     pluginMethodIndex.build(index, psr4Map);
 
-    const t6 = Date.now();
-    console.error(`[magento2-lsp]   plugin methods + hierarchy: ${t6 - t5}ms`);
-
-    // Save cache once (covers di.xml, events.xml, and layout XML)
+    // Save cache once (covers all indexed XML types)
     cache.save();
+
+    const totalFiles = diXmlFiles.length + allEventsFiles.length + allSystemConfigFiles.length
+      + allWebapiFiles.length + allAclFiles.length + allMenuFiles.length
+      + allUiComponentFiles.length + allLayoutFiles.length;
+    console.error(`[magento2-lsp] Indexed ${modules.length} modules, ${totalFiles} XML files in ${Date.now() - t0}ms`);
 
     progress?.onEnd();
 
