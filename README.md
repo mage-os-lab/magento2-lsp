@@ -4,25 +4,31 @@ Language Server for Magento 2 that makes XML configuration navigable. Jump betwe
 
 Works alongside Intelephense — this LSP handles the Magento-specific connections that generic PHP tooling can't see.
 
+## Rationale
+
+Agents do most of the coding work - but a good editor integration makes reviewing easier.  
+A full IDE is overkill, lightweight editors can do the job. But I missed being able to jump between XML and PHP with a click or a keystroke.  
+
 ## What it does
 
-**Navigate XML config like code.** Go-to-definition and find-references work across `di.xml`, `events.xml`, `system.xml`, and layout XML — linking them to the PHP classes, templates, and config paths they reference.
+- **Navigate XML config like code.** Go-to-definition and find-references work across `di.xml`, `events.xml`, `system.xml`, and layout XML — linking them to the PHP classes, templates, and config paths they reference.
 
-**Trace the plugin chain.** See which plugins intercept a method, jump from a `beforeSave` plugin to the method it wraps, and see plugin counts directly in your editor via code lenses.
+- **Trace the plugin chain.** See which plugins intercept a method, jump from a `beforeSave` plugin to the method it wraps, and see plugin counts directly in your editor via code lenses.
 
-**Follow config paths.** Jump from `scopeConfig->getValue('payment/account/active')` in PHP straight to the `<field>` declaration in `system.xml`, and find all PHP files using a config path.
+- **Follow config paths.** Jump from `scopeConfig->getValue('payment/account/active')` in PHP straight to the `<field>` declaration in `system.xml`, and find all PHP files using a config path.
 
-**Catch errors as you type.** Broken class references, missing templates, duplicate plugin names, and invalid model classes are flagged with diagnostics — no need to wait for a deploy to find out.
+- **Catch errors as you type.** Broken class references, missing templates, duplicate plugin names, and invalid model classes are flagged with diagnostics — no need to wait for a deploy to find out.
 
-**Understand template overrides.** Navigate between module templates, theme overrides, and Hyvä compatibility module overrides. Code lenses show override counts and sources at a glance.
+- **Understand template overrides.** Navigate between module templates, theme overrides, and Hyvä compatibility module overrides. Code lenses show override counts and sources at a glance.
 
-**Resolve magic methods.** When Intelephense can't follow a method call because it goes through a DI preference or `__call` magic, this LSP resolves it to the concrete implementation.
+- **Resolve magic methods.** When Intelephense can't follow a method call because it goes through a DI preference or `__call` magic, this LSP resolves it to the concrete implementation.
 
 For the complete feature list, see [docs/features.md](docs/features.md).
 
-## MCP Server for AI Coding Agents
+## MCP Server
 
-An MCP server exposes the same Magento 2 intelligence to AI coding agents. See [docs/mcp.md](docs/mcp.md) for design rationale and tool descriptions.
+A MCP server exposes the same Magento 2 intelligence to AI coding agents. It doesn't add bloated tools, just what provides genuine value to current coding models.  
+See [docs/mcp.md](docs/mcp.md) for design rationale and tool descriptions.
 
 ## Requirements
 
@@ -71,5 +77,4 @@ npm install
 npm test           # run tests once
 npm run test:watch # run tests in watch mode
 npm run build      # compile TypeScript
-npm run watch      # compile in watch mode
 ```
