@@ -43,6 +43,7 @@ import { isObserverReference } from '../index/eventsIndex';
 import { realpath } from '../utils/realpath';
 import { createScopeConfigRegex, grepConfigPathInPhp } from '../utils/configPathGrep';
 import { createPhpAclRegex, grepAclResourceInPhp } from '../utils/phpAclGrep';
+import { resolveSourceFqcn, generatedVariants } from '../utils/generatedClassResolver';
 import * as fs from 'fs';
 
 // ---------------------------------------------------------------------------
@@ -96,13 +97,7 @@ interface RenameEdit extends RefPosition {
   newText: string;
 }
 
-/**
- * Magento auto-generates Proxy and Factory classes at runtime.
- * When renaming the base FQCN, these derived references must also be updated
- * with the suffix preserved. For example, renaming Foo\Bar to Foo\Baz must also
- * rename Foo\Bar\Proxy to Foo\Baz\Proxy and Foo\BarFactory to Foo\BazFactory.
- */
-const GENERATED_SUFFIXES = ['\\Proxy', 'Factory'] as const;
+// Generated class handling is centralised in generatedClassResolver.ts.
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -198,7 +193,7 @@ function getXmlRenameContext(
     if (layoutRef.kind === 'block-class' || layoutRef.kind === 'argument-object') {
       return {
         kind: 'fqcn',
-        currentValue: stripGeneratedSuffix(layoutRef.value) ?? layoutRef.value,
+        currentValue: resolveSourceFqcn(layoutRef.value) ?? layoutRef.value,
         range: refToRange(layoutRef),
       };
     }
@@ -220,7 +215,7 @@ function getXmlRenameContext(
     if (sysRef.fqcn) {
       return {
         kind: 'fqcn',
-        currentValue: stripGeneratedSuffix(sysRef.fqcn) ?? sysRef.fqcn,
+        currentValue: resolveSourceFqcn(sysRef.fqcn) ?? sysRef.fqcn,
         range: refToRange(sysRef),
       };
     }
@@ -306,7 +301,7 @@ function getXmlRenameContext(
     if (isObserverReference(eventsRef)) {
       return {
         kind: 'fqcn',
-        currentValue: stripGeneratedSuffix(eventsRef.fqcn) ?? eventsRef.fqcn,
+        currentValue: resolveSourceFqcn(eventsRef.fqcn) ?? eventsRef.fqcn,
         range: refToRange(eventsRef),
       };
     }
@@ -319,10 +314,9 @@ function getXmlRenameContext(
     // If the cursor is on a generated class (e.g. Foo\Proxy, FooFactory), resolve
     // to the base FQCN so the user renames the real class and generated variants
     // are updated automatically with their suffixes preserved.
-    const baseFqcn = stripGeneratedSuffix(diRef.fqcn);
     return {
       kind: 'fqcn',
-      currentValue: baseFqcn ?? diRef.fqcn,
+      currentValue: resolveSourceFqcn(diRef.fqcn) ?? diRef.fqcn,
       range: refToRange(diRef),
     };
   }
@@ -469,11 +463,11 @@ function refsToEdits(refs: RefPosition[], newText: string): RenameEdit[] {
 }
 
 /**
- * Collect all XML references to a PHP class FQCN, including Magento-generated
- * class variants (\Proxy, Factory).
+ * Collect all XML references to a PHP class FQCN, including all Magento-generated
+ * class variants (\Proxy, Factory, \Interceptor, ExtensionInterface, etc.).
  *
- * Magento auto-generates Proxy and Factory wrapper classes at runtime. In XML config,
- * these appear as e.g. `Magento\Catalog\Api\ProductRepositoryInterface\Proxy` or
+ * Magento auto-generates wrapper classes at runtime. In XML config, these appear
+ * as e.g. `Magento\Catalog\Api\ProductRepositoryInterface\Proxy` or
  * `Magento\Catalog\Model\ProductFactory`. When the base class is renamed, these
  * generated references must also be updated, preserving the suffix.
  *
@@ -481,6 +475,11 @@ function refsToEdits(refs: RefPosition[], newText: string): RenameEdit[] {
  *   - `Magento\Catalog\Model\Product`         → `Magento\Catalog\Model\Item`
  *   - `Magento\Catalog\Model\Product\Proxy`    → `Magento\Catalog\Model\Item\Proxy`
  *   - `Magento\Catalog\Model\ProductFactory`   → `Magento\Catalog\Model\ItemFactory`
+ *
+ * For Interface classes, Extension attribute variants are also included:
+ *   - `ProductExtensionInterface`              → `ItemExtensionInterface`
+ *   - `ProductExtension`                       → `ItemExtension`
+ *   - `ProductExtensionInterfaceFactory`       → `ItemExtensionInterfaceFactory`
  */
 function collectFqcnEdits(
   fqcn: string,
@@ -493,12 +492,11 @@ function collectFqcnEdits(
   const baseRefs = queryAllFqcnIndexes(fqcn, project);
   edits.push(...baseRefs.map((ref) => ({ ...ref, newText: newFqcn })));
 
-  // Collect references to generated class variants (\Proxy, Factory)
-  for (const suffix of GENERATED_SUFFIXES) {
-    const generatedFqcn = fqcn + suffix;
-    const generatedNewFqcn = newFqcn + suffix;
-    const generatedRefs = queryAllFqcnIndexes(generatedFqcn, project);
-    edits.push(...generatedRefs.map((ref) => ({ ...ref, newText: generatedNewFqcn })));
+  // Collect references to all generated class variants
+  for (const variant of generatedVariants(fqcn)) {
+    const newGeneratedFqcn = variant.buildNewFqcn(newFqcn);
+    const generatedRefs = queryAllFqcnIndexes(variant.generatedFqcn, project);
+    edits.push(...generatedRefs.map((ref) => ({ ...ref, newText: newGeneratedFqcn })));
   }
 
   return edits;
@@ -662,20 +660,3 @@ function refToRange(ref: { line: number; column: number; endColumn: number }): R
   return Range.create(ref.line, ref.column, ref.line, ref.endColumn);
 }
 
-/**
- * Strip Magento generated class suffixes (\Proxy, Factory) to get the base FQCN.
- * Returns the base FQCN if the class looks generated, undefined otherwise.
- *
- * Examples:
- *   Magento\Catalog\Model\Product\Proxy     -> Magento\Catalog\Model\Product
- *   Magento\Catalog\Model\ProductFactory     -> Magento\Catalog\Model\Product
- *   Magento\Catalog\Model\Product            -> undefined (not generated)
- */
-function stripGeneratedSuffix(fqcn: string): string | undefined {
-  for (const suffix of GENERATED_SUFFIXES) {
-    if (fqcn.endsWith(suffix)) {
-      return fqcn.slice(0, -suffix.length);
-    }
-  }
-  return undefined;
-}

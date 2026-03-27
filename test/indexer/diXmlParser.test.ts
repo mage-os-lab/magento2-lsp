@@ -187,6 +187,99 @@ describe('parseDiXml', () => {
     });
   });
 
+  describe('argument with xsi:type="string" containing FQCN', () => {
+    it('extracts FQCN from string argument', () => {
+      const xml = `<?xml version="1.0"?>
+<config>
+    <type name="Magento\\Catalog\\Model\\Product\\TypeTransitionManager">
+        <arguments>
+            <argument name="templateFilterModel" xsi:type="string">Magento\\Widget\\Model\\Template\\Filter</argument>
+        </arguments>
+    </type>
+</config>`;
+      const result = parseDiXml(xml, ctx());
+      const strRef = result.references.find((r) => r.kind === 'argument-string');
+      expect(strRef).toBeDefined();
+      expect(strRef!.fqcn).toBe('Magento\\Widget\\Model\\Template\\Filter');
+      expect(strRef!.line).toBe(4);
+    });
+
+    it('extracts FQCN from item with xsi:type="string"', () => {
+      const xml = `<?xml version="1.0"?>
+<config>
+    <type name="Magento\\Framework\\Model\\Entity\\RepositoryFactory">
+        <arguments>
+            <argument name="entities" xsi:type="array">
+                <item name="Magento\\Catalog\\Api\\Data\\ProductInterface" xsi:type="string">Magento\\Catalog\\Api\\ProductRepositoryInterface</item>
+            </argument>
+        </arguments>
+    </type>
+</config>`;
+      const result = parseDiXml(xml, ctx());
+      const strRef = result.references.find((r) => r.kind === 'argument-string');
+      expect(strRef).toBeDefined();
+      expect(strRef!.fqcn).toBe('Magento\\Catalog\\Api\\ProductRepositoryInterface');
+    });
+
+    it('ignores non-FQCN string values (config paths)', () => {
+      const xml = `<?xml version="1.0"?>
+<config>
+    <type name="Magento\\Store\\Model\\Store">
+        <arguments>
+            <argument name="currencyInstalled" xsi:type="string">system/currency/installed</argument>
+        </arguments>
+    </type>
+</config>`;
+      const result = parseDiXml(xml, ctx());
+      const strRef = result.references.find((r) => r.kind === 'argument-string');
+      expect(strRef).toBeUndefined();
+    });
+
+    it('ignores plain string values without backslashes', () => {
+      const xml = `<?xml version="1.0"?>
+<config>
+    <type name="Magento\\Store\\Model\\Store">
+        <arguments>
+            <argument name="format" xsi:type="string">json</argument>
+        </arguments>
+    </type>
+</config>`;
+      const result = parseDiXml(xml, ctx());
+      const strRef = result.references.find((r) => r.kind === 'argument-string');
+      expect(strRef).toBeUndefined();
+    });
+
+    it('ignores strings with spaces even if they contain backslashes', () => {
+      const xml = `<?xml version="1.0"?>
+<config>
+    <type name="Magento\\Store\\Model\\Store">
+        <arguments>
+            <argument name="desc" xsi:type="string">Some\\Thing is here</argument>
+        </arguments>
+    </type>
+</config>`;
+      const result = parseDiXml(xml, ctx());
+      const strRef = result.references.find((r) => r.kind === 'argument-string');
+      expect(strRef).toBeUndefined();
+    });
+
+    it('handles leading backslash in FQCN string', () => {
+      const xml = `<?xml version="1.0"?>
+<config>
+    <type name="Magento\\Store\\Model\\Store">
+        <arguments>
+            <argument name="cls" xsi:type="string">\\Magento\\Framework\\Session\\SidResolver</argument>
+        </arguments>
+    </type>
+</config>`;
+      const result = parseDiXml(xml, ctx());
+      const strRef = result.references.find((r) => r.kind === 'argument-string');
+      expect(strRef).toBeDefined();
+      // normalizeFqcn strips the leading backslash
+      expect(strRef!.fqcn).toBe('Magento\\Framework\\Session\\SidResolver');
+    });
+  });
+
   describe('virtualType', () => {
     it('extracts name and type attributes', () => {
       const xml = `<?xml version="1.0"?>

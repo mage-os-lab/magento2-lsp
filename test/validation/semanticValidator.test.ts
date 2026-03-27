@@ -18,6 +18,7 @@ const EXISTING_CLASSES = new Set([
   'Vendor\\Module\\Block\\TestBlock',
   'Vendor\\Module\\Plugin\\MyPlugin',
   'Vendor\\Module\\Observer\\GoodObserver',
+  'Vendor\\Module\\Api\\ExistingInterface',
 ]);
 
 vi.mock('../../src/indexer/phpClassLocator', () => ({
@@ -394,7 +395,7 @@ ${body}
     });
   });
 
-  describe('generated class suffixes (Proxy/Factory)', () => {
+  describe('generated class suffixes', () => {
     it('does not flag \\Proxy suffix when base class exists', () => {
       const content = diXml(`
   <type name="Vendor\\Module\\Model\\Existing">
@@ -421,11 +422,89 @@ ${body}
       expect(diags).toHaveLength(0);
     });
 
+    it('does not flag \\Interceptor suffix when base class exists', () => {
+      const content = diXml(`
+  <type name="Vendor\\Module\\Model\\Existing">
+    <arguments>
+      <argument name="dep" xsi:type="object">Vendor\\Module\\Model\\Existing\\Interceptor</argument>
+    </arguments>
+  </type>`);
+      const project = makeProject();
+
+      const diags = validateSemantics(DI_FILE, content, project, false);
+      expect(diags).toHaveLength(0);
+    });
+
+    it('does not flag \\ProxyDeferred suffix when base class exists', () => {
+      const content = diXml(`
+  <type name="Vendor\\Module\\Model\\Existing">
+    <arguments>
+      <argument name="dep" xsi:type="object">Vendor\\Module\\Model\\Existing\\ProxyDeferred</argument>
+    </arguments>
+  </type>`);
+      const project = makeProject();
+
+      const diags = validateSemantics(DI_FILE, content, project, false);
+      expect(diags).toHaveLength(0);
+    });
+
+    it('does not flag SearchResults suffix when base class exists', () => {
+      const content = diXml(`
+  <type name="Vendor\\Module\\Model\\Existing">
+    <arguments>
+      <argument name="dep" xsi:type="object">Vendor\\Module\\Model\\ExistingSearchResults</argument>
+    </arguments>
+  </type>`);
+      const project = makeProject();
+
+      const diags = validateSemantics(DI_FILE, content, project, false);
+      expect(diags).toHaveLength(0);
+    });
+
+    it('does not flag ExtensionInterface suffix when base Interface exists', () => {
+      // ExistingExtensionInterface resolves to ExistingInterface (the base)
+      const content = diXml(`
+  <preference for="Vendor\\Module\\Api\\ExistingInterface"
+              type="Vendor\\Module\\Api\\ExistingExtensionInterface" />`);
+      const project = makeProject();
+
+      const diags = validateSemantics(DI_FILE, content, project, false);
+      expect(diags).toHaveLength(0);
+    });
+
+    it('does not flag ExtensionInterfaceFactory (compound generated type)', () => {
+      // ExistingExtensionInterfaceFactory → ExistingExtensionInterface → ExistingInterface
+      const content = diXml(`
+  <type name="Vendor\\Module\\Model\\Existing">
+    <arguments>
+      <argument name="dep" xsi:type="object">Vendor\\Module\\Api\\ExistingExtensionInterfaceFactory</argument>
+    </arguments>
+  </type>`);
+      const project = makeProject();
+
+      const diags = validateSemantics(DI_FILE, content, project, false);
+      expect(diags).toHaveLength(0);
+    });
+
     it('flags \\Proxy suffix when base class does not exist', () => {
       const content = diXml(`
   <type name="Vendor\\Module\\Model\\Existing">
     <arguments>
       <argument name="dep" xsi:type="object">Missing\\Class\\Proxy</argument>
+    </arguments>
+  </type>`);
+      const project = makeProject();
+
+      const diags = validateSemantics(DI_FILE, content, project, false);
+      expect(diags).toHaveLength(1);
+      expect(diags[0].message).toContain('not found');
+    });
+
+    it('flags \\Interceptor suffix when base class does not exist', () => {
+      const content = diXml(`
+  <type name="Vendor\\Module\\Model\\Existing">
+    <arguments>
+      <argument name="dep" xsi:type="object">Missing\\Class\\Interceptor</argument>
     </arguments>
   </type>`);
       const project = makeProject();

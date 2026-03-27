@@ -17,8 +17,9 @@
  *   - <item xsi:type="object">ClassName</item>
  *   - <virtualType name="VTypeName" type="ParentClass">
  *
- * Arguments and items with xsi:type other than "object" (e.g., "string", "array", "number")
- * are ignored because they don't contain class references.
+ * Arguments and items with xsi:type="string" are also indexed when their trimmed text
+ * content looks like a PHP FQCN.  Magento commonly passes class names as string
+ * arguments (e.g., instanceName, templateFilterModel) for factory/pool patterns.
  */
 
 import * as sax from 'sax';
@@ -101,10 +102,8 @@ export function parseDiXml(
     } else if (tagName === 'plugin') {
       handlePlugin(tag, tagLine, tagStartLine, lines, context, references, currentTypeFqcn);
     } else if (tagName === 'argument' || tagName === 'item') {
-      // Only <argument>/<item> elements with xsi:type="object" contain class references.
-      // Others (string, array, number, const, init_parameter) are not PHP classes.
       const xsiType = getXsiType(tag);
-      if (xsiType === 'object') {
+      if (xsiType === 'object' || xsiType === 'string') {
         pendingArgument = { tagLine, xsiType };
         argumentText = '';
       }
@@ -131,13 +130,23 @@ export function parseDiXml(
       currentTypeFqcn = undefined;
     }
     if ((name === 'argument' || name === 'item') && pendingArgument) {
-      handleArgumentObject(
-        argumentText,
-        pendingArgument.tagLine,
-        lines,
-        context,
-        references,
-      );
+      if (pendingArgument.xsiType === 'object') {
+        handleArgumentObject(
+          argumentText,
+          pendingArgument.tagLine,
+          lines,
+          context,
+          references,
+        );
+      } else if (pendingArgument.xsiType === 'string') {
+        handleArgumentString(
+          argumentText,
+          pendingArgument.tagLine,
+          lines,
+          context,
+          references,
+        );
+      }
       pendingArgument = undefined;
       argumentText = '';
     }
@@ -361,6 +370,46 @@ function handleArgumentObject(
     references.push({
       fqcn: normalized,
       kind: 'argument-object',
+      file: context.file,
+      line: pos.line,
+      column: pos.column,
+      endColumn: pos.endColumn,
+      area: context.area,
+      module: context.module,
+      moduleOrder: context.moduleOrder,
+    });
+  }
+}
+
+/**
+ * Handle the text content of <argument xsi:type="string">ClassName</argument>.
+ *
+ * Magento commonly passes class names as string arguments for factory/pool patterns
+ * (e.g., instanceName, templateFilterModel).  We only index the value if the entire
+ * trimmed text looks like a PHP FQCN — it must contain at least one backslash and
+ * consist only of valid namespace/class characters.
+ */
+function handleArgumentString(
+  textContent: string,
+  tagLine: number,
+  lines: string[],
+  context: DiXmlParseContext,
+  references: DiReference[],
+): void {
+  const trimmed = textContent.trim();
+  if (!trimmed) return;
+
+  // A FQCN must contain at least one backslash and consist only of
+  // alphanumeric characters, underscores, and backslashes.
+  if (!trimmed.includes('\\')) return;
+  if (!/^\\?[A-Za-z_][A-Za-z0-9_\\]*$/.test(trimmed)) return;
+
+  const normalized = normalizeFqcn(trimmed);
+  const pos = findTextContentPosition(lines, tagLine, trimmed);
+  if (pos) {
+    references.push({
+      fqcn: normalized,
+      kind: 'argument-string',
       file: context.file,
       line: pos.line,
       column: pos.column,

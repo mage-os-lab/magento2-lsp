@@ -30,6 +30,7 @@ import { parseDbSchemaXml } from '../indexer/dbSchemaXmlParser';
 import { parseUiComponentAcl } from '../indexer/uiComponentAclParser';
 import { extractPhpClass, extractPhpMethods } from '../utils/phpNamespace';
 import { createPhpAclRegex } from '../utils/phpAclGrep';
+import { resolveSourceFqcn } from '../utils/generatedClassResolver';
 import {
   deriveDiXmlContext,
   deriveEventsXmlContext,
@@ -570,6 +571,7 @@ function isClassReferenceKind(kind: string): boolean {
     || kind === 'type-name'
     || kind === 'plugin-type'
     || kind === 'argument-object'
+    || kind === 'argument-string'
     || kind === 'virtualtype-type'
     || kind === 'virtualtype-name';
 }
@@ -585,9 +587,9 @@ function classOrVirtualTypeExists(
   if (resolveClassFile(fqcn, psr4Map)) return true;
   if (localVirtualTypeNames.has(fqcn)) return true;
   if (diIndex.getAllVirtualTypeDecls(fqcn).length > 0) return true;
-  // Magento auto-generates Proxy and Factory classes at runtime.
-  // Accept them if the base class exists.
-  const baseFqcn = stripGeneratedSuffix(fqcn);
+  // Magento auto-generates Proxy, Factory, Interceptor, Extension attribute, and
+  // other wrapper classes at runtime. Accept them if the base class exists.
+  const baseFqcn = resolveSourceFqcn(fqcn);
   if (baseFqcn && resolveClassFile(baseFqcn, psr4Map)) return true;
   // If the top-level namespace (vendor segment) isn't known in the PSR-4 map at all,
   // we can't tell whether the class exists (e.g., Adyen\ not installed, Magento\Setup\
@@ -610,26 +612,6 @@ function vendorKnownInPsr4(fqcn: string, psr4Map: Psr4Map): boolean {
   return psr4Map.some((entry) => entry.prefix.startsWith(vendorPrefix));
 }
 
-/**
- * Strip Magento generated class suffixes (\Proxy, Factory, etc.).
- * Returns the base FQCN if the class looks generated, undefined otherwise.
- *
- * Examples:
- *   Magento\Framework\Session\SidResolver\Proxy -> Magento\Framework\Session\SidResolver
- *   Magento\Framework\Session\SidResolverFactory -> Magento\Framework\Session\SidResolver
- *   Magento\Catalog\Api\Data\ProductInterfaceFactory -> Magento\Catalog\Api\Data\ProductInterface
- */
-function stripGeneratedSuffix(fqcn: string): string | undefined {
-  // \Proxy is a sub-namespace: Vendor\Module\Class\Proxy
-  if (fqcn.endsWith('\\Proxy')) {
-    return fqcn.slice(0, -'\\Proxy'.length);
-  }
-  // Factory is appended directly: Vendor\Module\ClassFactory
-  if (fqcn.endsWith('Factory')) {
-    return fqcn.slice(0, -'Factory'.length);
-  }
-  return undefined;
-}
 
 function inferAreaFromPath(filePath: string): string {
   if (filePath.includes('/adminhtml/')) return 'adminhtml';

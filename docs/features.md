@@ -122,7 +122,7 @@ Complete list of LSP features provided by magento2-lsp.
 
 ## Semantic Diagnostics
 
-- **Broken class references** in `di.xml`, `events.xml`, and layout XML: error when a FQCN doesn't resolve to a PHP file via PSR-4 (virtual types, generated classes like `\Proxy` and `Factory`, and uninstalled vendor namespaces are excluded)
+- **Broken class references** in `di.xml`, `events.xml`, and layout XML: error when a FQCN doesn't resolve to a PHP file via PSR-4 (virtual types, all 14 Magento generated class types like `Factory`, `\Proxy`, `\Interceptor`, `ExtensionInterface`, etc., and uninstalled vendor namespaces are excluded)
 - **Broken template references** in layout XML: warning when a `Module_Name::path/to/template.phtml` identifier doesn't resolve to any `.phtml` file through module or theme paths
 - **Duplicate plugin names**: warning when a `<plugin name="...">` duplicates a name already declared for the same target type, either in the same file or across modules
 - **Missing ObserverInterface**: warning when an observer `instance` class exists but doesn't implement `Magento\Framework\Event\ObserverInterface`
@@ -191,7 +191,7 @@ Supports [automatic template overrides](https://docs.hyva.io/hyva-themes/compati
 
 ## Rename Symbol
 
-- **Rename FQCN** from any XML file or PHP class declaration: renames the class reference across all `di.xml` (preferences, types, plugins, arguments, virtual types), `events.xml` (observer instances), layout XML (block classes, object arguments), `system.xml` (source/backend/frontend models), and `webapi.xml` (service classes). Magento-generated class references (`\Proxy`, `Factory`) are automatically updated with their suffix preserved. Cursor on a generated class resolves to the base FQCN for rename.
+- **Rename FQCN** from any XML file or PHP class declaration: renames the class reference across all `di.xml` (preferences, types, plugins, arguments, virtual types), `events.xml` (observer instances), layout XML (block classes, object arguments), `system.xml` (source/backend/frontend models), and `webapi.xml` (service classes). All 14 Magento auto-generated class variants (`Factory`, `\Proxy`, `\Interceptor`, `ExtensionInterface`, `Extension`, `ExtensionInterfaceFactory`, `SearchResults`, `Mapper`, `\ProxyDeferred`, etc.) are automatically updated with their suffix preserved. Cursor on any generated class resolves recursively to the base FQCN for rename.
 - **Rename template identifier** from a layout XML `template` attribute: renames the `Module_Name::path/to/template.phtml` string across all layout XML files that reference it (module and theme layouts)
 - **Rename ACL resource ID** from `acl.xml`, `webapi.xml`, `menu.xml`, `system.xml`, or UI component XML: renames across all `acl.xml` definitions, `webapi.xml` resource refs, `menu.xml` resource attributes, `system.xml` section resources, UI component `<aclResource>` elements, and PHP `ADMIN_RESOURCE` constants / `isAllowed()` calls
 - **Rename config section, group, or field** from `system.xml`: the rename placeholder shows just the segment name (e.g., `redirect_dashboard`, not the full path). The `id` attribute in `system.xml` is updated, and PHP `scopeConfig->getValue()` / `isSetFlag()` calls are rewritten with the full new config path. Section and group renames cascade to all descendant PHP config path references. Field renames also update `<depends><field id="...">` references that depend on the renamed field.

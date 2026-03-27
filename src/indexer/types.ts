@@ -28,6 +28,7 @@ export type ReferenceKind =
   | 'type-name'
   | 'plugin-type'
   | 'argument-object'
+  | 'argument-string'
   | 'virtualtype-name'
   | 'virtualtype-type';
 
