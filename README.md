@@ -56,6 +56,10 @@ On first file open, the LSP detects the Magento root, reads `app/etc/config.php`
 
 Multiple Magento projects can be open simultaneously — each gets its own isolated index.
 
+## Credits
+
+Many thanks to [Hyvä](https://hyva.io) for sponsoring the development of this tool!
+
 ## License
 
 Copyright (c) 2025 Vinai Kopp. Released under the [MIT License](LICENSE).
