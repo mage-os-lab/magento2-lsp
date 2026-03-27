@@ -37,7 +37,7 @@ See [docs/mcp.md](docs/mcp.md) for design rationale and tool descriptions.
 ## Installation
 
 ```bash
-git clone https://github.com/mage-os/magento2-lsp.git
+git clone https://github.com/mage-os-lab/magento2-lsp.git
 cd magento2-lsp
 npm install
 npm run build
