@@ -3,6 +3,11 @@
   "displayName": "Magento 2 LSP",
   "description": "Magento 2 Language Server integration for VS Code",
   "version": "0.0.1",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mage-os/magento2-lsp"
+  },
   "engines": {
     "vscode": "^1.75.0"
   },

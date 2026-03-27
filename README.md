@@ -31,7 +31,7 @@ An MCP server exposes the same Magento 2 intelligence to AI coding agents. See [
 ## Installation
 
 ```bash
-git clone https://github.com/anthropics/magento2-lsp.git
+git clone https://github.com/mage-os/magento2-lsp.git
 cd magento2-lsp
 npm install
 npm run build
@@ -55,6 +55,10 @@ Then add the `bin/` directory to your `$PATH`, or reference `bin/magento2-lsp` d
 On first file open, the LSP detects the Magento root, reads `app/etc/config.php` for active modules, and indexes all XML configuration files. Parse results are cached to `.magento2-lsp-cache.json` (add to `.gitignore`) for fast restarts. File watchers keep the index current as you edit.
 
 Multiple Magento projects can be open simultaneously — each gets its own isolated index.
+
+## License
+
+Copyright (c) 2025 Vinai Kopp. Released under the [MIT License](LICENSE).
 
 ## Development
 

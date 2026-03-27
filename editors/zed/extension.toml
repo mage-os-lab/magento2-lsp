@@ -4,6 +4,8 @@ version = "0.0.1"
 schema_version = 1
 authors = ["Vinai Kopp"]
 description = "Magento 2 Language Server integration for Zed"
+repository = "https://github.com/mage-os/magento2-lsp"
+license = "MIT"
 
 [language_servers.magento2-lsp]
 name = "magento2-lsp"
