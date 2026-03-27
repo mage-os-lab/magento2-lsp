@@ -146,6 +146,32 @@ export class ProjectManager {
   private projects = new Map<string, ProjectContext>();
   /** In-flight initialization promises, keyed by root path. Prevents duplicate indexing. */
   private initializing = new Map<string, Promise<ProjectContext>>();
+  /** Cache: directory path → detected Magento root (null = no root found). */
+  private rootCache = new Map<string, string | null>();
+
+  /**
+   * Cached wrapper around detectMagentoRoot. Once a directory is resolved, the result
+   * is cached for that directory and all intermediate ancestors up to the root.
+   * This avoids repeated fs.accessSync walks on every LSP request.
+   */
+  private cachedDetectRoot(dir: string): string | undefined {
+    const cached = this.rootCache.get(dir);
+    if (cached !== undefined) return cached ?? undefined;
+
+    const root = detectMagentoRoot(dir);
+    if (root) {
+      // Cache the queried dir and every intermediate directory up to the root
+      let current = dir;
+      while (current !== root && current !== path.dirname(current)) {
+        this.rootCache.set(current, root);
+        current = path.dirname(current);
+      }
+      this.rootCache.set(root, root);
+    } else {
+      this.rootCache.set(dir, null);
+    }
+    return root;
+  }
 
   /**
    * Look up the project for a given file. Returns undefined if the file is not within
@@ -153,7 +179,7 @@ export class ProjectManager {
    * This is a synchronous lookup — it does NOT trigger initialization.
    */
   getProjectForFile(filePath: string): ProjectContext | undefined {
-    const root = detectMagentoRoot(path.dirname(filePath));
+    const root = this.cachedDetectRoot(path.dirname(filePath));
     if (!root) return undefined;
     return this.projects.get(root);
   }
@@ -177,7 +203,7 @@ export class ProjectManager {
     } catch {
       return undefined;
     }
-    const root = detectMagentoRoot(isDir ? filePath : path.dirname(filePath));
+    const root = this.cachedDetectRoot(isDir ? filePath : path.dirname(filePath));
     if (!root) return undefined;
 
     const existing = this.projects.get(root);
@@ -454,6 +480,11 @@ export class ProjectManager {
 
   removeProject(root: string): void {
     this.projects.delete(root);
+    for (const [dir, cachedRoot] of this.rootCache) {
+      if (cachedRoot === root) {
+        this.rootCache.delete(dir);
+      }
+    }
   }
 }
 

@@ -99,6 +99,49 @@ export class DiIndex {
    * Called before re-parsing a changed file, so the old data is cleaned up.
    */
   removeFile(file: string): void {
+    this.removeFileData(file);
+    this.rebuildEffective();
+  }
+
+  /**
+   * Replace all data for a single file in one operation.
+   * Equivalent to removeFile + addFile but only rebuilds effective config once.
+   */
+  replaceFile(
+    file: string,
+    refs: DiReference[],
+    virtualTypes: VirtualTypeDecl[],
+  ): void {
+    this.removeFileData(file);
+
+    this.fileToRefs.set(file, refs);
+    this.fileToVirtualTypes.set(file, virtualTypes);
+
+    for (const ref of refs) {
+      const existing = this.fqcnToRefs.get(ref.fqcn);
+      if (existing) {
+        existing.push(ref);
+      } else {
+        this.fqcnToRefs.set(ref.fqcn, [ref]);
+      }
+    }
+
+    for (const vt of virtualTypes) {
+      const existing = this.virtualTypeDecls.get(vt.name);
+      if (existing) {
+        existing.push(vt);
+      } else {
+        this.virtualTypeDecls.set(vt.name, [vt]);
+      }
+    }
+
+    if (!this.batchMode) {
+      this.rebuildEffective();
+    }
+  }
+
+  /** Remove a file's data from all internal maps without triggering rebuildEffective. */
+  private removeFileData(file: string): void {
     const refs = this.fileToRefs.get(file);
     if (refs) {
       for (const ref of refs) {
@@ -130,8 +173,6 @@ export class DiIndex {
       }
       this.fileToVirtualTypes.delete(file);
     }
-
-    this.rebuildEffective();
   }
 
   /** Return ALL references to a FQCN (across all files and areas). Used by "find references". */

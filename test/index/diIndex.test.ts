@@ -430,6 +430,95 @@ describe('DiIndex', () => {
     });
   });
 
+  describe('replaceFile', () => {
+    it('replaces references for a file', () => {
+      const oldRef = makeRef({ fqcn: 'Old\\Class', file: '/a.xml' });
+      index.addFile('/a.xml', [oldRef], []);
+      expect(index.getReferencesForFqcn('Old\\Class')).toHaveLength(1);
+
+      const newRef = makeRef({ fqcn: 'New\\Class', file: '/a.xml' });
+      index.replaceFile('/a.xml', [newRef], []);
+
+      expect(index.getReferencesForFqcn('Old\\Class')).toHaveLength(0);
+      expect(index.getReferencesForFqcn('New\\Class')).toHaveLength(1);
+      expect(index.getFileCount()).toBe(1);
+    });
+
+    it('updates effective config after replacing a preference', () => {
+      const forRef = makeRef({
+        fqcn: 'My\\Interface',
+        kind: 'preference-for',
+        file: '/a.xml',
+        line: 1,
+        pairedFqcn: 'Impl\\Old',
+      });
+      const typeRef = makeRef({
+        fqcn: 'Impl\\Old',
+        kind: 'preference-type',
+        file: '/a.xml',
+        line: 1,
+        pairedFqcn: 'My\\Interface',
+      });
+      index.addFile('/a.xml', [forRef, typeRef], []);
+      expect(index.getEffectivePreferenceType('My\\Interface', 'global')?.fqcn).toBe('Impl\\Old');
+
+      const forRef2 = makeRef({
+        fqcn: 'My\\Interface',
+        kind: 'preference-for',
+        file: '/a.xml',
+        line: 1,
+        pairedFqcn: 'Impl\\New',
+      });
+      const typeRef2 = makeRef({
+        fqcn: 'Impl\\New',
+        kind: 'preference-type',
+        file: '/a.xml',
+        line: 1,
+        pairedFqcn: 'My\\Interface',
+      });
+      index.replaceFile('/a.xml', [forRef2, typeRef2], []);
+      expect(index.getEffectivePreferenceType('My\\Interface', 'global')?.fqcn).toBe('Impl\\New');
+    });
+
+    it('works on a file that was never added (like addFile)', () => {
+      const ref = makeRef({ fqcn: 'Fresh\\Class', file: '/new.xml' });
+      index.replaceFile('/new.xml', [ref], []);
+      expect(index.getReferencesForFqcn('Fresh\\Class')).toHaveLength(1);
+      expect(index.getFileCount()).toBe(1);
+    });
+
+    it('produces same results as removeFile + addFile', () => {
+      const sharedRefs = [
+        makeRef({ fqcn: 'Shared\\Class', file: '/a.xml', kind: 'type-name' }),
+      ];
+      const oldRefs = [
+        makeRef({ fqcn: 'Old\\Class', file: '/a.xml' }),
+      ];
+      const newRefs = [
+        makeRef({ fqcn: 'New\\Class', file: '/a.xml' }),
+      ];
+      const vt = makeVt({ name: 'MyVt', file: '/a.xml' });
+
+      // Method 1: replaceFile
+      const idx1 = new DiIndex();
+      idx1.addFile('/a.xml', oldRefs, []);
+      idx1.addFile('/b.xml', sharedRefs, []);
+      idx1.replaceFile('/a.xml', newRefs, [vt]);
+
+      // Method 2: removeFile + addFile
+      const idx2 = new DiIndex();
+      idx2.addFile('/a.xml', oldRefs, []);
+      idx2.addFile('/b.xml', sharedRefs, []);
+      idx2.removeFile('/a.xml');
+      idx2.addFile('/a.xml', newRefs, [vt]);
+
+      expect(idx1.getReferencesForFqcn('New\\Class')).toEqual(idx2.getReferencesForFqcn('New\\Class'));
+      expect(idx1.getReferencesForFqcn('Old\\Class')).toEqual(idx2.getReferencesForFqcn('Old\\Class'));
+      expect(idx1.getEffectiveVirtualType('MyVt')).toEqual(idx2.getEffectiveVirtualType('MyVt'));
+      expect(idx1.getFileCount()).toBe(idx2.getFileCount());
+    });
+  });
+
   describe('clear', () => {
     it('removes all data', () => {
       index.addFile(

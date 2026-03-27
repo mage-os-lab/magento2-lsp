@@ -99,3 +99,93 @@ export function createXmlWatcher<TContext, TResult>(
   watcher.watch(config.patterns);
   return watcher;
 }
+
+/** Handler that processes change/remove events for a specific file type. */
+export interface WatcherHandler {
+  /** Cheap test: should this handler process the given file path? */
+  matches(filePath: string): boolean;
+  /** Called when a matching file is added or changed. */
+  onFileChange(filePath: string): void;
+  /** Called when a matching file is deleted. */
+  onFileRemove(filePath: string): void;
+}
+
+/**
+ * A single chokidar instance that dispatches file events to registered handlers.
+ * Replaces N independent FileWatcher instances with one, reducing OS-level
+ * file descriptor usage (inotify/kqueue watches).
+ */
+export class UnifiedFileWatcher {
+  private watcher: chokidar.FSWatcher | undefined;
+  private handlers: WatcherHandler[] = [];
+
+  /** Register a handler. Must be called before watch(). */
+  addHandler(handler: WatcherHandler): void {
+    this.handlers.push(handler);
+  }
+
+  /** Start watching all patterns with a single chokidar instance. */
+  watch(patterns: string[]): void {
+    this.watcher = chokidar.watch(patterns, {
+      ignoreInitial: true,
+      awaitWriteFinish: {
+        stabilityThreshold: 300,
+        pollInterval: 100,
+      },
+    });
+
+    const dispatch = (filePath: string, event: 'change' | 'remove'): void => {
+      for (const handler of this.handlers) {
+        if (handler.matches(filePath)) {
+          if (event === 'change') {
+            handler.onFileChange(filePath);
+          } else {
+            handler.onFileRemove(filePath);
+          }
+          return;
+        }
+      }
+    };
+
+    this.watcher.on('change', (fp) => dispatch(fp as string, 'change'));
+    this.watcher.on('add', (fp) => dispatch(fp as string, 'change'));
+    this.watcher.on('unlink', (fp) => dispatch(fp as string, 'remove'));
+  }
+
+  /** Stop watching and release resources. */
+  close(): void {
+    this.watcher?.close();
+  }
+}
+
+/**
+ * Create a WatcherHandler from an XmlWatcherConfig.
+ * Wraps the standard read → parse → index → cache lifecycle into the handler interface.
+ */
+export function createXmlWatcherHandler<TContext, TResult>(
+  config: Omit<XmlWatcherConfig<TContext, TResult>, 'patterns'>,
+  matches: (filePath: string) => boolean,
+): WatcherHandler {
+  return {
+    matches,
+    onFileChange(filePath) {
+      const context = config.resolveContext(filePath);
+      if (!context) return;
+      try {
+        const content = fs.readFileSync(filePath, 'utf-8');
+        const stat = fs.statSync(filePath);
+        const result = config.parse(content, context);
+        config.onParsed(filePath, stat.mtimeMs, result);
+        config.saveCache();
+        config.afterChange?.();
+      } catch {
+        // File might be temporarily unreadable during write
+      }
+    },
+    onFileRemove(filePath) {
+      config.onRemoved(filePath);
+      config.saveCache();
+      config.afterChange?.();
+    },
+  };
+}

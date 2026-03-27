@@ -48,6 +48,28 @@ describe('ProjectManager', () => {
     expect(refs.length).toBeGreaterThanOrEqual(1);
   });
 
+  it('caches root detection across repeated lookups', async () => {
+    const pm = new ProjectManager();
+    await pm.ensureProject(FIXTURE_ROOT);
+
+    const nestedFile = path.join(FIXTURE_ROOT, 'vendor', 'test', 'module-foo', 'Model', 'Foo.php');
+    const result1 = pm.getProjectForFile(nestedFile);
+    const result2 = pm.getProjectForFile(nestedFile);
+    expect(result1).toBeDefined();
+    expect(result2).toBe(result1);
+  });
+
+  it('returns undefined after removeProject purges cache', async () => {
+    const pm = new ProjectManager();
+    await pm.ensureProject(FIXTURE_ROOT);
+
+    const nestedFile = path.join(FIXTURE_ROOT, 'vendor', 'test', 'module-foo', 'Model', 'Foo.php');
+    expect(pm.getProjectForFile(nestedFile)).toBeDefined();
+
+    pm.removeProject(FIXTURE_ROOT);
+    expect(pm.getProjectForFile(nestedFile)).toBeUndefined();
+  });
+
   it('reports progress during indexing', async () => {
     const pm = new ProjectManager();
     const events: string[] = [];
