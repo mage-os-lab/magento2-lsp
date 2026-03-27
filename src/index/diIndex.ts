@@ -186,7 +186,7 @@ export class DiIndex {
    * Used by PluginMethodIndex to build the method-level plugin mapping.
    */
   *getAllPluginRefsWithTargets(): Generator<{ targetFqcn: string; pluginRef: DiReference }> {
-    for (const [file, refs] of this.fileToRefs) {
+    for (const [, refs] of this.fileToRefs) {
       for (const ref of refs) {
         if (ref.kind === 'plugin-type') {
           const targetFqcn = this.findParentTypeName(ref, refs);

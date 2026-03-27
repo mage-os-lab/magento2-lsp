@@ -27,7 +27,7 @@ import { ThemeResolver } from './themeResolver';
 import { DiIndex } from '../index/diIndex';
 import { EventsIndex } from '../index/eventsIndex';
 import { LayoutIndex } from '../index/layoutIndex';
-import { IndexCache } from '../cache/indexCache';
+import { IndexCache, CacheSectionKey } from '../cache/indexCache';
 import { parseDiXml } from '../indexer/diXmlParser';
 import { parseEventsXml } from '../indexer/eventsXmlParser';
 import { parseLayoutXml } from '../indexer/layoutXmlParser';
@@ -103,9 +103,49 @@ export interface ProgressCallback {
   onEnd(): void;
 }
 
+/**
+ * Generic helper for the "stat → cache check → parse → index update → cache set" loop.
+ *
+ * Each XML index type follows the same lifecycle during project initialization:
+ *   1. Check if the file has a valid cache entry (matching mtimeMs)
+ *   2. If cached, feed the cached result directly to the index
+ *   3. If not cached, read + parse the file, feed result to index, and update the cache
+ *   4. After all files, prune stale cache entries
+ *
+ * The caller prepares the file list (with parse contexts) and provides callbacks for
+ * how to add results to the specific index type.
+ */
+function indexXmlFiles<TCtx, TResult>(
+  files: { file: string; context: TCtx }[],
+  cache: IndexCache,
+  section: CacheSectionKey,
+  parse: (content: string, ctx: TCtx) => TResult,
+  addToIndex: (file: string, result: TResult) => void,
+): void {
+  for (const { file, context } of files) {
+    try {
+      const stat = fs.statSync(file);
+      const cached = cache.getEntry<TResult & { mtimeMs: number }>(section, file, stat.mtimeMs);
+      if (cached) {
+        addToIndex(file, cached);
+      } else {
+        const content = fs.readFileSync(file, 'utf-8');
+        const result = parse(content, context);
+        addToIndex(file, result);
+        cache.setEntry(section, file, { mtimeMs: stat.mtimeMs, ...result as Record<string, unknown> });
+      }
+    } catch {
+      // Skip unreadable files
+    }
+  }
+  cache.pruneEntries(section, new Set(files.map((f) => f.file)));
+}
+
 export class ProjectManager {
   /** Keyed by Magento root path. */
   private projects = new Map<string, ProjectContext>();
+  /** In-flight initialization promises, keyed by root path. Prevents duplicate indexing. */
+  private initializing = new Map<string, Promise<ProjectContext>>();
 
   /**
    * Look up the project for a given file. Returns undefined if the file is not within
@@ -122,6 +162,10 @@ export class ProjectManager {
    * Ensure a project is initialized for the given file path.
    * If this is the first time we've seen this Magento root, performs full initialization
    * (discover modules, parse di.xml files, build index). Otherwise returns the existing context.
+   *
+   * If initialization is already in progress for this root (e.g., triggered by opening
+   * another file from the same project), the existing promise is returned to avoid
+   * duplicate indexing passes.
    */
   async ensureProject(
     filePath: string,
@@ -139,9 +183,18 @@ export class ProjectManager {
     const existing = this.projects.get(root);
     if (existing) return existing;
 
-    const project = await this.initializeProject(root, progress);
-    this.projects.set(root, project);
-    return project;
+    const inflight = this.initializing.get(root);
+    if (inflight) return inflight;
+
+    const promise = this.initializeProject(root, progress);
+    this.initializing.set(root, promise);
+    try {
+      const project = await promise;
+      this.projects.set(root, project);
+      return project;
+    } finally {
+      this.initializing.delete(root);
+    }
   }
 
   /**
@@ -149,9 +202,8 @@ export class ProjectManager {
    *   1. Parse config.php for active modules and their load order
    *   2. Build PSR-4 map from composer's installed.json + app/code
    *   3. Load the disk cache (if available)
-   *   4. Discover all di.xml files from active modules
-   *   5. Parse each file (or use cached results if mtime hasn't changed)
-   *   6. Save the updated cache
+   *   4. Discover and index all XML file types (using cache where possible)
+   *   5. Save the updated cache
    */
   private async initializeProject(
     root: string,
@@ -166,41 +218,35 @@ export class ProjectManager {
     const cache = new IndexCache(root);
     cache.load();
 
-    // --- Index di.xml files (cached) ---
-    const diXmlFiles: { file: string; area: string; module: string; moduleOrder: number }[] = [];
+    // --- Index di.xml files (special: batch mode + progress reporting) ---
+    const diXmlFiles: { file: string; context: { file: string; area: string; module: string; moduleOrder: number } }[] = [];
 
     const rootDiXml = path.join(root, 'app', 'etc', 'di.xml');
     if (fileExists(rootDiXml)) {
-      diXmlFiles.push({ file: rootDiXml, area: 'global', module: '__root__', moduleOrder: -1 });
+      diXmlFiles.push({ file: rootDiXml, context: { file: rootDiXml, area: 'global', module: '__root__', moduleOrder: -1 } });
     }
 
     for (const mod of modules) {
-      const files = discoverDiXmlFiles(mod.path);
-      for (const f of files) {
-        diXmlFiles.push({ file: f.file, area: f.area, module: mod.name, moduleOrder: mod.order });
+      for (const f of discoverDiXmlFiles(mod.path)) {
+        diXmlFiles.push({ file: f.file, context: { file: f.file, area: f.area, module: mod.name, moduleOrder: mod.order } });
       }
     }
 
-    const total = diXmlFiles.length;
-    progress?.onBegin(total);
-
+    progress?.onBegin(diXmlFiles.length);
 
     index.beginBatch();
     try {
       for (let i = 0; i < diXmlFiles.length; i++) {
-        const { file, area, module: moduleName, moduleOrder } = diXmlFiles[i];
-        progress?.onProgress(i + 1, total, file);
-
+        const { file, context } = diXmlFiles[i];
+        progress?.onProgress(i + 1, diXmlFiles.length, file);
         try {
           const stat = fs.statSync(file);
           const cached = cache.getDiEntry(file, stat.mtimeMs);
-
           if (cached) {
-  
             index.addFile(file, cached.references, cached.virtualTypes);
           } else {
             const content = fs.readFileSync(file, 'utf-8');
-            const result = parseDiXml(content, { file, area, module: moduleName, moduleOrder });
+            const result = parseDiXml(content, context);
             index.addFile(file, result.references, result.virtualTypes);
             cache.setDiEntry(file, stat.mtimeMs, result.references, result.virtualTypes);
           }
@@ -213,300 +259,124 @@ export class ProjectManager {
     }
     cache.pruneDiFiles(new Set(diXmlFiles.map((f) => f.file)));
 
-    // --- Index events.xml files (cached) ---
+    // --- Index events.xml files ---
     const eventsIndex = new EventsIndex();
-    const allEventsFiles: string[] = [];
-
-
+    const eventsFiles: { file: string; context: { file: string; area: string; module: string } }[] = [];
     for (const mod of modules) {
-      const eventsFiles = discoverEventsXmlFiles(mod.path);
-      for (const f of eventsFiles) {
-        allEventsFiles.push(f.file);
-        try {
-          const stat = fs.statSync(f.file);
-          const cached = cache.getEventsEntry(f.file, stat.mtimeMs);
-
-          if (cached) {
-
-            eventsIndex.addFile(f.file, cached.events, cached.observers);
-          } else {
-            const content = fs.readFileSync(f.file, 'utf-8');
-            const result = parseEventsXml(content, { file: f.file, area: f.area, module: mod.name });
-            eventsIndex.addFile(f.file, result.events, result.observers);
-            cache.setEventsEntry(f.file, stat.mtimeMs, result.events, result.observers);
-          }
-        } catch {
-          // Skip unreadable files
-        }
+      for (const f of discoverEventsXmlFiles(mod.path)) {
+        eventsFiles.push({ file: f.file, context: { file: f.file, area: f.area, module: mod.name } });
       }
     }
+    indexXmlFiles(eventsFiles, cache, 'eventsFiles', parseEventsXml,
+      (file, r) => eventsIndex.addFile(file, r.events, r.observers));
 
-    cache.pruneEventsFiles(new Set(allEventsFiles));
-
-    // --- Index system.xml files (cached) ---
+    // --- Index system.xml files ---
     const systemConfigIndex = new SystemConfigIndex();
-    const allSystemConfigFiles: string[] = [];
-
-
+    const systemFiles: { file: string; context: { file: string; module: string } }[] = [];
     for (const mod of modules) {
-      // Main system.xml
       const mainFile = path.join(mod.path, 'etc', 'adminhtml', 'system.xml');
-      // Include partials under etc/adminhtml/system/
       const systemDir = path.join(mod.path, 'etc', 'adminhtml', 'system');
       const filesToIndex = [
         ...(fileExists(mainFile) ? [mainFile] : []),
         ...listXmlFilesRecursive(systemDir),
       ];
-
       for (const xmlFile of filesToIndex) {
-        allSystemConfigFiles.push(xmlFile);
-        try {
-          const stat = fs.statSync(xmlFile);
-          const cached = cache.getSystemConfigEntry(xmlFile, stat.mtimeMs);
-
-          if (cached) {
-
-            systemConfigIndex.addFile(xmlFile, cached.references);
-          } else {
-            const content = fs.readFileSync(xmlFile, 'utf-8');
-            const result = parseSystemXml(content, { file: xmlFile, module: mod.name });
-            systemConfigIndex.addFile(xmlFile, result.references);
-            cache.setSystemConfigEntry(xmlFile, stat.mtimeMs, result.references);
-          }
-        } catch {
-          // Skip unreadable files
-        }
+        systemFiles.push({ file: xmlFile, context: { file: xmlFile, module: mod.name } });
       }
     }
+    indexXmlFiles(systemFiles, cache, 'systemConfigFiles', parseSystemXml,
+      (file, r) => systemConfigIndex.addFile(file, r.references));
 
-    cache.pruneSystemConfigFiles(new Set(allSystemConfigFiles));
-
-    // --- Index webapi.xml files (cached) ---
+    // --- Index webapi.xml files ---
     const webapiIndex = new WebapiIndex();
-    const allWebapiFiles: string[] = [];
-
-
+    const webapiFiles: { file: string; context: { file: string; module: string } }[] = [];
     for (const mod of modules) {
-      const webapiFiles = discoverWebapiXmlFiles(mod.path);
-      for (const f of webapiFiles) {
-        allWebapiFiles.push(f.file);
-        try {
-          const stat = fs.statSync(f.file);
-          const cached = cache.getWebapiEntry(f.file, stat.mtimeMs);
-
-          if (cached) {
-
-            webapiIndex.addFile(f.file, cached.references);
-          } else {
-            const content = fs.readFileSync(f.file, 'utf-8');
-            const result = parseWebapiXml(content, { file: f.file, module: mod.name });
-            webapiIndex.addFile(f.file, result.references);
-            cache.setWebapiEntry(f.file, stat.mtimeMs, result.references);
-          }
-        } catch {
-          // Skip unreadable files
-        }
+      for (const f of discoverWebapiXmlFiles(mod.path)) {
+        webapiFiles.push({ file: f.file, context: { file: f.file, module: mod.name } });
       }
     }
+    indexXmlFiles(webapiFiles, cache, 'webapiFiles', parseWebapiXml,
+      (file, r) => webapiIndex.addFile(file, r.references));
 
-    cache.pruneWebapiFiles(new Set(allWebapiFiles));
-
-    // --- Index acl.xml files (cached) ---
+    // --- Index acl.xml files ---
     const aclIndex = new AclIndex();
-    const allAclFiles: string[] = [];
-
-
+    const aclFiles: { file: string; context: { file: string; module: string } }[] = [];
     for (const mod of modules) {
-      const aclFiles = discoverAclXmlFiles(mod.path);
-      for (const f of aclFiles) {
-        allAclFiles.push(f.file);
-        try {
-          const stat = fs.statSync(f.file);
-          const cached = cache.getAclEntry(f.file, stat.mtimeMs);
-
-          if (cached) {
-
-            aclIndex.addFile(f.file, cached.resources);
-          } else {
-            const content = fs.readFileSync(f.file, 'utf-8');
-            const result = parseAclXml(content, { file: f.file, module: mod.name });
-            aclIndex.addFile(f.file, result.resources);
-            cache.setAclEntry(f.file, stat.mtimeMs, result.resources);
-          }
-        } catch {
-          // Skip unreadable files
-        }
+      for (const f of discoverAclXmlFiles(mod.path)) {
+        aclFiles.push({ file: f.file, context: { file: f.file, module: mod.name } });
       }
     }
+    indexXmlFiles(aclFiles, cache, 'aclFiles', parseAclXml,
+      (file, r) => aclIndex.addFile(file, r.resources));
 
-    cache.pruneAclFiles(new Set(allAclFiles));
-
-    // --- Index menu.xml files (cached) ---
+    // --- Index menu.xml files ---
     const menuIndex = new MenuIndex();
-    const allMenuFiles: string[] = [];
-
-
+    const menuFiles: { file: string; context: { file: string; module: string } }[] = [];
     for (const mod of modules) {
-      const menuFiles = discoverMenuXmlFiles(mod.path);
-      for (const f of menuFiles) {
-        allMenuFiles.push(f.file);
-        try {
-          const stat = fs.statSync(f.file);
-          const cached = cache.getMenuEntry(f.file, stat.mtimeMs);
-
-          if (cached) {
-
-            menuIndex.addFile(f.file, cached.references);
-          } else {
-            const content = fs.readFileSync(f.file, 'utf-8');
-            const result = parseMenuXml(content, { file: f.file, module: mod.name });
-            menuIndex.addFile(f.file, result.references);
-            cache.setMenuEntry(f.file, stat.mtimeMs, result.references);
-          }
-        } catch {
-          // Skip unreadable files
-        }
+      for (const f of discoverMenuXmlFiles(mod.path)) {
+        menuFiles.push({ file: f.file, context: { file: f.file, module: mod.name } });
       }
     }
+    indexXmlFiles(menuFiles, cache, 'menuFiles', parseMenuXml,
+      (file, r) => menuIndex.addFile(file, r.references));
 
-    cache.pruneMenuFiles(new Set(allMenuFiles));
-
-    // --- Index UI component aclResource files (cached) ---
+    // --- Index UI component aclResource files ---
     const uiComponentAclIndex = new UiComponentAclIndex();
-    const allUiComponentFiles: string[] = [];
-
-
+    const uiFiles: { file: string; context: { file: string; module: string } }[] = [];
     for (const mod of modules) {
-      const uiFiles = discoverUiComponentAclFiles(mod.path);
-      for (const f of uiFiles) {
-        allUiComponentFiles.push(f.file);
-        try {
-          const stat = fs.statSync(f.file);
-          const cached = cache.getUiComponentAclEntry(f.file, stat.mtimeMs);
-
-          if (cached) {
-
-            uiComponentAclIndex.addFile(f.file, cached.references);
-          } else {
-            const content = fs.readFileSync(f.file, 'utf-8');
-            const result = parseUiComponentAcl(content, { file: f.file, module: mod.name });
-            uiComponentAclIndex.addFile(f.file, result.references);
-            cache.setUiComponentAclEntry(f.file, stat.mtimeMs, result.references);
-          }
-        } catch {
-          // Skip unreadable files
-        }
+      for (const f of discoverUiComponentAclFiles(mod.path)) {
+        uiFiles.push({ file: f.file, context: { file: f.file, module: mod.name } });
       }
     }
+    indexXmlFiles(uiFiles, cache, 'uiComponentAclFiles', parseUiComponentAcl,
+      (file, r) => uiComponentAclIndex.addFile(file, r.references));
 
-    cache.pruneUiComponentAclFiles(new Set(allUiComponentFiles));
-
-    // --- Index routes.xml files (cached) ---
+    // --- Index routes.xml files ---
     const routesIndex = new RoutesIndex();
-    const allRoutesFiles: string[] = [];
-
+    const routesFiles: { file: string; context: { file: string; module: string; area: string } }[] = [];
     for (const mod of modules) {
-      const routesFiles = discoverRoutesXmlFiles(mod.path);
-      for (const f of routesFiles) {
-        allRoutesFiles.push(f.file);
-        try {
-          const stat = fs.statSync(f.file);
-          const cached = cache.getRoutesEntry(f.file, stat.mtimeMs);
-
-          if (cached) {
-            routesIndex.addFile(f.file, cached.references);
-          } else {
-            const content = fs.readFileSync(f.file, 'utf-8');
-            const result = parseRoutesXml(content, { file: f.file, module: mod.name, area: f.area });
-            routesIndex.addFile(f.file, result.references);
-            cache.setRoutesEntry(f.file, stat.mtimeMs, result.references);
-          }
-        } catch {
-          // Skip unreadable files
-        }
+      for (const f of discoverRoutesXmlFiles(mod.path)) {
+        routesFiles.push({ file: f.file, context: { file: f.file, module: mod.name, area: f.area } });
       }
     }
+    indexXmlFiles(routesFiles, cache, 'routesFiles', parseRoutesXml,
+      (file, r) => routesIndex.addFile(file, r.references));
 
-    cache.pruneRoutesFiles(new Set(allRoutesFiles));
-
-    // --- Index db_schema.xml files (cached) ---
+    // --- Index db_schema.xml files ---
     const dbSchemaIndex = new DbSchemaIndex();
-    const allDbSchemaFiles: string[] = [];
-
+    const dbSchemaFiles: { file: string; context: { file: string; module: string } }[] = [];
     for (const mod of modules) {
-      const dbSchemaFiles = discoverDbSchemaXmlFiles(mod.path);
-      for (const f of dbSchemaFiles) {
-        allDbSchemaFiles.push(f.file);
-        try {
-          const stat = fs.statSync(f.file);
-          const cached = cache.getDbSchemaEntry(f.file, stat.mtimeMs);
-
-          if (cached) {
-            dbSchemaIndex.addFile(f.file, cached.references);
-          } else {
-            const content = fs.readFileSync(f.file, 'utf-8');
-            const result = parseDbSchemaXml(content, { file: f.file, module: mod.name });
-            dbSchemaIndex.addFile(f.file, result.references);
-            cache.setDbSchemaEntry(f.file, stat.mtimeMs, result.references);
-          }
-        } catch {
-          // Skip unreadable files
-        }
+      for (const f of discoverDbSchemaXmlFiles(mod.path)) {
+        dbSchemaFiles.push({ file: f.file, context: { file: f.file, module: mod.name } });
       }
     }
+    indexXmlFiles(dbSchemaFiles, cache, 'dbSchemaFiles', parseDbSchemaXml,
+      (file, r) => dbSchemaIndex.addFile(file, r.references));
 
-    cache.pruneDbSchemaFiles(new Set(allDbSchemaFiles));
-
-    // --- Discover themes and index layout XML files (cached) ---
+    // --- Discover themes and index layout XML files ---
     const themeResolver = new ThemeResolver();
     themeResolver.discover(root);
 
     const layoutIndex = new LayoutIndex();
-    const allLayoutFiles: string[] = [];
+    const layoutFiles: { file: string; context: string }[] = [];
 
-
-    function indexLayoutFile(xmlFile: string): void {
-      allLayoutFiles.push(xmlFile);
-      try {
-        const stat = fs.statSync(xmlFile);
-        const cached = cache.getLayoutEntry(xmlFile, stat.mtimeMs);
-
-        if (cached) {
-
-          layoutIndex.addFile(xmlFile, cached.references);
-        } else {
-          const content = fs.readFileSync(xmlFile, 'utf-8');
-          const result = parseLayoutXml(content, xmlFile);
-          layoutIndex.addFile(xmlFile, result.references);
-          cache.setLayoutEntry(xmlFile, stat.mtimeMs, result.references);
-        }
-      } catch {
-        // Skip unreadable files
-      }
-    }
-
-    // Module layout and page_layout files
     for (const mod of modules) {
       for (const subdir of ['layout', 'page_layout']) {
         for (const area of ['frontend', 'adminhtml', 'base']) {
-          const dir = path.join(mod.path, 'view', area, subdir);
-          for (const xmlFile of listXmlFiles(dir)) {
-            indexLayoutFile(xmlFile);
+          for (const xmlFile of listXmlFiles(path.join(mod.path, 'view', area, subdir))) {
+            layoutFiles.push({ file: xmlFile, context: xmlFile });
           }
         }
       }
     }
-
-    // Theme layout and page_layout files
     for (const theme of themeResolver.getAllThemes()) {
       try {
         const entries = fs.readdirSync(theme.path);
         for (const entry of entries) {
           if (!entry.includes('_')) continue;
           for (const subdir of ['layout', 'page_layout']) {
-            const dir = path.join(theme.path, entry, subdir);
-            for (const xmlFile of listXmlFiles(dir)) {
-              indexLayoutFile(xmlFile);
+            for (const xmlFile of listXmlFiles(path.join(theme.path, entry, subdir))) {
+              layoutFiles.push({ file: xmlFile, context: xmlFile });
             }
           }
         }
@@ -514,13 +384,11 @@ export class ProjectManager {
         // Theme dir unreadable
       }
     }
-
-    cache.pruneLayoutFiles(new Set(allLayoutFiles));
+    indexXmlFiles(layoutFiles, cache, 'layoutFiles',
+      (content, filePath) => parseLayoutXml(content, filePath),
+      (file, r) => layoutIndex.addFile(file, r.references));
 
     // --- Discover Hyvä compat module registrations ---
-    // Compat modules register in etc/frontend/di.xml by adding arguments to
-    // Hyva\CompatModuleFallback\Model\CompatModuleRegistry. We scan all modules'
-    // frontend di.xml files for these registrations.
     const compatModuleIndex = new CompatModuleIndex();
     for (const mod of modules) {
       const frontendDiXml = path.join(mod.path, 'etc', 'frontend', 'di.xml');
@@ -537,17 +405,18 @@ export class ProjectManager {
         // No frontend/di.xml or unreadable — skip
       }
     }
-    // Build the plugin method index: maps target class methods to their plugin interceptions.
+
+    // Build the plugin method index
     const pluginMethodIndex = new PluginMethodIndex();
     pluginMethodIndex.build(index, psr4Map);
 
     // Save cache once (covers all indexed XML types)
     cache.save();
 
-    const totalFiles = diXmlFiles.length + allEventsFiles.length + allSystemConfigFiles.length
-      + allWebapiFiles.length + allAclFiles.length + allMenuFiles.length
-      + allUiComponentFiles.length + allRoutesFiles.length + allDbSchemaFiles.length
-      + allLayoutFiles.length;
+    const totalFiles = diXmlFiles.length + eventsFiles.length + systemFiles.length
+      + webapiFiles.length + aclFiles.length + menuFiles.length
+      + uiFiles.length + routesFiles.length + dbSchemaFiles.length
+      + layoutFiles.length;
     console.error(`[magento2-lsp] Indexed ${modules.length} modules, ${totalFiles} XML files in ${Date.now() - t0}ms`);
 
     progress?.onEnd();

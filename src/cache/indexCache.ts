@@ -1,9 +1,9 @@
 /**
  * Disk-based cache for parsed XML index data.
  *
- * Stores parse results for di.xml, events.xml, and layout XML files, keyed by
- * file path with modification time (mtimeMs) for cache invalidation. On warm
- * startup, only files whose mtime has changed need to be re-parsed.
+ * Stores parse results for all Magento XML file types, keyed by file path with
+ * modification time (mtimeMs) for cache invalidation. On warm startup, only
+ * files whose mtime has changed need to be re-parsed.
  *
  * The cache is stored as JSON at {magentoRoot}/.magento2-lsp-cache.json.
  * It includes a version number so the cache is automatically invalidated when
@@ -98,13 +98,31 @@ export interface CacheFile {
   dbSchemaFiles: Record<string, DbSchemaCacheEntry>;
 }
 
+/** Keys of CacheFile that hold per-file data sections (everything except 'version'). */
+export type CacheSectionKey = Exclude<keyof CacheFile, 'version'>;
+
+const SECTION_KEYS: CacheSectionKey[] = [
+  'diFiles', 'eventsFiles', 'layoutFiles', 'systemConfigFiles',
+  'webapiFiles', 'aclFiles', 'menuFiles', 'uiComponentAclFiles',
+  'routesFiles', 'dbSchemaFiles',
+];
+
+function createEmptyData(): CacheFile {
+  return {
+    version: CACHE_VERSION,
+    diFiles: {}, eventsFiles: {}, layoutFiles: {}, systemConfigFiles: {},
+    webapiFiles: {}, aclFiles: {}, menuFiles: {}, uiComponentAclFiles: {},
+    routesFiles: {}, dbSchemaFiles: {},
+  };
+}
+
 export class IndexCache {
   private cachePath: string;
   private data: CacheFile;
 
   constructor(magentoRoot: string) {
     this.cachePath = path.join(magentoRoot, CACHE_FILENAME);
-    this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {}, systemConfigFiles: {}, webapiFiles: {}, aclFiles: {}, menuFiles: {}, uiComponentAclFiles: {}, routesFiles: {}, dbSchemaFiles: {} };
+    this.data = createEmptyData();
   }
 
   /**
@@ -116,24 +134,17 @@ export class IndexCache {
       const raw = fs.readFileSync(this.cachePath, 'utf-8');
       const parsed = JSON.parse(raw) as CacheFile;
       if (parsed.version !== CACHE_VERSION) {
-        this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {}, systemConfigFiles: {}, webapiFiles: {}, aclFiles: {}, menuFiles: {}, uiComponentAclFiles: {}, routesFiles: {}, dbSchemaFiles: {} };
+        this.data = createEmptyData();
         return false;
       }
       // Ensure all sections exist (forward-compat for caches without new sections)
-      parsed.diFiles ??= {};
-      parsed.eventsFiles ??= {};
-      parsed.layoutFiles ??= {};
-      parsed.systemConfigFiles ??= {};
-      parsed.webapiFiles ??= {};
-      parsed.aclFiles ??= {};
-      parsed.menuFiles ??= {};
-      parsed.uiComponentAclFiles ??= {};
-      parsed.routesFiles ??= {};
-      parsed.dbSchemaFiles ??= {};
+      for (const key of SECTION_KEYS) {
+        (parsed as unknown as Record<string, unknown>)[key] ??= {};
+      }
       this.data = parsed;
       return true;
     } catch {
-      this.data = { version: CACHE_VERSION, diFiles: {}, eventsFiles: {}, layoutFiles: {}, systemConfigFiles: {}, webapiFiles: {}, aclFiles: {}, menuFiles: {}, uiComponentAclFiles: {}, routesFiles: {}, dbSchemaFiles: {} };
+      this.data = createEmptyData();
       return false;
     }
   }
@@ -147,211 +158,52 @@ export class IndexCache {
     }
   }
 
-  // --- di.xml ---
+  // --- Generic section accessors ---
 
-  getDiEntry(filePath: string, currentMtimeMs: number): DiCacheEntry | undefined {
-    const entry = this.data.diFiles[filePath];
+  /** Return a cached entry if its mtime matches, otherwise undefined. */
+  getEntry<T extends { mtimeMs: number }>(section: CacheSectionKey, filePath: string, currentMtimeMs: number): T | undefined {
+    const sectionData = this.data[section] as unknown as Record<string, T>;
+    const entry = sectionData[filePath];
     return entry && entry.mtimeMs === currentMtimeMs ? entry : undefined;
   }
 
-  setDiEntry(filePath: string, mtimeMs: number, refs: DiReference[], virtualTypes: VirtualTypeDecl[]): void {
-    this.data.diFiles[filePath] = { mtimeMs, references: refs, virtualTypes };
+  /** Store a cache entry for a file in the given section. */
+  setEntry(section: CacheSectionKey, filePath: string, entry: Record<string, unknown> & { mtimeMs: number }): void {
+    (this.data[section] as unknown as Record<string, unknown>)[filePath] = entry;
   }
 
-  // --- events.xml ---
-
-  getEventsEntry(filePath: string, currentMtimeMs: number): EventsCacheEntry | undefined {
-    const entry = this.data.eventsFiles[filePath];
-    return entry && entry.mtimeMs === currentMtimeMs ? entry : undefined;
-  }
-
-  setEventsEntry(filePath: string, mtimeMs: number, events: EventReference[], observers: ObserverReference[]): void {
-    this.data.eventsFiles[filePath] = { mtimeMs, events, observers };
-  }
-
-  // --- layout XML ---
-
-  getLayoutEntry(filePath: string, currentMtimeMs: number): LayoutCacheEntry | undefined {
-    const entry = this.data.layoutFiles[filePath];
-    return entry && entry.mtimeMs === currentMtimeMs ? entry : undefined;
-  }
-
-  setLayoutEntry(filePath: string, mtimeMs: number, references: LayoutReference[]): void {
-    this.data.layoutFiles[filePath] = { mtimeMs, references };
-  }
-
-  // --- Pruning ---
-
-  /** Remove cache entries for files that no longer exist on disk. */
-  pruneDiFiles(existingFiles: Set<string>): void {
-    this.pruneSection(this.data.diFiles, existingFiles);
-  }
-
-  pruneEventsFiles(existingFiles: Set<string>): void {
-    this.pruneSection(this.data.eventsFiles, existingFiles);
-  }
-
-  pruneLayoutFiles(existingFiles: Set<string>): void {
-    this.pruneSection(this.data.layoutFiles, existingFiles);
-  }
-
-  private pruneSection(section: Record<string, unknown>, existingFiles: Set<string>): void {
-    for (const filePath of Object.keys(section)) {
+  /** Remove cached entries for files not in the given set. */
+  pruneEntries(section: CacheSectionKey, existingFiles: Set<string>): void {
+    const sectionData = this.data[section] as unknown as Record<string, unknown>;
+    for (const filePath of Object.keys(sectionData)) {
       if (!existingFiles.has(filePath)) {
-        delete section[filePath];
+        delete sectionData[filePath];
       }
     }
   }
 
+  /** Remove a single entry from a cache section. */
+  removeFromSection(section: CacheSectionKey, filePath: string): void {
+    delete (this.data[section] as unknown as Record<string, unknown>)[filePath];
+  }
+
+  // --- DI-specific convenience methods (used by tests) ---
+
+  getDiEntry(filePath: string, currentMtimeMs: number): DiCacheEntry | undefined {
+    return this.getEntry<DiCacheEntry>('diFiles', filePath, currentMtimeMs);
+  }
+
+  setDiEntry(filePath: string, mtimeMs: number, refs: DiReference[], virtualTypes: VirtualTypeDecl[]): void {
+    this.setEntry('diFiles', filePath, { mtimeMs, references: refs, virtualTypes });
+  }
+
+  pruneDiFiles(existingFiles: Set<string>): void {
+    this.pruneEntries('diFiles', existingFiles);
+  }
+
   /** Remove a single di.xml entry from the cache. */
   removeEntry(filePath: string): void {
-    delete this.data.diFiles[filePath];
-  }
-
-  /** Remove a single events.xml entry from the cache. */
-  removeEventsEntry(filePath: string): void {
-    delete this.data.eventsFiles[filePath];
-  }
-
-  /** Remove a single layout XML entry from the cache. */
-  removeLayoutEntry(filePath: string): void {
-    delete this.data.layoutFiles[filePath];
-  }
-
-  // --- system.xml ---
-
-  getSystemConfigEntry(filePath: string, currentMtimeMs: number): SystemConfigCacheEntry | undefined {
-    const entry = this.data.systemConfigFiles[filePath];
-    return entry && entry.mtimeMs === currentMtimeMs ? entry : undefined;
-  }
-
-  setSystemConfigEntry(filePath: string, mtimeMs: number, references: SystemConfigReference[]): void {
-    this.data.systemConfigFiles[filePath] = { mtimeMs, references };
-  }
-
-  pruneSystemConfigFiles(existingFiles: Set<string>): void {
-    this.pruneSection(this.data.systemConfigFiles, existingFiles);
-  }
-
-  /** Remove a single system.xml entry from the cache. */
-  removeSystemConfigEntry(filePath: string): void {
-    delete this.data.systemConfigFiles[filePath];
-  }
-
-  // --- webapi.xml ---
-
-  getWebapiEntry(filePath: string, currentMtimeMs: number): WebapiCacheEntry | undefined {
-    const entry = this.data.webapiFiles[filePath];
-    return entry && entry.mtimeMs === currentMtimeMs ? entry : undefined;
-  }
-
-  setWebapiEntry(filePath: string, mtimeMs: number, references: WebapiReference[]): void {
-    this.data.webapiFiles[filePath] = { mtimeMs, references };
-  }
-
-  pruneWebapiFiles(existingFiles: Set<string>): void {
-    this.pruneSection(this.data.webapiFiles, existingFiles);
-  }
-
-  /** Remove a single webapi.xml entry from the cache. */
-  removeWebapiEntry(filePath: string): void {
-    delete this.data.webapiFiles[filePath];
-  }
-
-  // --- acl.xml ---
-
-  getAclEntry(filePath: string, currentMtimeMs: number): AclCacheEntry | undefined {
-    const entry = this.data.aclFiles[filePath];
-    return entry && entry.mtimeMs === currentMtimeMs ? entry : undefined;
-  }
-
-  setAclEntry(filePath: string, mtimeMs: number, resources: AclResource[]): void {
-    this.data.aclFiles[filePath] = { mtimeMs, resources };
-  }
-
-  pruneAclFiles(existingFiles: Set<string>): void {
-    this.pruneSection(this.data.aclFiles, existingFiles);
-  }
-
-  /** Remove a single acl.xml entry from the cache. */
-  removeAclEntry(filePath: string): void {
-    delete this.data.aclFiles[filePath];
-  }
-
-  // --- menu.xml ---
-
-  getMenuEntry(filePath: string, currentMtimeMs: number): MenuCacheEntry | undefined {
-    const entry = this.data.menuFiles[filePath];
-    return entry && entry.mtimeMs === currentMtimeMs ? entry : undefined;
-  }
-
-  setMenuEntry(filePath: string, mtimeMs: number, references: MenuReference[]): void {
-    this.data.menuFiles[filePath] = { mtimeMs, references };
-  }
-
-  pruneMenuFiles(existingFiles: Set<string>): void {
-    this.pruneSection(this.data.menuFiles, existingFiles);
-  }
-
-  removeMenuEntry(filePath: string): void {
-    delete this.data.menuFiles[filePath];
-  }
-
-  // --- UI component ACL ---
-
-  getUiComponentAclEntry(filePath: string, currentMtimeMs: number): UiComponentAclCacheEntry | undefined {
-    const entry = this.data.uiComponentAclFiles[filePath];
-    return entry && entry.mtimeMs === currentMtimeMs ? entry : undefined;
-  }
-
-  setUiComponentAclEntry(filePath: string, mtimeMs: number, references: UiComponentAclReference[]): void {
-    this.data.uiComponentAclFiles[filePath] = { mtimeMs, references };
-  }
-
-  pruneUiComponentAclFiles(existingFiles: Set<string>): void {
-    this.pruneSection(this.data.uiComponentAclFiles, existingFiles);
-  }
-
-  removeUiComponentAclEntry(filePath: string): void {
-    delete this.data.uiComponentAclFiles[filePath];
-  }
-
-  // --- routes.xml ---
-
-  getRoutesEntry(filePath: string, currentMtimeMs: number): RoutesCacheEntry | undefined {
-    const entry = this.data.routesFiles[filePath];
-    return entry && entry.mtimeMs === currentMtimeMs ? entry : undefined;
-  }
-
-  setRoutesEntry(filePath: string, mtimeMs: number, references: RoutesReference[]): void {
-    this.data.routesFiles[filePath] = { mtimeMs, references };
-  }
-
-  pruneRoutesFiles(existingFiles: Set<string>): void {
-    this.pruneSection(this.data.routesFiles, existingFiles);
-  }
-
-  removeRoutesEntry(filePath: string): void {
-    delete this.data.routesFiles[filePath];
-  }
-
-  // --- db_schema.xml ---
-
-  getDbSchemaEntry(filePath: string, currentMtimeMs: number): DbSchemaCacheEntry | undefined {
-    const entry = this.data.dbSchemaFiles[filePath];
-    return entry && entry.mtimeMs === currentMtimeMs ? entry : undefined;
-  }
-
-  setDbSchemaEntry(filePath: string, mtimeMs: number, references: DbSchemaReference[]): void {
-    this.data.dbSchemaFiles[filePath] = { mtimeMs, references };
-  }
-
-  pruneDbSchemaFiles(existingFiles: Set<string>): void {
-    this.pruneSection(this.data.dbSchemaFiles, existingFiles);
-  }
-
-  removeDbSchemaEntry(filePath: string): void {
-    delete this.data.dbSchemaFiles[filePath];
+    this.removeFromSection('diFiles', filePath);
   }
 
   /** List all di.xml file paths that have cached entries. */

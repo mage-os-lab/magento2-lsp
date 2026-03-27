@@ -25,7 +25,7 @@ import {
 } from 'vscode-languageserver/node';
 import { URI } from 'vscode-uri';
 import { SERVER_CAPABILITIES } from './capabilities';
-import { ProjectManager } from './project/projectManager';
+import { ProjectManager, ProjectContext } from './project/projectManager';
 import { handleDefinition } from './handlers/definition';
 import { handleReferences } from './handlers/references';
 import { handleCodeLens } from './handlers/codeLens';
@@ -34,6 +34,7 @@ import { handleDocumentSymbol } from './handlers/documentSymbol';
 import { handleWorkspaceSymbol } from './handlers/workspaceSymbol';
 import { handlePrepareRename, handleRename } from './handlers/rename';
 import { FileWatcher, createXmlWatcher } from './watcher/fileWatcher';
+import { CacheSectionKey } from './cache/indexCache';
 import {
   discoverDiXmlFiles,
   discoverEventsXmlFiles,
@@ -54,16 +55,17 @@ import {
   deriveUiComponentAclContext,
 } from './project/moduleResolver';
 import { parseDiXml, DiXmlParseContext } from './indexer/diXmlParser';
-import { parseEventsXml, EventsXmlParseContext } from './indexer/eventsXmlParser';
+import { parseEventsXml } from './indexer/eventsXmlParser';
 import { parseLayoutXml } from './indexer/layoutXmlParser';
-import { parseSystemXml, SystemXmlParseContext } from './indexer/systemXmlParser';
-import { parseWebapiXml, WebapiXmlParseContext } from './indexer/webapiXmlParser';
-import { parseAclXml, AclXmlParseContext } from './indexer/aclXmlParser';
-import { parseMenuXml, MenuXmlParseContext } from './indexer/menuXmlParser';
-import { parseRoutesXml, RoutesXmlParseContext } from './indexer/routesXmlParser';
-import { parseDbSchemaXml, DbSchemaXmlParseContext } from './indexer/dbSchemaXmlParser';
-import { parseUiComponentAcl, UiComponentAclParseContext } from './indexer/uiComponentAclParser';
+import { parseSystemXml } from './indexer/systemXmlParser';
+import { parseWebapiXml } from './indexer/webapiXmlParser';
+import { parseAclXml } from './indexer/aclXmlParser';
+import { parseMenuXml } from './indexer/menuXmlParser';
+import { parseRoutesXml } from './indexer/routesXmlParser';
+import { parseDbSchemaXml } from './indexer/dbSchemaXmlParser';
+import { parseUiComponentAcl } from './indexer/uiComponentAclParser';
 import { resolveFileToFqcn } from './indexer/phpClassLocator';
+import { ModuleInfo } from './indexer/types';
 import { realpath } from './utils/realpath';
 import { validateXmlFile, isXmllintAvailable, invalidateCatalogCache } from './validation/xsdValidator';
 import { validateSemantics } from './validation/semanticValidator';
@@ -274,7 +276,7 @@ const validationTimers = new Map<string, ReturnType<typeof setTimeout>>();
 function validateAndPublish(
   uri: string,
   content: string,
-  project: import('./project/projectManager').ProjectContext,
+  project: ProjectContext,
   delayMs: number = 300,
   includeExpensiveChecks: boolean = false,
 ): void {
@@ -342,45 +344,106 @@ connection.onDidCloseTextDocument((params) => {
 
 // --- File watcher setup ---
 
-function setupFileWatchers(project: import('./project/projectManager').ProjectContext): void {
-  // --- di.xml watcher ---
-  const diWatchPatterns: string[] = [];
-  const diContextMap = new Map<string, DiXmlParseContext>();
+/**
+ * Configuration for a generic XML file watcher.
+ * Captures the per-XML-type differences (discovery, context, parsing, index ops)
+ * while standardizing the watcher lifecycle.
+ */
+interface TypedWatcherConfig<TCtx, TResult> {
+  /** Cache section key for this XML type. */
+  section: CacheSectionKey;
+  /** Build watch patterns and seed the context map from the project's modules. */
+  buildWatchTargets: () => { patterns: string[]; contextMap: Map<string, TCtx> };
+  /** Resolve context for a file not in the initial context map (newly created files). */
+  deriveContext: (file: string) => TCtx | undefined;
+  /** Parse file content with its context. */
+  parse: (content: string, ctx: TCtx) => TResult;
+  /** Add parsed data to the index (called after removeFromIndex). */
+  addToIndex: (file: string, result: TResult) => void;
+  /** Remove a file's data from the index. */
+  removeFromIndex: (file: string) => void;
+  /** Optional callback after each change (e.g., rebuild plugin index). */
+  afterChange?: () => void;
+}
 
-  for (const mod of project.modules) {
-    const files = discoverDiXmlFiles(mod.path);
-    for (const f of files) {
-      diWatchPatterns.push(f.file);
-      diContextMap.set(f.file, {
-        file: f.file,
-        area: f.area,
-        module: mod.name,
-        moduleOrder: mod.order,
-      });
-    }
-    // Also watch for new di.xml files
-    diWatchPatterns.push(path.join(mod.path, 'etc', '**', 'di.xml'));
+/**
+ * Create a file watcher for an XML type using a standardized lifecycle:
+ *   1. Build patterns and seed context map from project modules
+ *   2. On change: resolve context → read → parse → remove old + add new → update cache
+ *   3. On remove: remove from index + cache
+ */
+function setupTypedWatcher<TCtx, TResult>(
+  project: ProjectContext,
+  config: TypedWatcherConfig<TCtx, TResult>,
+): FileWatcher {
+  const { patterns, contextMap } = config.buildWatchTargets();
+
+  function resolveContext(file: string): TCtx | undefined {
+    const existing = contextMap.get(file);
+    if (existing) return existing;
+    const derived = config.deriveContext(file);
+    if (derived) contextMap.set(file, derived);
+    return derived;
   }
 
-  const rootDiXml = path.join(project.root, 'app', 'etc', 'di.xml');
-  diWatchPatterns.push(rootDiXml);
-  diContextMap.set(rootDiXml, {
-    file: rootDiXml,
-    area: 'global',
-    module: '__root__',
-    moduleOrder: -1,
+  return createXmlWatcher({
+    patterns,
+    resolveContext,
+    parse: config.parse,
+    onParsed(file, mtimeMs, result) {
+      config.removeFromIndex(file);
+      config.addToIndex(file, result);
+      project.cache.setEntry(config.section, file, { mtimeMs, ...result as Record<string, unknown> });
+    },
+    onRemoved(file) {
+      config.removeFromIndex(file);
+      project.cache.removeFromSection(config.section, file);
+    },
+    saveCache: () => project.cache.save(),
+    afterChange: config.afterChange,
   });
+}
 
-  function getDiContext(file: string): DiXmlParseContext | undefined {
-    const cached = diContextMap.get(file);
-    if (cached) return cached;
-    const ctx = deriveDiXmlContext(file, project.root, project.modules);
-    if (ctx) diContextMap.set(file, ctx);
-    return ctx;
+/**
+ * Helper to build watch patterns and a context map from module discovery.
+ * Most XML types follow this pattern: discover existing files + add globs for new ones.
+ */
+function buildModuleWatchTargets<TCtx>(
+  modules: ModuleInfo[],
+  discoverFiles: (modPath: string) => { file: string; [k: string]: unknown }[],
+  buildContext: (f: { file: string; [k: string]: unknown }, mod: ModuleInfo) => TCtx,
+  extraPatterns: (mod: ModuleInfo) => string[],
+): { patterns: string[]; contextMap: Map<string, TCtx> } {
+  const patterns: string[] = [];
+  const contextMap = new Map<string, TCtx>();
+
+  for (const mod of modules) {
+    const files = discoverFiles(mod.path);
+    for (const f of files) {
+      patterns.push(f.file);
+      contextMap.set(f.file, buildContext(f, mod));
+    }
+    for (const p of extraPatterns(mod)) {
+      patterns.push(p);
+    }
   }
 
-  // Debounced rebuild of PluginMethodIndex after di.xml changes.
-  // Avoids thrashing during rapid edits while keeping plugin data fresh.
+  return { patterns, contextMap };
+}
+
+function setupFileWatchers(project: ProjectContext): void {
+  // --- di.xml watcher (special: includes root di.xml + plugin rebuild) ---
+  const diTargets = buildModuleWatchTargets<DiXmlParseContext>(
+    project.modules,
+    discoverDiXmlFiles,
+    (f, mod) => ({ file: f.file as string, area: f.area as string, module: mod.name, moduleOrder: mod.order }),
+    (mod) => [path.join(mod.path, 'etc', '**', 'di.xml')],
+  );
+  // Add root di.xml
+  const rootDiXml = path.join(project.root, 'app', 'etc', 'di.xml');
+  diTargets.patterns.push(rootDiXml);
+  diTargets.contextMap.set(rootDiXml, { file: rootDiXml, area: 'global', module: '__root__', moduleOrder: -1 });
+
   let pluginRebuildTimer: ReturnType<typeof setTimeout> | undefined;
   function schedulePluginRebuild(): void {
     if (pluginRebuildTimer) clearTimeout(pluginRebuildTimer);
@@ -389,9 +452,15 @@ function setupFileWatchers(project: import('./project/projectManager').ProjectCo
     }, 500);
   }
 
-  const diWatcher = createXmlWatcher({
-    patterns: diWatchPatterns,
-    resolveContext: getDiContext,
+  watchers.push(createXmlWatcher({
+    patterns: diTargets.patterns,
+    resolveContext(file) {
+      const existing = diTargets.contextMap.get(file);
+      if (existing) return existing;
+      const ctx = deriveDiXmlContext(file, project.root, project.modules);
+      if (ctx) diTargets.contextMap.set(file, ctx);
+      return ctx;
+    },
     parse: parseDiXml,
     onParsed(file, mtimeMs, result) {
       project.index.removeFile(file);
@@ -404,346 +473,149 @@ function setupFileWatchers(project: import('./project/projectManager').ProjectCo
     },
     saveCache: () => project.cache.save(),
     afterChange: schedulePluginRebuild,
-  });
-  watchers.push(diWatcher);
+  }));
 
   // --- events.xml watcher ---
-  const eventsWatchPatterns: string[] = [];
-  const eventsContextMap = new Map<string, EventsXmlParseContext>();
-
-  for (const mod of project.modules) {
-    const files = discoverEventsXmlFiles(mod.path);
-    for (const f of files) {
-      eventsWatchPatterns.push(f.file);
-      eventsContextMap.set(f.file, { file: f.file, area: f.area, module: mod.name });
-    }
-    // Also watch for new events.xml files
-    eventsWatchPatterns.push(path.join(mod.path, 'etc', '**', 'events.xml'));
-  }
-
-  function getEventsContext(file: string): EventsXmlParseContext | undefined {
-    const cached = eventsContextMap.get(file);
-    if (cached) return cached;
-    const ctx = deriveEventsXmlContext(file, project.modules);
-    if (ctx) eventsContextMap.set(file, ctx);
-    return ctx;
-  }
-
-  const eventsWatcher = createXmlWatcher({
-    patterns: eventsWatchPatterns,
-    resolveContext: getEventsContext,
+  watchers.push(setupTypedWatcher(project, {
+    section: 'eventsFiles',
+    buildWatchTargets: () => buildModuleWatchTargets(
+      project.modules, discoverEventsXmlFiles,
+      (f, mod) => ({ file: f.file as string, area: f.area as string, module: mod.name }),
+      (mod) => [path.join(mod.path, 'etc', '**', 'events.xml')],
+    ),
+    deriveContext: (file) => deriveEventsXmlContext(file, project.modules),
     parse: parseEventsXml,
-    onParsed(file, mtimeMs, result) {
-      project.eventsIndex.removeFile(file);
-      project.eventsIndex.addFile(file, result.events, result.observers);
-      project.cache.setEventsEntry(file, mtimeMs, result.events, result.observers);
-    },
-    onRemoved(file) {
-      project.eventsIndex.removeFile(file);
-      project.cache.removeEventsEntry(file);
-    },
-    saveCache: () => project.cache.save(),
-  });
-  watchers.push(eventsWatcher);
+    addToIndex: (file, r) => project.eventsIndex.addFile(file, r.events, r.observers),
+    removeFromIndex: (file) => project.eventsIndex.removeFile(file),
+  }));
 
   // --- layout XML watcher ---
-  const layoutWatchPatterns: string[] = [];
-
-  for (const mod of project.modules) {
-    for (const subdir of ['layout', 'page_layout']) {
-      for (const area of ['frontend', 'adminhtml', 'base']) {
-        layoutWatchPatterns.push(path.join(mod.path, 'view', area, subdir, '*.xml'));
+  watchers.push(setupTypedWatcher(project, {
+    section: 'layoutFiles',
+    buildWatchTargets: () => {
+      const patterns: string[] = [];
+      for (const mod of project.modules) {
+        for (const subdir of ['layout', 'page_layout']) {
+          for (const area of ['frontend', 'adminhtml', 'base']) {
+            patterns.push(path.join(mod.path, 'view', area, subdir, '*.xml'));
+          }
+        }
       }
-    }
-  }
-  for (const theme of project.themeResolver.getAllThemes()) {
-    layoutWatchPatterns.push(path.join(theme.path, '*', 'layout', '*.xml'));
-    layoutWatchPatterns.push(path.join(theme.path, '*', 'page_layout', '*.xml'));
-  }
-
-  const layoutWatcher = createXmlWatcher<string, { references: import('./indexer/types').LayoutReference[] }>({
-    patterns: layoutWatchPatterns,
-    resolveContext: (file) => file,
+      for (const theme of project.themeResolver.getAllThemes()) {
+        patterns.push(path.join(theme.path, '*', 'layout', '*.xml'));
+        patterns.push(path.join(theme.path, '*', 'page_layout', '*.xml'));
+      }
+      return { patterns, contextMap: new Map<string, string>() };
+    },
+    deriveContext: (file) => file,
     parse: (content, filePath) => parseLayoutXml(content, filePath),
-    onParsed(file, mtimeMs, result) {
-      project.layoutIndex.removeFile(file);
-      project.layoutIndex.addFile(file, result.references);
-      project.cache.setLayoutEntry(file, mtimeMs, result.references);
-    },
-    onRemoved(file) {
-      project.layoutIndex.removeFile(file);
-      project.cache.removeLayoutEntry(file);
-    },
-    saveCache: () => project.cache.save(),
-  });
-  watchers.push(layoutWatcher);
+    addToIndex: (file, r) => project.layoutIndex.addFile(file, r.references),
+    removeFromIndex: (file) => project.layoutIndex.removeFile(file),
+  }));
 
   // --- system.xml watcher ---
-  const systemConfigWatchPatterns: string[] = [];
-  const systemConfigContextMap = new Map<string, SystemXmlParseContext>();
-
-  for (const mod of project.modules) {
-    const mainFile = path.join(mod.path, 'etc', 'adminhtml', 'system.xml');
-    systemConfigWatchPatterns.push(mainFile);
-    systemConfigContextMap.set(mainFile, { file: mainFile, module: mod.name });
-    // Watch for include partials
-    systemConfigWatchPatterns.push(path.join(mod.path, 'etc', 'adminhtml', 'system', '**', '*.xml'));
-  }
-
-  function getSystemConfigContext(file: string): SystemXmlParseContext | undefined {
-    const cached = systemConfigContextMap.get(file);
-    if (cached) return cached;
-    const ctx = deriveSystemXmlContext(file, project.modules);
-    if (ctx) systemConfigContextMap.set(file, ctx);
-    return ctx;
-  }
-
-  const systemConfigWatcher = createXmlWatcher({
-    patterns: systemConfigWatchPatterns,
-    resolveContext: getSystemConfigContext,
+  watchers.push(setupTypedWatcher(project, {
+    section: 'systemConfigFiles',
+    buildWatchTargets: () => {
+      const patterns: string[] = [];
+      const contextMap = new Map<string, { file: string; module: string }>();
+      for (const mod of project.modules) {
+        const mainFile = path.join(mod.path, 'etc', 'adminhtml', 'system.xml');
+        patterns.push(mainFile);
+        contextMap.set(mainFile, { file: mainFile, module: mod.name });
+        patterns.push(path.join(mod.path, 'etc', 'adminhtml', 'system', '**', '*.xml'));
+      }
+      return { patterns, contextMap };
+    },
+    deriveContext: (file) => deriveSystemXmlContext(file, project.modules),
     parse: parseSystemXml,
-    onParsed(file, mtimeMs, result) {
-      project.systemConfigIndex.removeFile(file);
-      project.systemConfigIndex.addFile(file, result.references);
-      project.cache.setSystemConfigEntry(file, mtimeMs, result.references);
-    },
-    onRemoved(file) {
-      project.systemConfigIndex.removeFile(file);
-      project.cache.removeSystemConfigEntry(file);
-    },
-    saveCache: () => project.cache.save(),
-  });
-  watchers.push(systemConfigWatcher);
+    addToIndex: (file, r) => project.systemConfigIndex.addFile(file, r.references),
+    removeFromIndex: (file) => project.systemConfigIndex.removeFile(file),
+  }));
 
   // --- webapi.xml watcher ---
-  const webapiWatchPatterns: string[] = [];
-  const webapiContextMap = new Map<string, WebapiXmlParseContext>();
-
-  for (const mod of project.modules) {
-    const files = discoverWebapiXmlFiles(mod.path);
-    for (const f of files) {
-      webapiWatchPatterns.push(f.file);
-      webapiContextMap.set(f.file, { file: f.file, module: mod.name });
-    }
-    // Also watch for new webapi.xml files
-    webapiWatchPatterns.push(path.join(mod.path, 'etc', '**', 'webapi.xml'));
-  }
-
-  function getWebapiContext(file: string): WebapiXmlParseContext | undefined {
-    const cached = webapiContextMap.get(file);
-    if (cached) return cached;
-    const ctx = deriveWebapiXmlContext(file, project.modules);
-    if (ctx) webapiContextMap.set(file, ctx);
-    return ctx;
-  }
-
-  const webapiWatcher = createXmlWatcher({
-    patterns: webapiWatchPatterns,
-    resolveContext: getWebapiContext,
+  watchers.push(setupTypedWatcher(project, {
+    section: 'webapiFiles',
+    buildWatchTargets: () => buildModuleWatchTargets(
+      project.modules, discoverWebapiXmlFiles,
+      (f, mod) => ({ file: f.file as string, module: mod.name }),
+      (mod) => [path.join(mod.path, 'etc', '**', 'webapi.xml')],
+    ),
+    deriveContext: (file) => deriveWebapiXmlContext(file, project.modules),
     parse: parseWebapiXml,
-    onParsed(file, mtimeMs, result) {
-      project.webapiIndex.removeFile(file);
-      project.webapiIndex.addFile(file, result.references);
-      project.cache.setWebapiEntry(file, mtimeMs, result.references);
-    },
-    onRemoved(file) {
-      project.webapiIndex.removeFile(file);
-      project.cache.removeWebapiEntry(file);
-    },
-    saveCache: () => project.cache.save(),
-  });
-  watchers.push(webapiWatcher);
+    addToIndex: (file, r) => project.webapiIndex.addFile(file, r.references),
+    removeFromIndex: (file) => project.webapiIndex.removeFile(file),
+  }));
 
   // --- acl.xml watcher ---
-  const aclWatchPatterns: string[] = [];
-  const aclContextMap = new Map<string, AclXmlParseContext>();
-
-  for (const mod of project.modules) {
-    const files = discoverAclXmlFiles(mod.path);
-    for (const f of files) {
-      aclWatchPatterns.push(f.file);
-      aclContextMap.set(f.file, { file: f.file, module: mod.name });
-    }
-    // Also watch for new acl.xml files
-    aclWatchPatterns.push(path.join(mod.path, 'etc', 'acl.xml'));
-  }
-
-  function getAclContext(file: string): AclXmlParseContext | undefined {
-    const cached = aclContextMap.get(file);
-    if (cached) return cached;
-    const ctx = deriveAclXmlContext(file, project.modules);
-    if (ctx) aclContextMap.set(file, ctx);
-    return ctx;
-  }
-
-  const aclWatcher = createXmlWatcher({
-    patterns: aclWatchPatterns,
-    resolveContext: getAclContext,
+  watchers.push(setupTypedWatcher(project, {
+    section: 'aclFiles',
+    buildWatchTargets: () => buildModuleWatchTargets(
+      project.modules, discoverAclXmlFiles,
+      (f, mod) => ({ file: f.file as string, module: mod.name }),
+      (mod) => [path.join(mod.path, 'etc', 'acl.xml')],
+    ),
+    deriveContext: (file) => deriveAclXmlContext(file, project.modules),
     parse: parseAclXml,
-    onParsed(file, mtimeMs, result) {
-      project.aclIndex.removeFile(file);
-      project.aclIndex.addFile(file, result.resources);
-      project.cache.setAclEntry(file, mtimeMs, result.resources);
-    },
-    onRemoved(file) {
-      project.aclIndex.removeFile(file);
-      project.cache.removeAclEntry(file);
-    },
-    saveCache: () => project.cache.save(),
-  });
-  watchers.push(aclWatcher);
+    addToIndex: (file, r) => project.aclIndex.addFile(file, r.resources),
+    removeFromIndex: (file) => project.aclIndex.removeFile(file),
+  }));
 
   // --- menu.xml watcher ---
-  const menuWatchPatterns: string[] = [];
-  const menuContextMap = new Map<string, MenuXmlParseContext>();
-
-  for (const mod of project.modules) {
-    const files = discoverMenuXmlFiles(mod.path);
-    for (const f of files) {
-      menuWatchPatterns.push(f.file);
-      menuContextMap.set(f.file, { file: f.file, module: mod.name });
-    }
-    menuWatchPatterns.push(path.join(mod.path, 'etc', 'adminhtml', 'menu.xml'));
-  }
-
-  function getMenuContext(file: string): MenuXmlParseContext | undefined {
-    const cached = menuContextMap.get(file);
-    if (cached) return cached;
-    const ctx = deriveMenuXmlContext(file, project.modules);
-    if (ctx) menuContextMap.set(file, ctx);
-    return ctx;
-  }
-
-  const menuWatcher = createXmlWatcher({
-    patterns: menuWatchPatterns,
-    resolveContext: getMenuContext,
+  watchers.push(setupTypedWatcher(project, {
+    section: 'menuFiles',
+    buildWatchTargets: () => buildModuleWatchTargets(
+      project.modules, discoverMenuXmlFiles,
+      (f, mod) => ({ file: f.file as string, module: mod.name }),
+      (mod) => [path.join(mod.path, 'etc', 'adminhtml', 'menu.xml')],
+    ),
+    deriveContext: (file) => deriveMenuXmlContext(file, project.modules),
     parse: parseMenuXml,
-    onParsed(file, mtimeMs, result) {
-      project.menuIndex.removeFile(file);
-      project.menuIndex.addFile(file, result.references);
-      project.cache.setMenuEntry(file, mtimeMs, result.references);
-    },
-    onRemoved(file) {
-      project.menuIndex.removeFile(file);
-      project.cache.removeMenuEntry(file);
-    },
-    saveCache: () => project.cache.save(),
-  });
-  watchers.push(menuWatcher);
+    addToIndex: (file, r) => project.menuIndex.addFile(file, r.references),
+    removeFromIndex: (file) => project.menuIndex.removeFile(file),
+  }));
 
   // --- routes.xml watcher ---
-  const routesWatchPatterns: string[] = [];
-  const routesContextMap = new Map<string, RoutesXmlParseContext>();
-
-  for (const mod of project.modules) {
-    const files = discoverRoutesXmlFiles(mod.path);
-    for (const f of files) {
-      routesWatchPatterns.push(f.file);
-      routesContextMap.set(f.file, { file: f.file, module: mod.name, area: f.area });
-    }
-    routesWatchPatterns.push(path.join(mod.path, 'etc', '**', 'routes.xml'));
-  }
-
-  function getRoutesContext(file: string): RoutesXmlParseContext | undefined {
-    const cached = routesContextMap.get(file);
-    if (cached) return cached;
-    const ctx = deriveRoutesXmlContext(file, project.modules);
-    if (ctx) routesContextMap.set(file, ctx);
-    return ctx;
-  }
-
-  const routesWatcher = createXmlWatcher({
-    patterns: routesWatchPatterns,
-    resolveContext: getRoutesContext,
+  watchers.push(setupTypedWatcher(project, {
+    section: 'routesFiles',
+    buildWatchTargets: () => buildModuleWatchTargets(
+      project.modules, discoverRoutesXmlFiles,
+      (f, mod) => ({ file: f.file as string, module: mod.name, area: f.area as string }),
+      (mod) => [path.join(mod.path, 'etc', '**', 'routes.xml')],
+    ),
+    deriveContext: (file) => deriveRoutesXmlContext(file, project.modules),
     parse: parseRoutesXml,
-    onParsed(file, mtimeMs, result) {
-      project.routesIndex.removeFile(file);
-      project.routesIndex.addFile(file, result.references);
-      project.cache.setRoutesEntry(file, mtimeMs, result.references);
-    },
-    onRemoved(file) {
-      project.routesIndex.removeFile(file);
-      project.cache.removeRoutesEntry(file);
-    },
-    saveCache: () => project.cache.save(),
-  });
-  watchers.push(routesWatcher);
+    addToIndex: (file, r) => project.routesIndex.addFile(file, r.references),
+    removeFromIndex: (file) => project.routesIndex.removeFile(file),
+  }));
 
   // --- db_schema.xml watcher ---
-  const dbSchemaWatchPatterns: string[] = [];
-  const dbSchemaContextMap = new Map<string, DbSchemaXmlParseContext>();
-
-  for (const mod of project.modules) {
-    const files = discoverDbSchemaXmlFiles(mod.path);
-    for (const f of files) {
-      dbSchemaWatchPatterns.push(f.file);
-      dbSchemaContextMap.set(f.file, { file: f.file, module: mod.name });
-    }
-    dbSchemaWatchPatterns.push(path.join(mod.path, 'etc', 'db_schema.xml'));
-  }
-
-  function getDbSchemaContext(file: string): DbSchemaXmlParseContext | undefined {
-    const cached = dbSchemaContextMap.get(file);
-    if (cached) return cached;
-    const ctx = deriveDbSchemaXmlContext(file, project.modules);
-    if (ctx) dbSchemaContextMap.set(file, ctx);
-    return ctx;
-  }
-
-  const dbSchemaWatcher = createXmlWatcher({
-    patterns: dbSchemaWatchPatterns,
-    resolveContext: getDbSchemaContext,
+  watchers.push(setupTypedWatcher(project, {
+    section: 'dbSchemaFiles',
+    buildWatchTargets: () => buildModuleWatchTargets(
+      project.modules, discoverDbSchemaXmlFiles,
+      (f, mod) => ({ file: f.file as string, module: mod.name }),
+      (mod) => [path.join(mod.path, 'etc', 'db_schema.xml')],
+    ),
+    deriveContext: (file) => deriveDbSchemaXmlContext(file, project.modules),
     parse: parseDbSchemaXml,
-    onParsed(file, mtimeMs, result) {
-      project.dbSchemaIndex.removeFile(file);
-      project.dbSchemaIndex.addFile(file, result.references);
-      project.cache.setDbSchemaEntry(file, mtimeMs, result.references);
-    },
-    onRemoved(file) {
-      project.dbSchemaIndex.removeFile(file);
-      project.cache.removeDbSchemaEntry(file);
-    },
-    saveCache: () => project.cache.save(),
-  });
-  watchers.push(dbSchemaWatcher);
+    addToIndex: (file, r) => project.dbSchemaIndex.addFile(file, r.references),
+    removeFromIndex: (file) => project.dbSchemaIndex.removeFile(file),
+  }));
 
   // --- UI component aclResource watcher ---
-  const uiComponentWatchPatterns: string[] = [];
-  const uiComponentContextMap = new Map<string, UiComponentAclParseContext>();
-
-  for (const mod of project.modules) {
-    const files = discoverUiComponentAclFiles(mod.path);
-    for (const f of files) {
-      uiComponentWatchPatterns.push(f.file);
-      uiComponentContextMap.set(f.file, { file: f.file, module: mod.name });
-    }
-    uiComponentWatchPatterns.push(path.join(mod.path, 'view', 'adminhtml', 'ui_component', '*.xml'));
-  }
-
-  function getUiComponentContext(file: string): UiComponentAclParseContext | undefined {
-    const cached = uiComponentContextMap.get(file);
-    if (cached) return cached;
-    const ctx = deriveUiComponentAclContext(file, project.modules);
-    if (ctx) uiComponentContextMap.set(file, ctx);
-    return ctx;
-  }
-
-  const uiComponentWatcher = createXmlWatcher({
-    patterns: uiComponentWatchPatterns,
-    resolveContext: getUiComponentContext,
+  watchers.push(setupTypedWatcher(project, {
+    section: 'uiComponentAclFiles',
+    buildWatchTargets: () => buildModuleWatchTargets(
+      project.modules, discoverUiComponentAclFiles,
+      (f, mod) => ({ file: f.file as string, module: mod.name }),
+      (mod) => [path.join(mod.path, 'view', 'adminhtml', 'ui_component', '*.xml')],
+    ),
+    deriveContext: (file) => deriveUiComponentAclContext(file, project.modules),
     parse: parseUiComponentAcl,
-    onParsed(file, mtimeMs, result) {
-      project.uiComponentAclIndex.removeFile(file);
-      project.uiComponentAclIndex.addFile(file, result.references);
-      project.cache.setUiComponentAclEntry(file, mtimeMs, result.references);
-    },
-    onRemoved(file) {
-      project.uiComponentAclIndex.removeFile(file);
-      project.cache.removeUiComponentAclEntry(file);
-    },
-    saveCache: () => project.cache.save(),
-  });
-  watchers.push(uiComponentWatcher);
+    addToIndex: (file, r) => project.uiComponentAclIndex.addFile(file, r.references),
+    removeFromIndex: (file) => project.uiComponentAclIndex.removeFile(file),
+  }));
 
   // --- PHP file watcher ---
   // Invalidates MagicMethodIndex and ClassHierarchy caches when PHP files change.

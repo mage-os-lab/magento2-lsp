@@ -51,11 +51,16 @@ export class MagicMethodIndex {
   invalidateClass(fqcn: string): void {
     this.classCache.delete(fqcn);
 
-    // Clear resolution cache entries for this class (as subject or as resolved target)
+    // Clear resolution cache entries for this class (as subject or as resolved target).
+    // Collect keys first to avoid mutation during iteration.
+    const keysToDelete: string[] = [];
     for (const [key, value] of this.resolutionCache) {
       if (key.startsWith(fqcn + '::') || value?.className === fqcn) {
-        this.resolutionCache.delete(key);
+        keysToDelete.push(key);
       }
+    }
+    for (const key of keysToDelete) {
+      this.resolutionCache.delete(key);
     }
   }
 
