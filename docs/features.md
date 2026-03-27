@@ -33,11 +33,11 @@ Complete list of LSP features provided by magento2-lsp.
 - **Go to Definition** from `<argument xsi:type="object">` values (ViewModels, etc.): jump to the PHP class file
 - **Go to Definition** from a `template` attribute on `<block>` or `<referenceBlock>`: jump to the `.phtml` file, resolved through the theme fallback hierarchy
 - **Go to Definition** from `<update handle="..."/>`: jump to the layout XML files that define that handle (including Hyvä `hyva_` prefixed variants), filtered by area and theme fallback chain
-- **Go to Definition** from `<referenceBlock name="...">`: jump to the original `<block name="...">` declaration (cross-file)
-- **Go to Definition** from `<referenceContainer name="...">`: jump to the original `<container name="...">` declaration
+- **Go to Definition** from `<referenceBlock name="...">`: jump to the original `<block name="...">` declaration (cross-file), scoped by area
+- **Go to Definition** from `<referenceContainer name="...">`: jump to the original `<container name="...">` declaration, scoped by area
 - **Find References** from a class name in layout XML: shows all layout XML and `di.xml` locations referencing that class
-- **Find References** from a template identifier in layout XML: shows all layout XML files using that template
-- **Find References** from a block or container name: shows all declarations and `<referenceBlock>`/`<referenceContainer>` usages across layout files
+- **Find References** from a template identifier in layout XML: shows all layout XML files using that template, scoped by area
+- **Find References** from a block or container name: shows all declarations and `<referenceBlock>`/`<referenceContainer>` usages across layout files, scoped by area (frontend shows frontend + base only; adminhtml shows adminhtml + base only; base shows all areas)
 - **Find References** from a PHP class declaration: includes layout XML references (block classes and object arguments)
 - **Find References** from a `.phtml` template file: shows all layout XML files that reference the template
 - **Template resolution** follows Magento's full fallback chain: current theme → parent themes → module area-specific (`view/frontend/templates/`) → module base (`view/base/templates/`)
@@ -192,7 +192,7 @@ Supports [automatic template overrides](https://docs.hyva.io/hyva-themes/compati
 ## Rename Symbol
 
 - **Rename FQCN** from any XML file or PHP class declaration: renames the class reference across all `di.xml` (preferences, types, plugins, arguments, virtual types), `events.xml` (observer instances), layout XML (block classes, object arguments), `system.xml` (source/backend/frontend models), and `webapi.xml` (service classes). All 14 Magento auto-generated class variants (`Factory`, `\Proxy`, `\Interceptor`, `ExtensionInterface`, `Extension`, `ExtensionInterfaceFactory`, `SearchResults`, `Mapper`, `\ProxyDeferred`, etc.) are automatically updated with their suffix preserved. Cursor on any generated class resolves recursively to the base FQCN for rename.
-- **Rename template identifier** from a layout XML `template` attribute: renames the `Module_Name::path/to/template.phtml` string across all layout XML files that reference it (module and theme layouts)
+- **Rename template identifier** from a layout XML `template` attribute: renames the `Module_Name::path/to/template.phtml` string across layout XML files that reference it (module and theme layouts), scoped by area
 - **Rename ACL resource ID** from `acl.xml`, `webapi.xml`, `menu.xml`, `system.xml`, or UI component XML: renames across all `acl.xml` definitions, `webapi.xml` resource refs, `menu.xml` resource attributes, `system.xml` section resources, UI component `<aclResource>` elements, and PHP `ADMIN_RESOURCE` constants / `isAllowed()` calls
 - **Rename config section, group, or field** from `system.xml`: the rename placeholder shows just the segment name (e.g., `redirect_dashboard`, not the full path). The `id` attribute in `system.xml` is updated, and PHP `scopeConfig->getValue()` / `isSetFlag()` calls are rewritten with the full new config path. Section and group renames cascade to all descendant PHP config path references. Field renames also update `<depends><field id="...">` references that depend on the renamed field.
-- **Rename block or container name** from any layout XML file: renames `<block name="X">` / `<container name="X">` declarations and all `<referenceBlock name="X">` / `<referenceContainer name="X">` usages across module and theme layout files. Cursor on either a declaration or a reference triggers the same rename.
+- **Rename block or container name** from any layout XML file: renames `<block name="X">` / `<container name="X">` declarations and all `<referenceBlock name="X">` / `<referenceContainer name="X">` usages across module and theme layout files, scoped by area — a rename in a frontend file only affects frontend + base files, adminhtml only affects adminhtml + base, and base affects all areas. Cursor on either a declaration or a reference triggers the same rename.

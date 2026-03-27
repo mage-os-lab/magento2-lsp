@@ -44,6 +44,7 @@ import { realpath } from '../utils/realpath';
 import { createScopeConfigRegex, grepConfigPathInPhp } from '../utils/configPathGrep';
 import { createPhpAclRegex, grepAclResourceInPhp } from '../utils/phpAclGrep';
 import { resolveSourceFqcn, generatedVariants } from '../utils/generatedClassResolver';
+import { isAreaCompatible } from '../utils/areaScope';
 import * as fs from 'fs';
 
 // ---------------------------------------------------------------------------
@@ -66,6 +67,12 @@ interface RenameContext {
   currentValue: string;
   /** The exact range of the symbol value in the source file (for prepareRename). */
   range: Range;
+  /**
+   * For block-name renames: the file where the rename was initiated.
+   * Used to determine the area scope — a rename in a frontend file should only
+   * affect frontend + base layout files, not adminhtml files.
+   */
+  sourceFile?: string;
   /**
    * For config-segment renames: the full config path up to and including this segment.
    * E.g., for field "active" in path "catalog/review/active", this is "catalog/review/active".
@@ -203,6 +210,7 @@ function getXmlRenameContext(
         kind: 'template',
         currentValue: templateId,
         range: refToRange(layoutRef),
+        sourceFile: filePath,
       };
     }
     if (
@@ -215,6 +223,7 @@ function getXmlRenameContext(
         kind: 'block-name',
         currentValue: layoutRef.value,
         range: refToRange(layoutRef),
+        sourceFile: filePath,
       };
     }
 
@@ -231,6 +240,7 @@ function getXmlRenameContext(
           kind: 'block-name',
           currentValue: layoutRef.value,
           range: refToRange(layoutRef),
+          sourceFile: filePath,
         };
       }
       return null;
@@ -477,14 +487,32 @@ async function collectEdits(
   switch (ctx.kind) {
     case 'fqcn':
       return collectFqcnEdits(ctx.currentValue, newName, project);
-    case 'template':
-      return refsToEdits(collectTemplateRefs(ctx.currentValue, project), newName);
+    case 'template': {
+      // Filter by area: a rename in frontend only affects frontend + base files
+      const templateRefs = collectTemplateRefs(ctx.currentValue, project);
+      const templateSourceArea = ctx.sourceFile
+        ? project.themeResolver.getAreaForFile(ctx.sourceFile)
+        : undefined;
+      const filteredTemplateRefs = templateRefs.filter((ref) =>
+        isAreaCompatible(templateSourceArea, project.themeResolver.getAreaForFile(ref.file)),
+      );
+      return refsToEdits(filteredTemplateRefs, newName);
+    }
     case 'acl-resource':
       return refsToEdits(await collectAclRefs(ctx.currentValue, project), newName);
     case 'config-segment':
       return collectConfigSegmentEdits(ctx, newName, project);
-    case 'block-name':
-      return refsToEdits(project.layoutIndex.getRefsForName(ctx.currentValue), newName);
+    case 'block-name': {
+      // Filter by area: a rename in frontend only affects frontend + base files
+      const allRefs = project.layoutIndex.getRefsForName(ctx.currentValue);
+      const sourceArea = ctx.sourceFile
+        ? project.themeResolver.getAreaForFile(ctx.sourceFile)
+        : undefined;
+      const filtered = allRefs.filter((ref) =>
+        isAreaCompatible(sourceArea, project.themeResolver.getAreaForFile(ref.file)),
+      );
+      return refsToEdits(filtered, newName);
+    }
   }
 }
 

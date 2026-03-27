@@ -35,6 +35,7 @@ import { realpath } from '../utils/realpath';
 import { reverseResolveTemplateId } from '../utils/templateId';
 import { createScopeConfigRegex, grepConfigPathInPhp } from '../utils/configPathGrep';
 import { createPhpAclRegex, grepAclResourceInPhp } from '../utils/phpAclGrep';
+import { isAreaCompatible } from '../utils/areaScope';
 import * as fs from 'fs';
 
 export async function handleReferences(
@@ -76,16 +77,28 @@ async function handleXmlReferences(
   const layoutRef = project.layoutIndex.getReferenceAtPosition(filePath, line, character);
   if (layoutRef) {
     if (layoutRef.kind === 'block-template' || layoutRef.kind === 'refblock-template') {
-      // Template identifier -> find all layout files using this template
+      // Template identifier -> find all layout files using this template,
+      // scoped by area (a template in frontend only shows frontend + base refs)
       const templateId = layoutRef.resolvedTemplateId ?? layoutRef.value;
-      return refsToLocations(project.layoutIndex.getReferencesForTemplate(templateId));
+      const allTemplateRefs = project.layoutIndex.getReferencesForTemplate(templateId);
+      const sourceArea = project.themeResolver.getAreaForFile(filePath);
+      const filteredTemplateRefs = allTemplateRefs.filter((ref) =>
+        isAreaCompatible(sourceArea, project.themeResolver.getAreaForFile(ref.file)),
+      );
+      return refsToLocations(filteredTemplateRefs);
     }
-    // block/container name or reference -> find all declarations and references for this name
+    // block/container name or reference -> find all declarations and references for this name,
+    // scoped by area (a name in frontend only shows frontend + base refs, not adminhtml)
     if (
       layoutRef.kind === 'block-name' || layoutRef.kind === 'container-name'
       || layoutRef.kind === 'reference-block' || layoutRef.kind === 'reference-container'
     ) {
-      return refsToLocations(project.layoutIndex.getRefsForName(layoutRef.value));
+      const allRefs = project.layoutIndex.getRefsForName(layoutRef.value);
+      const sourceArea = project.themeResolver.getAreaForFile(filePath);
+      const filtered = allRefs.filter((ref) =>
+        isAreaCompatible(sourceArea, project.themeResolver.getAreaForFile(ref.file)),
+      );
+      return refsToLocations(filtered);
     }
     // block-class or argument-object -> find all layout + di.xml refs for this FQCN
     const layoutRefs = project.layoutIndex.getReferencesForFqcn(layoutRef.value);
@@ -526,9 +539,11 @@ function handlePhtmlReferences(
 
   const locations: Location[] = [];
 
-  // 1. Layout XML files that use this template
+  // 1. Layout XML files that use this template, scoped by area
+  const area = project.themeResolver.getAreaForFile(filePath) ?? 'frontend';
   const layoutRefs = project.layoutIndex.getReferencesForTemplate(templateId);
   for (const r of layoutRefs) {
+    if (!isAreaCompatible(area, project.themeResolver.getAreaForFile(r.file))) continue;
     locations.push(
       Location.create(
         URI.file(r.file).toString(),
@@ -538,7 +553,6 @@ function handlePhtmlReferences(
   }
 
   // 2. Theme override files for this template
-  const area = project.themeResolver.getAreaForFile(filePath) ?? 'frontend';
   const themeOverrides = project.themeResolver.findOverrides(templateId, area);
   for (const { filePath: overridePath } of themeOverrides) {
     if (overridePath === filePath) continue;

@@ -49,6 +49,7 @@ import { resolveXmlUrn } from '../utils/xmlUrnResolver';
 import { resolveConcreteType, CALL_RE } from '../utils/diPreference';
 import { createScopeConfigRegex } from '../utils/configPathGrep';
 import { createPhpAclRegex } from '../utils/phpAclGrep';
+import { isAreaCompatible } from '../utils/areaScope';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -146,11 +147,14 @@ export function handleDefinition(
       }
       return null;
     }
-    // referenceBlock/referenceContainer name -> jump to the original block/container declaration
+    // referenceBlock/referenceContainer name -> jump to the original block/container declaration,
+    // scoped by area (a reference in frontend only jumps to frontend + base declarations)
     if (layoutRef.kind === 'reference-block' || layoutRef.kind === 'reference-container') {
       const targetKind = layoutRef.kind === 'reference-block' ? 'block-name' : 'container-name';
+      const sourceArea = project.themeResolver.getAreaForFile(filePath);
       const targets = project.layoutIndex.getRefsForName(layoutRef.value)
-        .filter((r) => r.kind === targetKind);
+        .filter((r) => r.kind === targetKind)
+        .filter((r) => isAreaCompatible(sourceArea, project.themeResolver.getAreaForFile(r.file)));
       if (targets.length > 0) {
         return targets.map((r) =>
           Location.create(
