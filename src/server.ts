@@ -404,6 +404,7 @@ function buildTypedHandler<TCtx, TResult>(
     afterChange?: () => void;
   },
   matches: (filePath: string) => boolean,
+  saveCache: () => void,
 ): { patterns: string[]; handler: import('./watcher/fileWatcher').WatcherHandler } {
   const { patterns, contextMap } = config.buildWatchTargets();
 
@@ -422,7 +423,7 @@ function buildTypedHandler<TCtx, TResult>(
           config.removeFromIndex(file);
           project.cache.removeFromSection(config.section, file);
         },
-        saveCache: () => project.cache.save(),
+        saveCache,
         afterChange: config.afterChange,
       },
       matches,
@@ -437,6 +438,15 @@ function buildTypedHandler<TCtx, TResult>(
 function setupFileWatchers(project: ProjectContext): void {
   const unified = new UnifiedFileWatcher();
   const allPatterns: string[] = [];
+
+  // Debounced cache save — avoids a cascade of full JSON rewrites during
+  // bulk file changes (e.g., git checkout). The cache is only needed for
+  // warm startup, so a 2-second delay is fine.
+  let cacheSaveTimer: ReturnType<typeof setTimeout> | undefined;
+  function debouncedCacheSave(): void {
+    if (cacheSaveTimer) clearTimeout(cacheSaveTimer);
+    cacheSaveTimer = setTimeout(() => project.cache.save(), 2000);
+  }
 
   // --- di.xml handler (special: includes root di.xml + plugin rebuild) ---
   const diTargets = buildModuleWatchTargets<DiXmlParseContext>(
@@ -471,7 +481,7 @@ function setupFileWatchers(project: ProjectContext): void {
         project.index.removeFile(file);
         project.cache.removeEntry(file);
       },
-      saveCache: () => project.cache.save(),
+      saveCache: debouncedCacheSave,
       afterChange: schedulePluginRebuild,
     },
     (fp) => fp.endsWith('/di.xml'),
@@ -489,7 +499,7 @@ function setupFileWatchers(project: ProjectContext): void {
     parse: parseEventsXml,
     addToIndex: (file, r) => project.eventsIndex.addFile(file, r.events, r.observers),
     removeFromIndex: (file) => project.eventsIndex.removeFile(file),
-  }, (fp) => fp.endsWith('/events.xml'));
+  }, (fp) => fp.endsWith('/events.xml'), debouncedCacheSave);
   allPatterns.push(...eventsH.patterns);
   unified.addHandler(eventsH.handler);
 
@@ -505,7 +515,7 @@ function setupFileWatchers(project: ProjectContext): void {
     parse: parseWebapiXml,
     addToIndex: (file, r) => project.webapiIndex.addFile(file, r.references),
     removeFromIndex: (file) => project.webapiIndex.removeFile(file),
-  }, (fp) => fp.endsWith('/webapi.xml'));
+  }, (fp) => fp.endsWith('/webapi.xml'), debouncedCacheSave);
   allPatterns.push(...webapiH.patterns);
   unified.addHandler(webapiH.handler);
 
@@ -521,7 +531,7 @@ function setupFileWatchers(project: ProjectContext): void {
     parse: parseAclXml,
     addToIndex: (file, r) => project.aclIndex.addFile(file, r.resources),
     removeFromIndex: (file) => project.aclIndex.removeFile(file),
-  }, (fp) => fp.endsWith('/acl.xml'));
+  }, (fp) => fp.endsWith('/acl.xml'), debouncedCacheSave);
   allPatterns.push(...aclH.patterns);
   unified.addHandler(aclH.handler);
 
@@ -537,7 +547,7 @@ function setupFileWatchers(project: ProjectContext): void {
     parse: parseMenuXml,
     addToIndex: (file, r) => project.menuIndex.addFile(file, r.references),
     removeFromIndex: (file) => project.menuIndex.removeFile(file),
-  }, (fp) => fp.endsWith('/menu.xml'));
+  }, (fp) => fp.endsWith('/menu.xml'), debouncedCacheSave);
   allPatterns.push(...menuH.patterns);
   unified.addHandler(menuH.handler);
 
@@ -553,7 +563,7 @@ function setupFileWatchers(project: ProjectContext): void {
     parse: parseRoutesXml,
     addToIndex: (file, r) => project.routesIndex.addFile(file, r.references),
     removeFromIndex: (file) => project.routesIndex.removeFile(file),
-  }, (fp) => fp.endsWith('/routes.xml'));
+  }, (fp) => fp.endsWith('/routes.xml'), debouncedCacheSave);
   allPatterns.push(...routesH.patterns);
   unified.addHandler(routesH.handler);
 
@@ -569,7 +579,7 @@ function setupFileWatchers(project: ProjectContext): void {
     parse: parseDbSchemaXml,
     addToIndex: (file, r) => project.dbSchemaIndex.addFile(file, r.references),
     removeFromIndex: (file) => project.dbSchemaIndex.removeFile(file),
-  }, (fp) => fp.endsWith('/db_schema.xml'));
+  }, (fp) => fp.endsWith('/db_schema.xml'), debouncedCacheSave);
   allPatterns.push(...dbSchemaH.patterns);
   unified.addHandler(dbSchemaH.handler);
 
@@ -591,7 +601,7 @@ function setupFileWatchers(project: ProjectContext): void {
     parse: parseSystemXml,
     addToIndex: (file, r) => project.systemConfigIndex.addFile(file, r.references),
     removeFromIndex: (file) => project.systemConfigIndex.removeFile(file),
-  }, (fp) => fp.endsWith('/system.xml') || fp.includes('/etc/adminhtml/system/'));
+  }, (fp) => fp.endsWith('/system.xml') || fp.includes('/etc/adminhtml/system/'), debouncedCacheSave);
   allPatterns.push(...systemH.patterns);
   unified.addHandler(systemH.handler);
 
@@ -607,7 +617,7 @@ function setupFileWatchers(project: ProjectContext): void {
     parse: parseUiComponentAcl,
     addToIndex: (file, r) => project.uiComponentAclIndex.addFile(file, r.references),
     removeFromIndex: (file) => project.uiComponentAclIndex.removeFile(file),
-  }, (fp) => fp.includes('/ui_component/') && fp.endsWith('.xml'));
+  }, (fp) => fp.includes('/ui_component/') && fp.endsWith('.xml'), debouncedCacheSave);
   allPatterns.push(...uiAclH.patterns);
   unified.addHandler(uiAclH.handler);
 
@@ -633,7 +643,7 @@ function setupFileWatchers(project: ProjectContext): void {
     parse: (content, filePath) => parseLayoutXml(content, filePath),
     addToIndex: (file, r) => project.layoutIndex.addFile(file, r.references),
     removeFromIndex: (file) => project.layoutIndex.removeFile(file),
-  }, (fp) => fp.endsWith('.xml') && (fp.includes('/layout/') || fp.includes('/page_layout/')));
+  }, (fp) => fp.endsWith('.xml') && (fp.includes('/layout/') || fp.includes('/page_layout/')), debouncedCacheSave);
   allPatterns.push(...layoutH.patterns);
   unified.addHandler(layoutH.handler);
 

@@ -185,24 +185,27 @@ function findDuplicatePluginNames(
   }
 
   // 2. Check against the project-wide index (plugins declared in other files)
-  for (const ref of pluginRefs) {
+  // Collect all plugin refs once to avoid re-iterating the generator per local plugin
+  const refsToCheck = pluginRefs.filter((ref) => {
     const key = `${ref.parentTypeFqcn}:${ref.pluginName}`;
-    // Skip if already flagged as a local duplicate
-    if ((localGroups.get(key)?.length ?? 0) > 1) continue;
-
-    // Search the project index for a plugin with the same name + target in a different file
-    for (const { targetFqcn, pluginRef } of diIndex.getAllPluginRefsWithTargets()) {
-      if (
-        pluginRef.file !== currentFile &&
-        pluginRef.pluginName === ref.pluginName &&
-        targetFqcn === ref.parentTypeFqcn
-      ) {
-        diagnostics.push(makeDiagnostic(
-          ref.line, ref.column, ref.endColumn,
-          `Plugin name "${ref.pluginName}" already declared for ${ref.parentTypeFqcn} in ${path.basename(path.dirname(path.dirname(pluginRef.file)))}`,
-          DiagnosticSeverity.Warning,
-        ));
-        break; // One match is enough to flag it
+    return (localGroups.get(key)?.length ?? 0) <= 1;
+  });
+  if (refsToCheck.length > 0) {
+    const allProjectPlugins = [...diIndex.getAllPluginRefsWithTargets()];
+    for (const ref of refsToCheck) {
+      for (const { targetFqcn, pluginRef } of allProjectPlugins) {
+        if (
+          pluginRef.file !== currentFile &&
+          pluginRef.pluginName === ref.pluginName &&
+          targetFqcn === ref.parentTypeFqcn
+        ) {
+          diagnostics.push(makeDiagnostic(
+            ref.line, ref.column, ref.endColumn,
+            `Plugin name "${ref.pluginName}" already declared for ${ref.parentTypeFqcn} in ${path.basename(path.dirname(path.dirname(pluginRef.file)))}`,
+            DiagnosticSeverity.Warning,
+          ));
+          break; // One match is enough to flag it
+        }
       }
     }
   }
@@ -541,10 +544,11 @@ function validatePhpAcl(
 ): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
   const lines = content.split('\n');
+  const re = createPhpAclRegex();
 
   for (let lineNum = 0; lineNum < lines.length; lineNum++) {
     const line = lines[lineNum];
-    const re = createPhpAclRegex();
+    re.lastIndex = 0;
     let match;
     while ((match = re.exec(line)) !== null) {
       const aclId = match[1];

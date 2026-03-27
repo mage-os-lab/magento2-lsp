@@ -180,6 +180,7 @@ function handlePhpCodeLens(
   if (!classInfo) return null;
 
   const lenses: CodeLens[] = [];
+  const methods = extractPhpMethods(content);
   const isPluginClass = project.pluginMethodIndex.isPluginClass(classInfo.fqcn);
   const hasPlugins = project.pluginMethodIndex.hasPlugins(classInfo.fqcn);
   const isObserver = project.eventsIndex.getObserversForFqcn(classInfo.fqcn).length > 0;
@@ -196,7 +197,6 @@ function handlePhpCodeLens(
 
     const interceptedMethods = project.pluginMethodIndex.getInterceptedMethods(classInfo.fqcn);
     if (interceptedMethods) {
-      const methods = extractPhpMethods(content);
       for (const method of methods) {
         const interceptions = interceptedMethods.get(method.name);
         if (interceptions && interceptions.length > 0) {
@@ -213,7 +213,6 @@ function handlePhpCodeLens(
 
   // --- Plugin class: show "→ Target\Class::method" on before/after/around methods ---
   if (isPluginClass) {
-    const methods = extractPhpMethods(content);
     for (const method of methods) {
       const reverseEntry = project.pluginMethodIndex.getReverseEntry(
         classInfo.fqcn,
@@ -230,8 +229,7 @@ function handlePhpCodeLens(
 
   // --- Observer class: show "→ event_name" on execute() method ---
   if (isObserver) {
-    const allMethods = extractPhpMethods(content);
-    const executeMethod = allMethods.find((m) => m.name === 'execute');
+    const executeMethod = methods.find((m) => m.name === 'execute');
     if (executeMethod) {
       const obsRefs = project.eventsIndex.getObserversForFqcn(classInfo.fqcn);
       const eventNames = [...new Set(obsRefs.map((r) => r.eventName))];
@@ -251,8 +249,7 @@ function handlePhpCodeLens(
     ...classInfo.interfaces.flatMap((iface) => project.webapiIndex.getRefsForFqcn(iface)),
   ];
   if (webapiClassRefs.length > 0) {
-    const allMethodsForWebapi = extractPhpMethods(content);
-    for (const method of allMethodsForWebapi) {
+    for (const method of methods) {
       const methodRefs = webapiClassRefs.filter(
         (r) => r.kind === 'service-method' && r.methodName === method.name,
       );
