@@ -49,6 +49,8 @@ export class LayoutIndex {
       } else if (
         ref.kind === 'block-name' || ref.kind === 'container-name'
         || ref.kind === 'reference-block' || ref.kind === 'reference-container'
+        || ref.kind === 'before-after' || ref.kind === 'block-alias'
+        || ref.kind === 'move-element' || ref.kind === 'move-destination'
       ) {
         const existing = this.nameToRefs.get(ref.value) ?? [];
         existing.push(ref);
@@ -82,6 +84,8 @@ export class LayoutIndex {
       } else if (
         ref.kind === 'block-name' || ref.kind === 'container-name'
         || ref.kind === 'reference-block' || ref.kind === 'reference-container'
+        || ref.kind === 'before-after' || ref.kind === 'block-alias'
+        || ref.kind === 'move-element' || ref.kind === 'move-destination'
       ) {
         removeFromMap(this.nameToRefs, ref.value, file);
       }

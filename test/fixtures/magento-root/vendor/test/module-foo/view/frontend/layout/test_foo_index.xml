@@ -6,5 +6,8 @@
                 <argument name="viewModel" xsi:type="object">Test\Foo\ViewModel\FooViewModel</argument>
             </arguments>
         </block>
+        <container name="foo.sidebar" label="Foo Sidebar"/>
+        <block name="foo.extra" after="foo.list" as="foo.list"/>
+        <move element="foo.extra" destination="foo.sidebar" before="foo.list"/>
     </body>
 </page>

@@ -84,6 +84,8 @@ export function parseLayoutXml(
       handleContainer(tag, tagLine, currentTagStartLine, lines, file, references);
     } else if (tagName === 'referencecontainer') {
       handleReferenceContainer(tag, tagLine, currentTagStartLine, lines, file, references);
+    } else if (tagName === 'move') {
+      handleMove(tag, tagLine, currentTagStartLine, lines, file, references);
     } else if (tagName === 'update') {
       const handleAttr = getAttr(tag, 'handle');
       if (handleAttr) {
@@ -218,6 +220,9 @@ function handleBlock(
       });
     }
   }
+
+  // before=, after=, as= attributes
+  extractPositionAndAlias(tag, tagLine, tagStartLine, lines, file, references);
 }
 
 function handleReferenceBlock(
@@ -292,6 +297,9 @@ function handleContainer(
       });
     }
   }
+
+  // before=, after=, as= attributes
+  extractPositionAndAlias(tag, tagLine, tagStartLine, lines, file, references);
 }
 
 function handleReferenceContainer(
@@ -316,6 +324,115 @@ function handleReferenceContainer(
       });
     }
   }
+}
+
+/**
+ * Extract before=, after=, and as= attributes from a layout element.
+ * These appear on <block>, <container>, and <move> elements.
+ *
+ * - before/after reference a sibling block/container name (or alias)
+ * - as declares a scoped alias for the element within its parent
+ *
+ * All three are stored in nameToRefs so they participate in block/container rename.
+ */
+function extractPositionAndAlias(
+  tag: sax.Tag | sax.QualifiedTag,
+  tagLine: number,
+  tagStartLine: number,
+  lines: string[],
+  file: string,
+  references: LayoutReference[],
+): void {
+  const beforeAttr = getAttr(tag, 'before');
+  if (beforeAttr && beforeAttr !== '-') {
+    const pos = findAttributeValuePosition(lines, tagLine, 'before', tagStartLine);
+    if (pos) {
+      references.push({
+        kind: 'before-after',
+        value: beforeAttr,
+        file,
+        line: pos.line,
+        column: pos.column,
+        endColumn: pos.endColumn,
+      });
+    }
+  }
+
+  const afterAttr = getAttr(tag, 'after');
+  if (afterAttr && afterAttr !== '-') {
+    const pos = findAttributeValuePosition(lines, tagLine, 'after', tagStartLine);
+    if (pos) {
+      references.push({
+        kind: 'before-after',
+        value: afterAttr,
+        file,
+        line: pos.line,
+        column: pos.column,
+        endColumn: pos.endColumn,
+      });
+    }
+  }
+
+  const asAttr = getAttr(tag, 'as');
+  if (asAttr) {
+    const pos = findAttributeValuePosition(lines, tagLine, 'as', tagStartLine);
+    if (pos) {
+      references.push({
+        kind: 'block-alias',
+        value: asAttr,
+        file,
+        line: pos.line,
+        column: pos.column,
+        endColumn: pos.endColumn,
+      });
+    }
+  }
+}
+
+/**
+ * Handle <move element="block.name" destination="container.name" before="..." after="..." as="..."/>
+ *
+ * The element and destination attributes reference block/container names.
+ */
+function handleMove(
+  tag: sax.Tag | sax.QualifiedTag,
+  tagLine: number,
+  tagStartLine: number,
+  lines: string[],
+  file: string,
+  references: LayoutReference[],
+): void {
+  const elementAttr = getAttr(tag, 'element');
+  if (elementAttr) {
+    const pos = findAttributeValuePosition(lines, tagLine, 'element', tagStartLine);
+    if (pos) {
+      references.push({
+        kind: 'move-element',
+        value: elementAttr,
+        file,
+        line: pos.line,
+        column: pos.column,
+        endColumn: pos.endColumn,
+      });
+    }
+  }
+
+  const destAttr = getAttr(tag, 'destination');
+  if (destAttr) {
+    const pos = findAttributeValuePosition(lines, tagLine, 'destination', tagStartLine);
+    if (pos) {
+      references.push({
+        kind: 'move-destination',
+        value: destAttr,
+        file,
+        line: pos.line,
+        column: pos.column,
+        endColumn: pos.endColumn,
+      });
+    }
+  }
+
+  extractPositionAndAlias(tag, tagLine, tagStartLine, lines, file, references);
 }
 
 /**

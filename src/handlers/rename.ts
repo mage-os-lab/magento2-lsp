@@ -54,7 +54,7 @@ import * as fs from 'fs';
  * Which kind of Magento symbol the cursor is on.
  * Determines which indexes are queried to collect references for the rename.
  */
-type RenameSymbolKind = 'fqcn' | 'template' | 'acl-resource' | 'config-segment';
+type RenameSymbolKind = 'fqcn' | 'template' | 'acl-resource' | 'config-segment' | 'block-name';
 
 /**
  * Result of identifying a renameable symbol at the cursor position.
@@ -205,7 +205,36 @@ function getXmlRenameContext(
         range: refToRange(layoutRef),
       };
     }
-    // Block/container names and referenceBlock/referenceContainer are not yet supported
+    if (
+      layoutRef.kind === 'block-name' || layoutRef.kind === 'container-name'
+      || layoutRef.kind === 'reference-block' || layoutRef.kind === 'reference-container'
+      || layoutRef.kind === 'before-after'
+      || layoutRef.kind === 'move-element' || layoutRef.kind === 'move-destination'
+    ) {
+      return {
+        kind: 'block-name',
+        currentValue: layoutRef.value,
+        range: refToRange(layoutRef),
+      };
+    }
+
+    // as="alias" — only renameable if the alias matches a known block/container name.
+    // Alias-only renames would require tracking the full layout hierarchy, which the
+    // LSP does not support.
+    if (layoutRef.kind === 'block-alias') {
+      const nameRefs = project.layoutIndex.getRefsForName(layoutRef.value);
+      const isKnownName = nameRefs.some(
+        (r) => r.kind === 'block-name' || r.kind === 'container-name',
+      );
+      if (isKnownName) {
+        return {
+          kind: 'block-name',
+          currentValue: layoutRef.value,
+          range: refToRange(layoutRef),
+        };
+      }
+      return null;
+    }
     return null;
   }
 
@@ -454,6 +483,8 @@ async function collectEdits(
       return refsToEdits(await collectAclRefs(ctx.currentValue, project), newName);
     case 'config-segment':
       return collectConfigSegmentEdits(ctx, newName, project);
+    case 'block-name':
+      return refsToEdits(project.layoutIndex.getRefsForName(ctx.currentValue), newName);
   }
 }
 

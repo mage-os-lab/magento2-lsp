@@ -191,7 +191,11 @@ export type LayoutReferenceKind =
   | 'update-handle'         // <update handle="checkout_cart_index"/>
   | 'container-name'        // <container name="content">
   | 'reference-block'       // <referenceBlock name="product.info">
-  | 'reference-container';  // <referenceContainer name="content">
+  | 'reference-container'   // <referenceContainer name="content">
+  | 'before-after'          // before="other.block" or after="other.block" on block/container/move
+  | 'block-alias'           // as="alias" on block/container/move (scoped alias for parent element)
+  | 'move-element'          // <move element="block.name" ...>
+  | 'move-destination';     // <move destination="container.name" ...>
 
 /**
  * A reference found in a layout or page_layout XML file.
