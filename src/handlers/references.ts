@@ -359,15 +359,20 @@ async function handlePhpReferences(
         return locations.length > 0 ? locations : null;
       }
 
-      // --- Case B: Observer execute() method -> events.xml declarations ---
+      // Accumulate all method-level references (observers, webapi, plugins)
+      // instead of returning early from each — a method can have multiple kinds.
+      const locations: Location[] = [];
+
+      // --- Observer execute() method -> events.xml declarations ---
       if (method.name === 'execute') {
         const observerRefs = project.eventsIndex.getObserversForFqcn(classInfo.fqcn);
         if (observerRefs.length > 0) {
-          return refsToLocations(observerRefs);
+          const locs = refsToLocations(observerRefs);
+          if (locs) locations.push(...locs);
         }
       }
 
-      // --- Case B2: Service interface method -> webapi.xml routes ---
+      // --- Service interface method -> webapi.xml routes ---
       const webapiMethodRefs: { file: string; line: number; column: number; endColumn: number }[] = [
         ...project.webapiIndex.getRefsForMethod(classInfo.fqcn, method.name),
       ];
@@ -375,49 +380,48 @@ async function handlePhpReferences(
         webapiMethodRefs.push(...project.webapiIndex.getRefsForMethod(iface, method.name));
       }
       if (webapiMethodRefs.length > 0) {
-        return refsToLocations(webapiMethodRefs);
+        const locs = refsToLocations(webapiMethodRefs);
+        if (locs) locations.push(...locs);
       }
 
-      // --- Case C: This is a target class and the method is intercepted by plugins ---
-      // Navigate to the di.xml declarations + the plugin PHP methods.
+      // --- Plugins: di.xml declarations + plugin PHP methods ---
       const plugins = project.pluginMethodIndex.getPluginsForMethod(
         classInfo.fqcn,
         method.name,
       );
-      if (plugins.length === 0) return null;
 
-      const seen = new Set<string>();
-      const locations: Location[] = [];
-
-      for (const p of plugins) {
-        if (token?.isCancellationRequested) return null;
-        // Add the plugin PHP method location (e.g., beforeSave in the plugin class)
-        const methodKey = `${p.pluginMethodFile}:${p.pluginMethodLine}`;
-        if (!seen.has(methodKey)) {
-          seen.add(methodKey);
-          locations.push(
-            Location.create(
-              URI.file(p.pluginMethodFile).toString(),
-              Range.create(
-                p.pluginMethodLine,
-                p.pluginMethodColumn,
-                p.pluginMethodLine,
-                p.pluginMethodEndColumn,
+      if (plugins.length > 0) {
+        const seen = new Set<string>();
+        for (const p of plugins) {
+          if (token?.isCancellationRequested) return null;
+          // Add the plugin PHP method location (e.g., beforeSave in the plugin class)
+          const methodKey = `${p.pluginMethodFile}:${p.pluginMethodLine}`;
+          if (!seen.has(methodKey)) {
+            seen.add(methodKey);
+            locations.push(
+              Location.create(
+                URI.file(p.pluginMethodFile).toString(),
+                Range.create(
+                  p.pluginMethodLine,
+                  p.pluginMethodColumn,
+                  p.pluginMethodLine,
+                  p.pluginMethodEndColumn,
+                ),
               ),
-            ),
-          );
-        }
+            );
+          }
 
-        // Add the di.xml plugin declaration (deduplicated)
-        const diKey = `${p.diRef.file}:${p.diRef.line}:${p.diRef.column}`;
-        if (!seen.has(diKey)) {
-          seen.add(diKey);
-          locations.push(
-            Location.create(
-              URI.file(p.diRef.file).toString(),
-              Range.create(p.diRef.line, p.diRef.column, p.diRef.line, p.diRef.endColumn),
-            ),
-          );
+          // Add the di.xml plugin declaration (deduplicated)
+          const diKey = `${p.diRef.file}:${p.diRef.line}:${p.diRef.column}`;
+          if (!seen.has(diKey)) {
+            seen.add(diKey);
+            locations.push(
+              Location.create(
+                URI.file(p.diRef.file).toString(),
+                Range.create(p.diRef.line, p.diRef.column, p.diRef.line, p.diRef.endColumn),
+              ),
+            );
+          }
         }
       }
 

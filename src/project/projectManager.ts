@@ -443,7 +443,7 @@ export class ProjectManager {
       + webapiFiles.length + aclFiles.length + menuFiles.length
       + uiFiles.length + routesFiles.length + dbSchemaFiles.length
       + layoutFiles.length;
-    console.error(`[magento2-lsp] Indexed ${modules.length} modules, ${totalFiles} XML files in ${Date.now() - t0}ms`);
+    console.log(`[magento2-lsp] Indexed ${modules.length} modules, ${totalFiles} XML files in ${Date.now() - t0}ms`);
 
     progress?.onEnd();
 

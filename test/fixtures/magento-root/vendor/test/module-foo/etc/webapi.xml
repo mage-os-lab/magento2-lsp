@@ -19,6 +19,12 @@
             <resource ref="self"/>
         </resources>
     </route>
+    <route url="/V1/test/foo" method="POST">
+        <service class="Test\Foo\Api\FooInterface" method="save"/>
+        <resources>
+            <resource ref="Test_Foo::manage"/>
+        </resources>
+    </route>
     <route url="/V1/test/public" method="GET">
         <service class="Test\ModuleFoo\Api\PublicInterface" method="getData"/>
         <resources>

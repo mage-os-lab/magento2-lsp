@@ -51,13 +51,15 @@ describe('handleCodeLens', () => {
     const phpFile = path.join(FIXTURE_ROOT, 'vendor/test/module-foo/Model/Foo.php');
     const result = handleCodeLens(makeParams(phpFile), getProject);
     expect(result).not.toBeNull();
-    // Should have class lens + 3 method lenses (save, getName, load)
-    expect(result!).toHaveLength(4);
+    // Should have class lens + 3 plugin method lenses (save, getName, load) + 1 webapi lens on save
+    expect(result!).toHaveLength(5);
 
-    // Method lenses (skip first which is class-level)
-    const methodLenses = result!.slice(1);
-    const titles = methodLenses.map((l) => l.command?.title);
-    expect(titles).toEqual(['1 plugin', '1 plugin', '1 plugin']);
+    // Plugin method lenses (skip first which is class-level)
+    const pluginLenses = result!.slice(1).filter((l) => l.command?.title.endsWith('plugin'));
+    expect(pluginLenses).toHaveLength(3);
+    // Webapi lens
+    const webapiLenses = result!.filter((l) => l.command?.title.startsWith('POST'));
+    expect(webapiLenses).toHaveLength(1);
   });
 
   it('does not show code lens for non-intercepted methods', () => {

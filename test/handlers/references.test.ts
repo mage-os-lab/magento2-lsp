@@ -99,11 +99,13 @@ describe('handleReferences', () => {
     // Line 8 (0-based): "    public function save(): void {}" — "save" starts at col 20
     const result = await handleReferences(makeParams(phpFile, 8, 20), getProject);
     expect(result).not.toBeNull();
-    // Should include both the plugin PHP method (beforeSave) and the di.xml declaration
-    expect(result!).toHaveLength(2);
+    // Should include the plugin PHP method (beforeSave), the di.xml declaration,
+    // AND the webapi.xml route for FooInterface::save
+    expect(result!).toHaveLength(3);
     const paths = result!.map((r) => URI.parse(r.uri).fsPath);
     expect(paths.some((p) => p.endsWith('FooPlugin.php'))).toBe(true);
     expect(paths.some((p) => p.endsWith('di.xml'))).toBe(true);
+    expect(paths.some((p) => p.endsWith('webapi.xml'))).toBe(true);
   });
 
   it('navigates from plugin method to target method + di.xml', async () => {
