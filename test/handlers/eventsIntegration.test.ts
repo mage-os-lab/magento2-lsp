@@ -19,6 +19,7 @@ describe('events.xml integration', () => {
   function getProject(): ProjectContext | undefined {
     return project;
   }
+  function noDocText(): undefined { return undefined; }
 
   describe('definition', () => {
     it('navigates from observer instance in events.xml to PHP class', async () => {
@@ -27,7 +28,7 @@ describe('events.xml integration', () => {
         'vendor/test/module-foo/etc/events.xml',
       );
       // Find the observer instance reference
-      const observers = project.eventsIndex.getObserversForEvent('test_foo_save_after');
+      const observers = project.indexes.events.getObserversForEvent('test_foo_save_after');
       const obs = observers[0];
 
       const result = handleDefinition(
@@ -35,7 +36,7 @@ describe('events.xml integration', () => {
           textDocument: { uri: URI.file(eventsXml).toString() },
           position: { line: obs.line, character: obs.column },
         },
-        getProject,
+        getProject, noDocText,
       );
       expect(result).not.toBeNull();
       const loc = result as { uri: string };
@@ -49,7 +50,7 @@ describe('events.xml integration', () => {
         FIXTURE_ROOT,
         'vendor/test/module-foo/etc/events.xml',
       );
-      const eventRefs = project.eventsIndex.getEventNameRefs('test_foo_load_after');
+      const eventRefs = project.indexes.events.getEventNameRefs('test_foo_load_after');
       const eventRef = eventRefs[0];
 
       const result = await handleReferences(
@@ -58,7 +59,7 @@ describe('events.xml integration', () => {
           position: { line: eventRef.line, character: eventRef.column },
           context: { includeDeclaration: true },
         },
-        getProject,
+        getProject, noDocText,
       );
       expect(result).not.toBeNull();
       // test_foo_load_after has 2 observers
@@ -70,7 +71,7 @@ describe('events.xml integration', () => {
         FIXTURE_ROOT,
         'vendor/test/module-foo/etc/events.xml',
       );
-      const observers = project.eventsIndex.getObserversForEvent('test_foo_save_after');
+      const observers = project.indexes.events.getObserversForEvent('test_foo_save_after');
       const obs = observers[0];
 
       const result = await handleReferences(
@@ -79,7 +80,7 @@ describe('events.xml integration', () => {
           position: { line: obs.line, character: obs.column },
           context: { includeDeclaration: true },
         },
-        getProject,
+        getProject, noDocText,
       );
       expect(result).not.toBeNull();
       expect(result!.length).toBeGreaterThanOrEqual(1);
@@ -98,7 +99,7 @@ describe('events.xml integration', () => {
           position: { line: 7, character: 6 },
           context: { includeDeclaration: true },
         },
-        getProject,
+        getProject, noDocText,
       );
       expect(result).not.toBeNull();
       // Should include the events.xml observer registration
@@ -121,7 +122,7 @@ describe('events.xml integration', () => {
           position: { line: 9, character: 20 },
           context: { includeDeclaration: true },
         },
-        getProject,
+        getProject, noDocText,
       );
       expect(result).not.toBeNull();
       expect(result!.length).toBeGreaterThanOrEqual(1);
@@ -136,7 +137,7 @@ describe('events.xml integration', () => {
       );
       const result = handleCodeLens(
         { textDocument: { uri: URI.file(phpFile).toString() } },
-        getProject,
+        getProject, noDocText,
       );
       expect(result).not.toBeNull();
       const titles = result!.map((l) => l.command?.title);

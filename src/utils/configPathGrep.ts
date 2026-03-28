@@ -83,3 +83,75 @@ export async function grepConfigPathInPhp(
   await Promise.all(promises);
   return results;
 }
+
+/**
+ * Search PHP files for multiple config path strings in batched grep calls.
+ * Combines paths into single grep invocations (using multiple -e flags) to reduce
+ * process spawning overhead. Processes batches with a configurable concurrency limit.
+ *
+ * Returns a Map from config path -> matching references.
+ */
+export async function grepConfigPathsInPhp(
+  configPaths: string[],
+  projectRoot: string,
+  psr4Map: Psr4Map,
+  concurrency: number = 4,
+): Promise<Map<string, PhpConfigPathRef[]>> {
+  const searchDirs = new Set<string>();
+  for (const entry of psr4Map) {
+    searchDirs.add(entry.path);
+  }
+  const dirs = [...searchDirs];
+
+  const results = new Map<string, PhpConfigPathRef[]>();
+  for (const p of configPaths) results.set(p, []);
+
+  if (configPaths.length === 0) return results;
+
+  // Process in chunks of `concurrency` paths per grep call
+  for (let i = 0; i < configPaths.length; i += concurrency) {
+    const batch = configPaths.slice(i, i + concurrency);
+    const args = ['-rn', '--include=*.php', '-F'];
+    for (const p of batch) {
+      args.push('-e', p);
+    }
+
+    const dirPromises = dirs.map((dir) =>
+      new Promise<void>((resolve) => {
+        execFile(
+          'grep',
+          [...args, dir],
+          { encoding: 'utf-8', timeout: 10000, maxBuffer: 2 * 1024 * 1024 },
+          (err, stdout) => {
+            if (stdout) {
+              for (const line of stdout.split('\n')) {
+                if (!line) continue;
+                const match = line.match(/^(.+?):(\d+):(.*)$/);
+                if (!match) continue;
+
+                const [, file, lineNumStr, content] = match;
+                const lineNum = parseInt(lineNumStr, 10) - 1;
+                // Determine which path(s) in the batch matched this line
+                for (const configPath of batch) {
+                  const col = content.indexOf(configPath);
+                  if (col !== -1) {
+                    results.get(configPath)!.push({
+                      file,
+                      line: lineNum,
+                      column: col,
+                      endColumn: col + configPath.length,
+                    });
+                  }
+                }
+              }
+            }
+            resolve();
+          },
+        );
+      }),
+    );
+    await Promise.all(dirPromises);
+  }
+
+  return results;
+}

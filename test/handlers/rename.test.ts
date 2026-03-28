@@ -191,7 +191,7 @@ describe('rename', () => {
       const diXml = path.join(FIXTURE_ROOT, 'vendor/test/module-foo/etc/di.xml');
       // Rename Test\Foo\Model\Foo -> Test\Foo\Model\FooRenamed
       // Line 2: preference type="Test\Foo\Model\Foo"
-      const typeRef = project.index.getReferencesForFqcn('Test\\Foo\\Model\\Foo')
+      const typeRef = project.indexes.di.getReferencesForFqcn('Test\\Foo\\Model\\Foo')
         .find((r) => r.kind === 'preference-type' && r.file === diXml);
       expect(typeRef).toBeDefined();
 
@@ -220,7 +220,7 @@ describe('rename', () => {
         FIXTURE_ROOT, 'vendor/test/module-foo/view/frontend/layout/test_foo_index.xml',
       );
       // Line 3: <block class="Test\Foo\Block\FooList" ...>
-      const layoutRef = project.layoutIndex.getReferenceAtPosition(layoutXml, 3, 24);
+      const layoutRef = project.indexes.layout.getReferenceAtPosition(layoutXml, 3, 24);
       expect(layoutRef).toBeDefined();
       expect(layoutRef!.kind).toBe('block-class');
 
@@ -267,7 +267,7 @@ describe('rename', () => {
         FIXTURE_ROOT, 'vendor/test/module-foo/etc/adminhtml/menu.xml',
       );
       // Rename Test_ModuleFoo::items -> Test_ModuleFoo::entries
-      const aclRes = project.aclIndex.getResourceAtPosition(aclXml, 5, 30);
+      const aclRes = project.indexes.acl.getResourceAtPosition(aclXml, 5, 30);
       expect(aclRes).toBeDefined();
       expect(aclRes!.id).toBe('Test_ModuleFoo::items');
 
@@ -318,7 +318,7 @@ describe('rename', () => {
         FIXTURE_ROOT, 'vendor/test/module-foo/etc/adminhtml/system.xml',
       );
       // Find the field-id reference for test_section/test_group/test_field
-      const sysRef = project.systemConfigIndex.getReferenceAtPosition(systemXml, 8, 28);
+      const sysRef = project.indexes.systemConfig.getReferenceAtPosition(systemXml, 8, 28);
       expect(sysRef).toBeDefined();
       expect(sysRef!.kind).toBe('field-id');
 
@@ -341,7 +341,7 @@ describe('rename', () => {
         FIXTURE_ROOT, 'vendor/test/module-foo/etc/adminhtml/system.xml',
       );
       // Find the field-id reference for test_section/test_group/test_field
-      const sysRef = project.systemConfigIndex.getReferenceAtPosition(systemXml, 8, 28);
+      const sysRef = project.indexes.systemConfig.getReferenceAtPosition(systemXml, 8, 28);
       expect(sysRef).toBeDefined();
       expect(sysRef!.kind).toBe('field-id');
 
@@ -382,7 +382,7 @@ describe('rename', () => {
     it('renames base FQCN when cursor is on a generated \\Proxy reference', async () => {
       const diXml = path.join(FIXTURE_ROOT, 'vendor/test/module-foo/etc/di.xml');
       // Find the \Proxy argument reference
-      const proxyRef = project.index.getReferencesForFqcn('Test\\Foo\\Model\\Foo\\Proxy')
+      const proxyRef = project.indexes.di.getReferencesForFqcn('Test\\Foo\\Model\\Foo\\Proxy')
         .find((r) => r.kind === 'argument-object' && r.file === diXml);
       expect(proxyRef).toBeDefined();
 

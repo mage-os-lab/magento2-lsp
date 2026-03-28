@@ -65,7 +65,7 @@ export interface XmlWatcherConfig<TContext, TResult> {
   /** Persist the cache to disk. */
   saveCache: () => void;
   /** Optional callback after each change/remove (e.g., rebuild plugin index). */
-  afterChange?: () => void;
+  afterChange?: (file: string) => void;
 }
 
 /**
@@ -85,7 +85,7 @@ export function createXmlWatcher<TContext, TResult>(
         const result = config.parse(content, context);
         config.onParsed(filePath, stat.mtimeMs, result);
         config.saveCache();
-        config.afterChange?.();
+        config.afterChange?.(filePath);
       } catch {
         // File might be temporarily unreadable during write
       }
@@ -93,7 +93,7 @@ export function createXmlWatcher<TContext, TResult>(
     onFileRemove(filePath) {
       config.onRemoved(filePath);
       config.saveCache();
-      config.afterChange?.();
+      config.afterChange?.(filePath);
     },
   });
   watcher.watch(config.patterns);
@@ -177,7 +177,7 @@ export function createXmlWatcherHandler<TContext, TResult>(
         const result = config.parse(content, context);
         config.onParsed(filePath, stat.mtimeMs, result);
         config.saveCache();
-        config.afterChange?.();
+        config.afterChange?.(filePath);
       } catch {
         // File might be temporarily unreadable during write
       }
@@ -185,7 +185,7 @@ export function createXmlWatcherHandler<TContext, TResult>(
     onFileRemove(filePath) {
       config.onRemoved(filePath);
       config.saveCache();
-      config.afterChange?.();
+      config.afterChange?.(filePath);
     },
   };
 }

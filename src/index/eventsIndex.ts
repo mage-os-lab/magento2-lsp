@@ -28,6 +28,8 @@ export class EventsIndex {
   private eventNameRefs = new Map<string, EventReference[]>();
   /** File path -> all references (events + observers) in that file. */
   private fileToRefs = new Map<string, EventsXmlReference[]>();
+  /** Pre-computed lowercase event name -> original name for efficient search. */
+  private lowerEventMap = new Map<string, string>();
 
   addFile(
     file: string,
@@ -38,9 +40,13 @@ export class EventsIndex {
     this.fileToRefs.set(file, allRefs);
 
     for (const event of events) {
-      const existing = this.eventNameRefs.get(event.eventName) ?? [];
-      existing.push(event);
-      this.eventNameRefs.set(event.eventName, existing);
+      const existing = this.eventNameRefs.get(event.eventName);
+      if (existing) {
+        existing.push(event);
+      } else {
+        this.eventNameRefs.set(event.eventName, [event]);
+        this.lowerEventMap.set(event.eventName.toLowerCase(), event.eventName);
+      }
     }
 
     for (const obs of observers) {
@@ -64,6 +70,9 @@ export class EventsIndex {
         removeFromMap(this.fqcnToObservers, ref.fqcn, file);
       } else {
         removeFromMap(this.eventNameRefs, ref.eventName, file);
+        if (!this.eventNameRefs.has(ref.eventName)) {
+          this.lowerEventMap.delete(ref.eventName.toLowerCase());
+        }
       }
     }
 
@@ -117,6 +126,21 @@ export class EventsIndex {
     return this.eventNameRefs.keys();
   }
 
+  /**
+   * Search event names by case-insensitive substring match.
+   * Returns up to `limit` matching names without allocating lowercase strings per candidate.
+   */
+  searchEventNames(lowerQuery: string, limit: number): string[] {
+    const results: string[] = [];
+    for (const [lower, original] of this.lowerEventMap) {
+      if (lower.includes(lowerQuery)) {
+        results.push(original);
+        if (results.length >= limit) break;
+      }
+    }
+    return results;
+  }
+
   /** Number of events.xml files currently indexed. */
   getFileCount(): number {
     return this.fileToRefs.size;
@@ -127,6 +151,7 @@ export class EventsIndex {
     this.fqcnToObservers.clear();
     this.eventNameRefs.clear();
     this.fileToRefs.clear();
+    this.lowerEventMap.clear();
   }
 
 }

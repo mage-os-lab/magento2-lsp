@@ -119,12 +119,12 @@ connection.onInitialized(async () => {
 connection.onDefinition((params, token) => {
   const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
   const project = projectManager.getProjectForFile(filePath);
-  log(`onDefinition: ${filePath} line=${params.position.line} col=${params.position.character} project=${project?.root ?? 'NONE'} indexedFiles=${project?.index.getFileCount() ?? 0}`);
+  log(`onDefinition: ${filePath} line=${params.position.line} col=${params.position.character} project=${project?.root ?? 'NONE'} indexedFiles=${project?.indexes.di.getFileCount() ?? 0}`);
   if (project) {
-    const ref = project.index.getReferenceAtPosition(filePath, params.position.line, params.position.character);
+    const ref = project.indexes.di.getReferenceAtPosition(filePath, params.position.line, params.position.character);
     log(`  ref at position: ${ref ? `${ref.kind} ${ref.fqcn} col=${ref.column}-${ref.endColumn}` : 'NONE'}`);
   }
-  return handleDefinition(params, () => project, token);
+  return handleDefinition(params, () => project, getDocumentText, token);
 });
 
 connection.onReferences(async (params, token) => {
@@ -133,7 +133,7 @@ connection.onReferences(async (params, token) => {
 
   // Show progress for system.xml field references (grep can take a moment)
   if (project && filePath.endsWith('.xml')) {
-    const sysRef = project.systemConfigIndex.getReferenceAtPosition(
+    const sysRef = project.indexes.systemConfig.getReferenceAtPosition(
       filePath, params.position.line, params.position.character,
     );
     if (sysRef && !sysRef.fqcn) {
@@ -145,7 +145,7 @@ connection.onReferences(async (params, token) => {
           title: 'Searching PHP files',
           message: sysRef.configPath,
         });
-        const result = await handleReferences(params, () => project, token);
+        const result = await handleReferences(params, () => project, getDocumentText, token);
         connection.sendProgress(WorkDoneProgress.type, progressToken, { kind: 'end' });
         return result;
       } catch {
@@ -154,7 +154,7 @@ connection.onReferences(async (params, token) => {
     }
   }
 
-  return handleReferences(params, () => project, token);
+  return handleReferences(params, () => project, getDocumentText, token);
 });
 
 connection.onCodeLens((params, token) => {
@@ -166,10 +166,10 @@ connection.onHover((params, token) => {
   const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
   const project = projectManager.getProjectForFile(filePath);
   if (project) {
-    const sysRef = project.systemConfigIndex.getReferenceAtPosition(filePath, params.position.line, params.position.character);
-    log(`onHover: ${filePath} line=${params.position.line} col=${params.position.character} sysConfigFiles=${project.systemConfigIndex.getFileCount()} sysRef=${sysRef ? `${sysRef.kind} ${sysRef.configPath} col=${sysRef.column}-${sysRef.endColumn}` : 'NONE'}`);
+    const sysRef = project.indexes.systemConfig.getReferenceAtPosition(filePath, params.position.line, params.position.character);
+    log(`onHover: ${filePath} line=${params.position.line} col=${params.position.character} sysConfigFiles=${project.indexes.systemConfig.getFileCount()} sysRef=${sysRef ? `${sysRef.kind} ${sysRef.configPath} col=${sysRef.column}-${sysRef.endColumn}` : 'NONE'}`);
   }
-  return handleHover(params, () => project, token);
+  return handleHover(params, () => project, getDocumentText, token);
 });
 
 connection.onDocumentSymbol((params, token) => {
@@ -216,7 +216,7 @@ connection.onDidOpenTextDocument(async (params) => {
   log(`onDidOpenTextDocument: ${filePath}`);
   const existing = projectManager.getProjectForFile(filePath);
   if (existing) {
-    log(`  project already initialized: ${existing.root} (${existing.index.getFileCount()} files)`);
+    log(`  project already initialized: ${existing.root} (${existing.indexes.di.getFileCount()} files)`);
     // Validate on open if it's an XML file
     if (filePath.endsWith('.xml')) {
       validateAndPublish(params.textDocument.uri, params.textDocument.text, existing, 300, true);
@@ -278,7 +278,7 @@ connection.onDidOpenTextDocument(async (params) => {
     },
   });
 
-  log(`  project initialized: ${project?.root ?? 'NONE'} (${project?.index.getFileCount() ?? 0} files)`);
+  log(`  project initialized: ${project?.root ?? 'NONE'} (${project?.indexes.di.getFileCount() ?? 0} files)`);
 
   // --- Set up file watchers for automatic re-indexing ---
 
@@ -437,7 +437,7 @@ function buildTypedHandler<TCtx, TResult>(
     parse: (content: string, ctx: TCtx) => TResult;
     addToIndex: (file: string, result: TResult) => void;
     removeFromIndex: (file: string) => void;
-    afterChange?: () => void;
+    afterChange?: (file: string) => void;
   },
   matches: (filePath: string) => boolean,
   saveCache: () => void,
@@ -496,10 +496,16 @@ function setupFileWatchers(project: ProjectContext): void {
   diTargets.contextMap.set(rootDiXml, { file: rootDiXml, area: 'global', module: '__root__', moduleOrder: -1 });
 
   let pluginRebuildTimer: ReturnType<typeof setTimeout> | undefined;
-  function schedulePluginRebuild(): void {
+  const changedDiFiles = new Set<string>();
+  function schedulePluginRebuild(file: string): void {
+    changedDiFiles.add(file);
     if (pluginRebuildTimer) clearTimeout(pluginRebuildTimer);
-    pluginRebuildTimer = setTimeout(() => {
-      project.pluginMethodIndex.build(project.index, project.psr4Map);
+    pluginRebuildTimer = setTimeout(async () => {
+      const files = [...changedDiFiles];
+      changedDiFiles.clear();
+      for (const f of files) {
+        await project.indexes.pluginMethod.rebuildForFile(f, project.indexes.di, project.psr4Map);
+      }
     }, 500);
   }
 
@@ -510,11 +516,11 @@ function setupFileWatchers(project: ProjectContext): void {
         (file) => deriveDiXmlContext(file, project.root, project.modules)),
       parse: parseDiXml,
       onParsed(file, mtimeMs, result) {
-        project.index.replaceFile(file, result.references, result.virtualTypes);
+        project.indexes.di.replaceFile(file, result.references, result.virtualTypes);
         project.cache.setDiEntry(file, mtimeMs, result.references, result.virtualTypes);
       },
       onRemoved(file) {
-        project.index.removeFile(file);
+        project.indexes.di.removeFile(file);
         project.cache.removeEntry(file);
       },
       saveCache: debouncedCacheSave,
@@ -533,8 +539,8 @@ function setupFileWatchers(project: ProjectContext): void {
     ),
     deriveContext: (file) => deriveEventsXmlContext(file, project.modules),
     parse: parseEventsXml,
-    addToIndex: (file, r) => project.eventsIndex.addFile(file, r.events, r.observers),
-    removeFromIndex: (file) => project.eventsIndex.removeFile(file),
+    addToIndex: (file, r) => project.indexes.events.addFile(file, r.events, r.observers),
+    removeFromIndex: (file) => project.indexes.events.removeFile(file),
   }, (fp) => fp.endsWith('/events.xml'), debouncedCacheSave);
   allPatterns.push(...eventsH.patterns);
   unified.addHandler(eventsH.handler);
@@ -549,8 +555,8 @@ function setupFileWatchers(project: ProjectContext): void {
     ),
     deriveContext: (file) => deriveWebapiXmlContext(file, project.modules),
     parse: parseWebapiXml,
-    addToIndex: (file, r) => project.webapiIndex.addFile(file, r.references),
-    removeFromIndex: (file) => project.webapiIndex.removeFile(file),
+    addToIndex: (file, r) => project.indexes.webapi.addFile(file, r.references),
+    removeFromIndex: (file) => project.indexes.webapi.removeFile(file),
   }, (fp) => fp.endsWith('/webapi.xml'), debouncedCacheSave);
   allPatterns.push(...webapiH.patterns);
   unified.addHandler(webapiH.handler);
@@ -565,8 +571,8 @@ function setupFileWatchers(project: ProjectContext): void {
     ),
     deriveContext: (file) => deriveAclXmlContext(file, project.modules),
     parse: parseAclXml,
-    addToIndex: (file, r) => project.aclIndex.addFile(file, r.resources),
-    removeFromIndex: (file) => project.aclIndex.removeFile(file),
+    addToIndex: (file, r) => project.indexes.acl.addFile(file, r.resources),
+    removeFromIndex: (file) => project.indexes.acl.removeFile(file),
   }, (fp) => fp.endsWith('/acl.xml'), debouncedCacheSave);
   allPatterns.push(...aclH.patterns);
   unified.addHandler(aclH.handler);
@@ -581,8 +587,8 @@ function setupFileWatchers(project: ProjectContext): void {
     ),
     deriveContext: (file) => deriveMenuXmlContext(file, project.modules),
     parse: parseMenuXml,
-    addToIndex: (file, r) => project.menuIndex.addFile(file, r.references),
-    removeFromIndex: (file) => project.menuIndex.removeFile(file),
+    addToIndex: (file, r) => project.indexes.menu.addFile(file, r.references),
+    removeFromIndex: (file) => project.indexes.menu.removeFile(file),
   }, (fp) => fp.endsWith('/menu.xml'), debouncedCacheSave);
   allPatterns.push(...menuH.patterns);
   unified.addHandler(menuH.handler);
@@ -597,8 +603,8 @@ function setupFileWatchers(project: ProjectContext): void {
     ),
     deriveContext: (file) => deriveRoutesXmlContext(file, project.modules),
     parse: parseRoutesXml,
-    addToIndex: (file, r) => project.routesIndex.addFile(file, r.references),
-    removeFromIndex: (file) => project.routesIndex.removeFile(file),
+    addToIndex: (file, r) => project.indexes.routes.addFile(file, r.references),
+    removeFromIndex: (file) => project.indexes.routes.removeFile(file),
   }, (fp) => fp.endsWith('/routes.xml'), debouncedCacheSave);
   allPatterns.push(...routesH.patterns);
   unified.addHandler(routesH.handler);
@@ -613,8 +619,8 @@ function setupFileWatchers(project: ProjectContext): void {
     ),
     deriveContext: (file) => deriveDbSchemaXmlContext(file, project.modules),
     parse: parseDbSchemaXml,
-    addToIndex: (file, r) => project.dbSchemaIndex.addFile(file, r.references),
-    removeFromIndex: (file) => project.dbSchemaIndex.removeFile(file),
+    addToIndex: (file, r) => project.indexes.dbSchema.addFile(file, r.references),
+    removeFromIndex: (file) => project.indexes.dbSchema.removeFile(file),
   }, (fp) => fp.endsWith('/db_schema.xml'), debouncedCacheSave);
   allPatterns.push(...dbSchemaH.patterns);
   unified.addHandler(dbSchemaH.handler);
@@ -635,8 +641,8 @@ function setupFileWatchers(project: ProjectContext): void {
     },
     deriveContext: (file) => deriveSystemXmlContext(file, project.modules),
     parse: parseSystemXml,
-    addToIndex: (file, r) => project.systemConfigIndex.addFile(file, r.references),
-    removeFromIndex: (file) => project.systemConfigIndex.removeFile(file),
+    addToIndex: (file, r) => project.indexes.systemConfig.addFile(file, r.references),
+    removeFromIndex: (file) => project.indexes.systemConfig.removeFile(file),
   }, (fp) => fp.endsWith('/system.xml') || fp.includes('/etc/adminhtml/system/'), debouncedCacheSave);
   allPatterns.push(...systemH.patterns);
   unified.addHandler(systemH.handler);
@@ -651,8 +657,8 @@ function setupFileWatchers(project: ProjectContext): void {
     ),
     deriveContext: (file) => deriveUiComponentAclContext(file, project.modules),
     parse: parseUiComponentAcl,
-    addToIndex: (file, r) => project.uiComponentAclIndex.addFile(file, r.references),
-    removeFromIndex: (file) => project.uiComponentAclIndex.removeFile(file),
+    addToIndex: (file, r) => project.indexes.uiComponentAcl.addFile(file, r.references),
+    removeFromIndex: (file) => project.indexes.uiComponentAcl.removeFile(file),
   }, (fp) => fp.includes('/ui_component/') && fp.endsWith('.xml'), debouncedCacheSave);
   allPatterns.push(...uiAclH.patterns);
   unified.addHandler(uiAclH.handler);
@@ -677,8 +683,8 @@ function setupFileWatchers(project: ProjectContext): void {
     },
     deriveContext: (file) => file,
     parse: (content, filePath) => parseLayoutXml(content, filePath),
-    addToIndex: (file, r) => project.layoutIndex.addFile(file, r.references),
-    removeFromIndex: (file) => project.layoutIndex.removeFile(file),
+    addToIndex: (file, r) => project.indexes.layout.addFile(file, r.references),
+    removeFromIndex: (file) => project.indexes.layout.removeFile(file),
   }, (fp) => fp.endsWith('.xml') && (fp.includes('/layout/') || fp.includes('/page_layout/')), debouncedCacheSave);
   allPatterns.push(...layoutH.patterns);
   unified.addHandler(layoutH.handler);
@@ -687,8 +693,8 @@ function setupFileWatchers(project: ProjectContext): void {
   function invalidatePhpClass(filePath: string): void {
     const fqcn = resolveFileToFqcn(filePath, project.psr4Map);
     if (!fqcn) return;
-    project.magicMethodIndex.invalidateClass(fqcn);
-    project.pluginMethodIndex.invalidateHierarchy(fqcn);
+    project.indexes.magicMethod.invalidateClass(fqcn);
+    project.indexes.pluginMethod.invalidateHierarchy(fqcn);
   }
 
   for (const entry of project.psr4Map) {

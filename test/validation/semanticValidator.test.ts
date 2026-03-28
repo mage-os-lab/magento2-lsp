@@ -60,13 +60,22 @@ function makeProject(): ProjectContext {
       { prefix: 'Target\\', path: '/project/vendor/target/module/src' },
       { prefix: 'Magento\\', path: '/project/vendor/magento/framework/src' },
     ] as Psr4Map,
-    index: new DiIndex(),
-    pluginMethodIndex: new PluginMethodIndex(),
-    magicMethodIndex: new MagicMethodIndex(),
-    eventsIndex: new EventsIndex(),
-    layoutIndex: new LayoutIndex(),
+    indexes: {
+      di: new DiIndex(),
+      pluginMethod: new PluginMethodIndex(),
+      magicMethod: new MagicMethodIndex(),
+      events: new EventsIndex(),
+      layout: new LayoutIndex(),
+      compatModule: new CompatModuleIndex(),
+      systemConfig: {} as any,
+      webapi: {} as any,
+      acl: { getAllResources: () => [] } as any,
+      menu: {} as any,
+      uiComponentAcl: {} as any,
+      routes: {} as any,
+      dbSchema: {} as any,
+    },
     themeResolver: new ThemeResolver(),
-    compatModuleIndex: new CompatModuleIndex(),
     cache: new IndexCache('/tmp/test-cache.json'),
     indexingComplete: true,
   };
@@ -136,7 +145,7 @@ describe('semanticValidator', () => {
       const content = diXml('  <type name="someGlobalVType" />');
       const project = makeProject();
       // Virtual type exists in the project-wide index from another file
-      project.index.addFile('/project/vendor/other/module/etc/di.xml', [], [
+      project.indexes.di.addFile('/project/vendor/other/module/etc/di.xml', [], [
         { name: 'someGlobalVType', parentType: 'Vendor\\Module\\Model\\Existing',
           file: '/project/vendor/other/module/etc/di.xml', line: 0, column: 0,
           area: 'global', module: 'Other_Module', moduleOrder: 1 },
@@ -220,7 +229,7 @@ describe('semanticValidator', () => {
       const project = makeProject();
       // Another file in the project index already has a plugin with the same name + target
       const otherFile = '/project/vendor/other/module/etc/di.xml';
-      project.index.addFile(otherFile, [
+      project.indexes.di.addFile(otherFile, [
         {
           fqcn: 'Vendor\\Module\\Plugin\\MyPlugin',
           kind: 'plugin-type',

@@ -36,12 +36,12 @@ export function handleWorkspaceSymbol(
     if (token?.isCancellationRequested) break;
 
     // Search DI-configured FQCNs
-    for (const fqcn of project.index.getAllFqcns()) {
-      if (results.length >= MAX_RESULTS) break;
+    const remaining = MAX_RESULTS - results.length;
+    if (remaining <= 0) break;
+    for (const fqcn of project.indexes.di.searchFqcns(query, remaining)) {
       if (token?.isCancellationRequested) break;
-      if (!fqcn.toLowerCase().includes(query)) continue;
 
-      const refs = project.index.getReferencesForFqcn(fqcn);
+      const refs = project.indexes.di.getReferencesForFqcn(fqcn);
       if (refs.length > 0) {
         results.push(
           SymbolInformation.create(
@@ -55,12 +55,12 @@ export function handleWorkspaceSymbol(
     }
 
     // Search virtual types
-    for (const name of project.index.getAllVirtualTypeNames()) {
-      if (results.length >= MAX_RESULTS) break;
+    const vtRemaining = MAX_RESULTS - results.length;
+    if (vtRemaining <= 0) break;
+    for (const name of project.indexes.di.searchVirtualTypeNames(query, vtRemaining)) {
       if (token?.isCancellationRequested) break;
-      if (!name.toLowerCase().includes(query)) continue;
 
-      const decls = project.index.getAllVirtualTypeDecls(name);
+      const decls = project.indexes.di.getAllVirtualTypeDecls(name);
       if (decls.length > 0) {
         results.push(
           SymbolInformation.create(
@@ -75,12 +75,12 @@ export function handleWorkspaceSymbol(
     }
 
     // Search event names
-    for (const eventName of project.eventsIndex.getAllEventNames()) {
-      if (results.length >= MAX_RESULTS) break;
+    const evtRemaining = MAX_RESULTS - results.length;
+    if (evtRemaining <= 0) break;
+    for (const eventName of project.indexes.events.searchEventNames(query, evtRemaining)) {
       if (token?.isCancellationRequested) break;
-      if (!eventName.toLowerCase().includes(query)) continue;
 
-      const refs = project.eventsIndex.getEventNameRefs(eventName);
+      const refs = project.indexes.events.getEventNameRefs(eventName);
       if (refs.length > 0) {
         results.push(
           SymbolInformation.create(

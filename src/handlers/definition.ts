@@ -56,8 +56,10 @@ import * as path from 'path';
 export function handleDefinition(
   params: DefinitionParams,
   getProject: (uri: string) => ProjectContext | undefined,
-  _token?: CancellationToken,
+  getDocumentText: (uri: string) => string | undefined,
+  token?: CancellationToken,
 ): Location | Location[] | null {
+  if (token?.isCancellationRequested) return null;
   const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
 
   // Theme override .phtml -> original module template
@@ -67,7 +69,7 @@ export function handleDefinition(
 
   // Magic method calls in PHP files -> resolved method on the concrete class
   if (filePath.endsWith('.php')) {
-    return handlePhpDefinition(filePath, params, getProject);
+    return handlePhpDefinition(filePath, params, getProject, getDocumentText, token);
   }
 
   // Beyond .phtml and .php above, only XML and XSD files are handled.
@@ -79,14 +81,14 @@ export function handleDefinition(
   if (!project) return null;
 
   // --- Try URN navigation (works in both .xml and .xsd files) ---
-  const urnResult = handleUrnDefinition(filePath, params, project);
+  const urnResult = handleUrnDefinition(filePath, params, project, getDocumentText, token);
   if (urnResult) return urnResult;
 
   // XSD files only support URN navigation (above), not Magento index lookups.
   if (filePath.endsWith('.xsd')) return null;
 
   // --- Try layout XML ---
-  const layoutRef = project.layoutIndex.getReferenceAtPosition(
+  const layoutRef = project.indexes.layout.getReferenceAtPosition(
     filePath,
     params.position.line,
     params.position.character,
@@ -99,8 +101,8 @@ export function handleDefinition(
 
       // Collect files for both handle and hyva_ variant
       let allFiles = [
-        ...project.layoutIndex.getFilesForHandle(handle),
-        ...project.layoutIndex.getFilesForHandle(`hyva_${handle}`),
+        ...project.indexes.layout.getFilesForHandle(handle),
+        ...project.indexes.layout.getFilesForHandle(`hyva_${handle}`),
       ];
 
       // Filter by area (include 'base' as it applies to all areas)
@@ -152,7 +154,7 @@ export function handleDefinition(
     if (layoutRef.kind === 'reference-block' || layoutRef.kind === 'reference-container') {
       const targetKind = layoutRef.kind === 'reference-block' ? 'block-name' : 'container-name';
       const sourceArea = project.themeResolver.getAreaForFile(filePath);
-      const targets = project.layoutIndex.getRefsForName(layoutRef.value)
+      const targets = project.indexes.layout.getRefsForName(layoutRef.value)
         .filter((r) => r.kind === targetKind)
         .filter((r) => isAreaCompatible(sourceArea, project.themeResolver.getAreaForFile(r.file)));
       if (targets.length > 0) {
@@ -183,7 +185,7 @@ export function handleDefinition(
   }
 
   // --- Try system.xml ---
-  const sysRef = project.systemConfigIndex.getReferenceAtPosition(
+  const sysRef = project.indexes.systemConfig.getReferenceAtPosition(
     filePath,
     params.position.line,
     params.position.character,
@@ -201,7 +203,7 @@ export function handleDefinition(
     }
     // section-resource -> jump to acl.xml definition
     if (sysRef.kind === 'section-resource' && sysRef.aclResourceId) {
-      const aclDef = project.aclIndex.getResource(sysRef.aclResourceId);
+      const aclDef = project.indexes.acl.getResource(sysRef.aclResourceId);
       if (aclDef) {
         return Location.create(
           URI.file(aclDef.file).toString(),
@@ -214,7 +216,7 @@ export function handleDefinition(
   }
 
   // --- Try webapi.xml ---
-  const webapiRef = project.webapiIndex.getReferenceAtPosition(
+  const webapiRef = project.indexes.webapi.getReferenceAtPosition(
     filePath,
     params.position.line,
     params.position.character,
@@ -242,7 +244,7 @@ export function handleDefinition(
     if (webapiRef.kind === 'resource-ref') {
       // "self" and "anonymous" are special built-in resource values, not ACL resource IDs
       if (webapiRef.value === 'self' || webapiRef.value === 'anonymous') return null;
-      const aclDef = project.aclIndex.getResource(webapiRef.value);
+      const aclDef = project.indexes.acl.getResource(webapiRef.value);
       if (aclDef) {
         return Location.create(
           URI.file(aclDef.file).toString(),
@@ -254,7 +256,7 @@ export function handleDefinition(
   }
 
   // --- Try acl.xml ---
-  const aclResource = project.aclIndex.getResourceAtPosition(
+  const aclResource = project.indexes.acl.getResourceAtPosition(
     filePath,
     params.position.line,
     params.position.character,
@@ -265,13 +267,13 @@ export function handleDefinition(
   }
 
   // --- Try menu.xml ---
-  const menuRef = project.menuIndex.getReferenceAtPosition(
+  const menuRef = project.indexes.menu.getReferenceAtPosition(
     filePath,
     params.position.line,
     params.position.character,
   );
   if (menuRef) {
-    const aclDef = project.aclIndex.getResource(menuRef.value);
+    const aclDef = project.indexes.acl.getResource(menuRef.value);
     if (aclDef) {
       return Location.create(
         URI.file(aclDef.file).toString(),
@@ -282,13 +284,13 @@ export function handleDefinition(
   }
 
   // --- Try UI component aclResource ---
-  const uiAclRef = project.uiComponentAclIndex.getReferenceAtPosition(
+  const uiAclRef = project.indexes.uiComponentAcl.getReferenceAtPosition(
     filePath,
     params.position.line,
     params.position.character,
   );
   if (uiAclRef) {
-    const aclDef = project.aclIndex.getResource(uiAclRef.value);
+    const aclDef = project.indexes.acl.getResource(uiAclRef.value);
     if (aclDef) {
       return Location.create(
         URI.file(aclDef.file).toString(),
@@ -299,7 +301,7 @@ export function handleDefinition(
   }
 
   // --- Try routes.xml ---
-  const routesRef = project.routesIndex.getReferenceAtPosition(
+  const routesRef = project.indexes.routes.getReferenceAtPosition(
     filePath,
     params.position.line,
     params.position.character,
@@ -317,7 +319,7 @@ export function handleDefinition(
       }
     } else {
       // route-frontname or route-id: show all route-id declarations for this route
-      const allRefs = project.routesIndex.getRefsForRouteId(routesRef.routeId);
+      const allRefs = project.indexes.routes.getRefsForRouteId(routesRef.routeId);
       const idRefs = allRefs.filter((r) => r.kind === 'route-id');
       if (idRefs.length > 0) {
         return idRefs.map((r) =>
@@ -332,7 +334,7 @@ export function handleDefinition(
   }
 
   // --- Try db_schema.xml ---
-  const dbSchemaRef = project.dbSchemaIndex.getReferenceAtPosition(
+  const dbSchemaRef = project.indexes.dbSchema.getReferenceAtPosition(
     filePath,
     params.position.line,
     params.position.character,
@@ -340,7 +342,7 @@ export function handleDefinition(
   if (dbSchemaRef) {
     if (dbSchemaRef.kind === 'fk-ref-table') {
       // Jump to the referenced table declaration(s) across modules
-      const tableDefs = project.dbSchemaIndex.getTableDefs(dbSchemaRef.value);
+      const tableDefs = project.indexes.dbSchema.getTableDefs(dbSchemaRef.value);
       if (tableDefs.length > 0) {
         return tableDefs.map((r) =>
           Location.create(
@@ -352,7 +354,7 @@ export function handleDefinition(
     }
     if (dbSchemaRef.kind === 'table-name') {
       // If same table is defined in other modules, show those declarations
-      const allDefs = project.dbSchemaIndex.getTableDefs(dbSchemaRef.value);
+      const allDefs = project.indexes.dbSchema.getTableDefs(dbSchemaRef.value);
       const otherDefs = allDefs.filter((r) => r.file !== filePath);
       if (otherDefs.length > 0) {
         return otherDefs.map((r) =>
@@ -368,7 +370,7 @@ export function handleDefinition(
   }
 
   // --- Try events.xml ---
-  const eventsRef = project.eventsIndex.getReferenceAtPosition(
+  const eventsRef = project.indexes.events.getReferenceAtPosition(
     filePath,
     params.position.line,
     params.position.character,
@@ -389,7 +391,7 @@ export function handleDefinition(
   }
 
   // --- Try di.xml ---
-  const ref = project.index.getReferenceAtPosition(
+  const ref = project.indexes.di.getReferenceAtPosition(
     filePath,
     params.position.line,
     params.position.character,
@@ -397,7 +399,7 @@ export function handleDefinition(
   if (!ref) return null;
 
   // VirtualType -> XML declaration
-  const vt = project.index.getEffectiveVirtualType(ref.fqcn);
+  const vt = project.indexes.di.getEffectiveVirtualType(ref.fqcn);
   if (vt) {
     return Location.create(
       URI.file(vt.file).toString(),
@@ -407,7 +409,7 @@ export function handleDefinition(
 
   // Preference interface -> effective implementation
   if (ref.kind === 'preference-for') {
-    const effectiveType = project.index.getEffectivePreferenceType(
+    const effectiveType = project.indexes.di.getEffectivePreferenceType(
       ref.fqcn,
       ref.area,
     );
@@ -456,13 +458,12 @@ function handleUrnDefinition(
   filePath: string,
   params: DefinitionParams,
   project: ProjectContext,
+  getDocumentText: (uri: string) => string | undefined,
+  token?: CancellationToken,
 ): Location | null {
-  let content: string;
-  try {
-    content = fs.readFileSync(filePath, 'utf-8');
-  } catch {
-    return null;
-  }
+  if (token?.isCancellationRequested) return null;
+  const content = getDocumentText(params.textDocument.uri) ?? readFileSafe(filePath);
+  if (!content) return null;
 
   const lines = content.split('\n');
   const line = lines[params.position.line];
@@ -503,22 +504,21 @@ function handlePhpDefinition(
   filePath: string,
   params: DefinitionParams,
   getProject: (uri: string) => ProjectContext | undefined,
+  getDocumentText: (uri: string) => string | undefined,
+  token?: CancellationToken,
 ): Location | Location[] | null {
+  if (token?.isCancellationRequested) return null;
   const project = getProject(filePath);
   if (!project) return null;
 
-  let content: string;
-  try {
-    content = fs.readFileSync(filePath, 'utf-8');
-  } catch {
-    return null;
-  }
+  const content = getDocumentText(params.textDocument.uri) ?? readFileSafe(filePath);
+  if (!content) return null;
 
   const classInfo = extractPhpClass(content);
   if (!classInfo) return null;
 
   const typeMap = resolveVariableTypes(content, classInfo, (fqcn, method) =>
-    project.magicMethodIndex.resolveMethodReturnType(fqcn, method, project.psr4Map),
+    project.indexes.magicMethod.resolveMethodReturnType(fqcn, method, project.psr4Map),
   );
   const lines = content.split('\n');
   const line = lines[params.position.line];
@@ -550,16 +550,16 @@ function handlePhpDefinition(
     if (!originalFqcn) return null;
 
     // If the method is declared on the original type, let Intelephense handle it.
-    const originalResolution = project.magicMethodIndex.resolveMethod(
+    const originalResolution = project.indexes.magicMethod.resolveMethod(
       originalFqcn, methodName, project.psr4Map,
     );
     if (originalResolution?.kind === 'declared') return null;
 
     // Resolve DI preference: interface → concrete class
-    const concreteFqcn = resolveConcreteType(originalFqcn, project.index);
+    const concreteFqcn = resolveConcreteType(originalFqcn, project.indexes.di);
 
     const resolution = concreteFqcn !== originalFqcn
-      ? project.magicMethodIndex.resolveMethod(concreteFqcn, methodName, project.psr4Map)
+      ? project.indexes.magicMethod.resolveMethod(concreteFqcn, methodName, project.psr4Map)
       : originalResolution;
     if (!resolution) return null;
 
@@ -610,7 +610,7 @@ function handlePhtmlDefinition(
   }
 
   // Check if the file is a Hyvä compat module override
-  const compatOriginal = project.compatModuleIndex.getOriginalModuleTemplate(
+  const compatOriginal = project.indexes.compatModule.getOriginalModuleTemplate(
     filePath,
     project.modules,
   );
@@ -644,7 +644,7 @@ function handlePhpConfigPath(
 
     // Use <= to give a slightly generous hit area (one char past the token)
     if (character >= pathStart && character <= pathEnd) {
-      const refs = project.systemConfigIndex.getRefsForPath(configPath);
+      const refs = project.indexes.systemConfig.getRefsForPath(configPath);
       // Jump to field-id declarations (not model refs)
       const fieldRefs = refs.filter((r) => r.kind === 'field-id');
       if (fieldRefs.length === 0) return null;
@@ -681,7 +681,7 @@ function handlePhpAclResource(
     const idEnd = idStart + aclId.length;
 
     if (character >= idStart && character <= idEnd) {
-      const aclDef = project.aclIndex.getResource(aclId);
+      const aclDef = project.indexes.acl.getResource(aclId);
       if (!aclDef) return null;
 
       return Location.create(
@@ -691,4 +691,13 @@ function handlePhpAclResource(
     }
   }
   return null;
+}
+
+/** Safely read a file from disk, returning undefined on any error. */
+function readFileSafe(filePath: string): string | undefined {
+  try {
+    return fs.readFileSync(filePath, 'utf-8');
+  } catch {
+    return undefined;
+  }
 }

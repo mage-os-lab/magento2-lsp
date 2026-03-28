@@ -13,33 +13,33 @@ describe('LayoutIndex', () => {
   });
 
   it('indexes layout XML files', () => {
-    expect(project.layoutIndex.getFileCount()).toBeGreaterThanOrEqual(1);
+    expect(project.indexes.layout.getFileCount()).toBeGreaterThanOrEqual(1);
   });
 
   it('finds block class references', () => {
-    const refs = project.layoutIndex.getReferencesForFqcn('Test\\Foo\\Block\\FooList');
+    const refs = project.indexes.layout.getReferencesForFqcn('Test\\Foo\\Block\\FooList');
     // Module layout + vendor theme (test/theme-hyphen) layout
     expect(refs).toHaveLength(2);
     expect(refs[0].kind).toBe('block-class');
   });
 
   it('finds template references', () => {
-    const refs = project.layoutIndex.getReferencesForTemplate('Test_Foo::product/list.phtml');
+    const refs = project.indexes.layout.getReferencesForTemplate('Test_Foo::product/list.phtml');
     // Module layout + vendor theme (test/theme-hyphen) layout
     expect(refs).toHaveLength(2);
     expect(refs[0].kind).toBe('block-template');
   });
 
   it('finds argument-object references (ViewModels)', () => {
-    const refs = project.layoutIndex.getReferencesForFqcn('Test\\Foo\\ViewModel\\FooViewModel');
+    const refs = project.indexes.layout.getReferencesForFqcn('Test\\Foo\\ViewModel\\FooViewModel');
     expect(refs).toHaveLength(1);
     expect(refs[0].kind).toBe('argument-object');
   });
 
   it('finds reference at cursor position', () => {
-    const refs = project.layoutIndex.getReferencesForFqcn('Test\\Foo\\Block\\FooList');
+    const refs = project.indexes.layout.getReferencesForFqcn('Test\\Foo\\Block\\FooList');
     const ref = refs[0];
-    const found = project.layoutIndex.getReferenceAtPosition(ref.file, ref.line, ref.column);
+    const found = project.indexes.layout.getReferenceAtPosition(ref.file, ref.line, ref.column);
     expect(found).toBeDefined();
     expect(found!.value).toBe('Test\\Foo\\Block\\FooList');
   });

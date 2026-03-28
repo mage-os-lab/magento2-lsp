@@ -18,6 +18,8 @@ describe('handleHover', () => {
     return project;
   }
 
+  function noDocText(): undefined { return undefined; }
+
   function makeParams(filePath: string, line: number, character: number) {
     return {
       textDocument: { uri: URI.file(filePath).toString() },
@@ -27,19 +29,19 @@ describe('handleHover', () => {
 
   it('returns null for non-XML files', () => {
     const phpFile = path.join(FIXTURE_ROOT, 'vendor/test/module-foo/Model/Foo.php');
-    const result = handleHover(makeParams(phpFile, 0, 0), getProject);
+    const result = handleHover(makeParams(phpFile, 0, 0), getProject, noDocText);
     expect(result).toBeNull();
   });
 
   it('returns null when cursor is not on a reference', () => {
     const diXml = path.join(FIXTURE_ROOT, 'vendor/test/module-foo/etc/di.xml');
-    const result = handleHover(makeParams(diXml, 0, 0), getProject);
+    const result = handleHover(makeParams(diXml, 0, 0), getProject, noDocText);
     expect(result).toBeNull();
   });
 
   it('shows preference info on preference-for reference', () => {
     const diXml = path.join(FIXTURE_ROOT, 'vendor/test/module-foo/etc/di.xml');
-    const refs = project.index.getReferencesForFqcn('Test\\Foo\\Api\\FooInterface');
+    const refs = project.indexes.di.getReferencesForFqcn('Test\\Foo\\Api\\FooInterface');
     const prefFor = refs.find(
       (r) => r.kind === 'preference-for' && r.file === diXml,
     );
@@ -47,7 +49,7 @@ describe('handleHover', () => {
 
     const result = handleHover(
       makeParams(diXml, prefFor!.line, prefFor!.column),
-      getProject,
+      getProject, noDocText,
     );
     expect(result).not.toBeNull();
     const content = result!.contents;
@@ -57,7 +59,7 @@ describe('handleHover', () => {
 
   it('shows type info with plugin count on type-name reference', () => {
     const diXml = path.join(FIXTURE_ROOT, 'vendor/test/module-foo/etc/di.xml');
-    const refs = project.index.getReferencesForFqcn('Test\\Foo\\Model\\Foo');
+    const refs = project.indexes.di.getReferencesForFqcn('Test\\Foo\\Model\\Foo');
     const typeRef = refs.find(
       (r) => r.kind === 'type-name' && r.file === diXml,
     );
@@ -65,7 +67,7 @@ describe('handleHover', () => {
 
     const result = handleHover(
       makeParams(diXml, typeRef!.line, typeRef!.column),
-      getProject,
+      getProject, noDocText,
     );
     expect(result).not.toBeNull();
     const content = result!.contents;
@@ -74,7 +76,7 @@ describe('handleHover', () => {
 
   it('shows plugin info on plugin-type reference', () => {
     const frontendDiXml = path.join(FIXTURE_ROOT, 'vendor/test/module-foo/etc/frontend/di.xml');
-    const refs = project.index.getReferencesForFqcn('Custom\\Bar\\Plugin\\FooPlugin');
+    const refs = project.indexes.di.getReferencesForFqcn('Custom\\Bar\\Plugin\\FooPlugin');
     const pluginRef = refs.find(
       (r) => r.kind === 'plugin-type' && r.file === frontendDiXml,
     );
@@ -82,7 +84,7 @@ describe('handleHover', () => {
 
     const result = handleHover(
       makeParams(frontendDiXml, pluginRef!.line, pluginRef!.column),
-      getProject,
+      getProject, noDocText,
     );
     expect(result).not.toBeNull();
     const content = result!.contents;
@@ -94,16 +96,16 @@ describe('handleHover', () => {
 
   it('shows observer info on observer instance reference', () => {
     const eventsXml = path.join(FIXTURE_ROOT, 'vendor/test/module-foo/etc/events.xml');
-    const ref = project.eventsIndex.getReferenceAtPosition(eventsXml, 3, 60);
+    const ref = project.indexes.events.getReferenceAtPosition(eventsXml, 3, 60);
     // Verify the fixture has the expected observer reference
     if (!ref) {
       // Fall back: find any observer reference in this file
-      const allRefs = project.eventsIndex.getObserversForEvent('test_foo_save_after');
+      const allRefs = project.indexes.events.getObserversForEvent('test_foo_save_after');
       expect(allRefs.length).toBeGreaterThan(0);
       return;
     }
 
-    const result = handleHover(makeParams(eventsXml, ref.line, ref.column), getProject);
+    const result = handleHover(makeParams(eventsXml, ref.line, ref.column), getProject, noDocText);
     expect(result).not.toBeNull();
     const content = result!.contents;
     expect('value' in content && content.value).toContain('Observer');
@@ -112,16 +114,16 @@ describe('handleHover', () => {
   it('shows event info with observer count on event name reference', () => {
     const eventsXml = path.join(FIXTURE_ROOT, 'vendor/test/module-foo/etc/events.xml');
     // test_foo_load_after has 2 observers in the fixture
-    const allEvents = project.eventsIndex.getAllEventNames();
+    const allEvents = project.indexes.events.getAllEventNames();
     expect(allEvents).toContain('test_foo_load_after');
 
     // Find the event name reference position
-    const eventRefs = project.eventsIndex.getEventNameRefs('test_foo_load_after');
+    const eventRefs = project.indexes.events.getEventNameRefs('test_foo_load_after');
     expect(eventRefs.length).toBeGreaterThan(0);
     const ref = eventRefs.find((r) => r.file === eventsXml);
     expect(ref).toBeDefined();
 
-    const result = handleHover(makeParams(eventsXml, ref!.line, ref!.column), getProject);
+    const result = handleHover(makeParams(eventsXml, ref!.line, ref!.column), getProject, noDocText);
     expect(result).not.toBeNull();
     const content = result!.contents;
     expect('value' in content && content.value).toContain('Event');
@@ -142,15 +144,15 @@ describe('handleHover', () => {
       column: 0,
       endColumn: 8,
     };
-    project.layoutIndex.addFile(layoutXml, [ref]);
+    project.indexes.layout.addFile(layoutXml, [ref]);
     try {
-      const result = handleHover(makeParams(layoutXml, 0, 0), getProject);
+      const result = handleHover(makeParams(layoutXml, 0, 0), getProject, noDocText);
       expect(result).not.toBeNull();
       const content = result!.contents;
       expect('value' in content && content.value).toContain('**Block**');
       expect('value' in content && content.value).toContain('Test\\Foo\\Block\\FooList');
     } finally {
-      project.layoutIndex.removeFile(layoutXml);
+      project.indexes.layout.removeFile(layoutXml);
     }
   });
 
@@ -164,15 +166,15 @@ describe('handleHover', () => {
       column: 0,
       endColumn: 14,
     };
-    project.layoutIndex.addFile(layoutXml, [ref]);
+    project.indexes.layout.addFile(layoutXml, [ref]);
     try {
-      const result = handleHover(makeParams(layoutXml, 0, 0), getProject);
+      const result = handleHover(makeParams(layoutXml, 0, 0), getProject, noDocText);
       expect(result).not.toBeNull();
       const content = result!.contents;
       expect('value' in content && content.value).toContain('**Block**');
       expect('value' in content && content.value).toContain('Magento\\Framework\\View\\Element\\Template');
     } finally {
-      project.layoutIndex.removeFile(layoutXml);
+      project.indexes.layout.removeFile(layoutXml);
     }
   });
 });

@@ -51,8 +51,26 @@ import { parseRoutesXml } from '../indexer/routesXmlParser';
 import { parseDbSchemaXml } from '../indexer/dbSchemaXmlParser';
 import { ModuleInfo, Psr4Map } from '../indexer/types';
 import { fileExists } from '../utils/fsHelpers';
+import { yieldToEventLoop } from '../utils/async';
 import * as fs from 'fs';
 import * as path from 'path';
+
+/** All in-memory indexes for a Magento project, grouped for cleaner access. */
+export interface ProjectIndexes {
+  di: DiIndex;
+  pluginMethod: PluginMethodIndex;
+  magicMethod: MagicMethodIndex;
+  events: EventsIndex;
+  layout: LayoutIndex;
+  compatModule: CompatModuleIndex;
+  systemConfig: SystemConfigIndex;
+  webapi: WebapiIndex;
+  acl: AclIndex;
+  menu: MenuIndex;
+  uiComponentAcl: UiComponentAclIndex;
+  routes: RoutesIndex;
+  dbSchema: DbSchemaIndex;
+}
 
 /** All the state associated with a single Magento project. */
 export interface ProjectContext {
@@ -62,34 +80,10 @@ export interface ProjectContext {
   modules: ModuleInfo[];
   /** PSR-4 namespace-to-path mappings for resolving FQCNs to PHP files. */
   psr4Map: Psr4Map;
-  /** In-memory DI index for this project. */
-  index: DiIndex;
-  /** Maps target class methods to their plugin interceptions (for code lens + references). */
-  pluginMethodIndex: PluginMethodIndex;
-  /** Lazy index for resolving magic method calls (__call, @method). */
-  magicMethodIndex: MagicMethodIndex;
-  /** In-memory events/observer index for this project. */
-  eventsIndex: EventsIndex;
-  /** In-memory layout XML index (block classes, templates, argument objects). */
-  layoutIndex: LayoutIndex;
+  /** All in-memory indexes for this project. */
+  indexes: ProjectIndexes;
   /** Theme discovery and template fallback resolution. */
   themeResolver: ThemeResolver;
-  /** Hyvä compatibility module registrations (automatic template overrides). */
-  compatModuleIndex: CompatModuleIndex;
-  /** In-memory system.xml config path index for this project. */
-  systemConfigIndex: SystemConfigIndex;
-  /** In-memory webapi.xml route/service index for this project. */
-  webapiIndex: WebapiIndex;
-  /** In-memory acl.xml resource definition index for this project. */
-  aclIndex: AclIndex;
-  /** In-memory menu.xml ACL resource reference index for this project. */
-  menuIndex: MenuIndex;
-  /** In-memory UI component ACL resource reference index for this project. */
-  uiComponentAclIndex: UiComponentAclIndex;
-  /** In-memory routes.xml route/module index for this project. */
-  routesIndex: RoutesIndex;
-  /** In-memory db_schema.xml table/column/FK index for this project. */
-  dbSchemaIndex: DbSchemaIndex;
   /** Disk cache for this project's parse results. */
   cache: IndexCache;
   /** True once the initial indexing pass is complete. */
@@ -115,21 +109,23 @@ export interface ProgressCallback {
  * The caller prepares the file list (with parse contexts) and provides callbacks for
  * how to add results to the specific index type.
  */
-function indexXmlFiles<TCtx, TResult>(
+
+async function indexXmlFiles<TCtx, TResult>(
   files: { file: string; context: TCtx }[],
   cache: IndexCache,
   section: CacheSectionKey,
   parse: (content: string, ctx: TCtx) => TResult,
   addToIndex: (file: string, result: TResult) => void,
-): void {
-  for (const { file, context } of files) {
+): Promise<void> {
+  for (let i = 0; i < files.length; i++) {
+    const { file, context } = files[i];
     try {
-      const stat = fs.statSync(file);
+      const stat = await fs.promises.stat(file);
       const cached = cache.getEntry<TResult & { mtimeMs: number }>(section, file, stat.mtimeMs);
       if (cached) {
         addToIndex(file, cached);
       } else {
-        const content = fs.readFileSync(file, 'utf-8');
+        const content = await fs.promises.readFile(file, 'utf-8');
         const result = parse(content, context);
         addToIndex(file, result);
         cache.setEntry(section, file, { mtimeMs: stat.mtimeMs, ...result as Record<string, unknown> });
@@ -137,6 +133,8 @@ function indexXmlFiles<TCtx, TResult>(
     } catch {
       // Skip unreadable files
     }
+    // Yield every 50 files to let the event loop process incoming LSP requests
+    if (i % 50 === 49) await yieldToEventLoop();
   }
   cache.pruneEntries(section, new Set(files.map((f) => f.file)));
 }
@@ -266,12 +264,12 @@ export class ProjectManager {
         const { file, context } = diXmlFiles[i];
         progress?.onProgress(i + 1, diXmlFiles.length, file);
         try {
-          const stat = fs.statSync(file);
+          const stat = await fs.promises.stat(file);
           const cached = cache.getDiEntry(file, stat.mtimeMs);
           if (cached) {
             index.addFile(file, cached.references, cached.virtualTypes);
           } else {
-            const content = fs.readFileSync(file, 'utf-8');
+            const content = await fs.promises.readFile(file, 'utf-8');
             const result = parseDiXml(content, context);
             index.addFile(file, result.references, result.virtualTypes);
             cache.setDiEntry(file, stat.mtimeMs, result.references, result.virtualTypes);
@@ -279,6 +277,7 @@ export class ProjectManager {
         } catch {
           // Skip files that can't be read
         }
+        if (i % 50 === 49) await yieldToEventLoop();
       }
     } finally {
       index.endBatch();
@@ -293,7 +292,7 @@ export class ProjectManager {
         eventsFiles.push({ file: f.file, context: { file: f.file, area: f.area, module: mod.name } });
       }
     }
-    indexXmlFiles(eventsFiles, cache, 'eventsFiles', parseEventsXml,
+    await indexXmlFiles(eventsFiles, cache, 'eventsFiles', parseEventsXml,
       (file, r) => eventsIndex.addFile(file, r.events, r.observers));
 
     // --- Index system.xml files ---
@@ -304,13 +303,13 @@ export class ProjectManager {
       const systemDir = path.join(mod.path, 'etc', 'adminhtml', 'system');
       const filesToIndex = [
         ...(fileExists(mainFile) ? [mainFile] : []),
-        ...listXmlFilesRecursive(systemDir),
+        ...await listXmlFilesRecursive(systemDir),
       ];
       for (const xmlFile of filesToIndex) {
         systemFiles.push({ file: xmlFile, context: { file: xmlFile, module: mod.name } });
       }
     }
-    indexXmlFiles(systemFiles, cache, 'systemConfigFiles', parseSystemXml,
+    await indexXmlFiles(systemFiles, cache, 'systemConfigFiles', parseSystemXml,
       (file, r) => systemConfigIndex.addFile(file, r.references));
 
     // --- Index webapi.xml files ---
@@ -321,7 +320,7 @@ export class ProjectManager {
         webapiFiles.push({ file: f.file, context: { file: f.file, module: mod.name } });
       }
     }
-    indexXmlFiles(webapiFiles, cache, 'webapiFiles', parseWebapiXml,
+    await indexXmlFiles(webapiFiles, cache, 'webapiFiles', parseWebapiXml,
       (file, r) => webapiIndex.addFile(file, r.references));
 
     // --- Index acl.xml files ---
@@ -332,7 +331,7 @@ export class ProjectManager {
         aclFiles.push({ file: f.file, context: { file: f.file, module: mod.name } });
       }
     }
-    indexXmlFiles(aclFiles, cache, 'aclFiles', parseAclXml,
+    await indexXmlFiles(aclFiles, cache, 'aclFiles', parseAclXml,
       (file, r) => aclIndex.addFile(file, r.resources));
 
     // --- Index menu.xml files ---
@@ -343,7 +342,7 @@ export class ProjectManager {
         menuFiles.push({ file: f.file, context: { file: f.file, module: mod.name } });
       }
     }
-    indexXmlFiles(menuFiles, cache, 'menuFiles', parseMenuXml,
+    await indexXmlFiles(menuFiles, cache, 'menuFiles', parseMenuXml,
       (file, r) => menuIndex.addFile(file, r.references));
 
     // --- Index UI component aclResource files ---
@@ -354,7 +353,7 @@ export class ProjectManager {
         uiFiles.push({ file: f.file, context: { file: f.file, module: mod.name } });
       }
     }
-    indexXmlFiles(uiFiles, cache, 'uiComponentAclFiles', parseUiComponentAcl,
+    await indexXmlFiles(uiFiles, cache, 'uiComponentAclFiles', parseUiComponentAcl,
       (file, r) => uiComponentAclIndex.addFile(file, r.references));
 
     // --- Index routes.xml files ---
@@ -365,7 +364,7 @@ export class ProjectManager {
         routesFiles.push({ file: f.file, context: { file: f.file, module: mod.name, area: f.area } });
       }
     }
-    indexXmlFiles(routesFiles, cache, 'routesFiles', parseRoutesXml,
+    await indexXmlFiles(routesFiles, cache, 'routesFiles', parseRoutesXml,
       (file, r) => routesIndex.addFile(file, r.references));
 
     // --- Index db_schema.xml files ---
@@ -376,7 +375,7 @@ export class ProjectManager {
         dbSchemaFiles.push({ file: f.file, context: { file: f.file, module: mod.name } });
       }
     }
-    indexXmlFiles(dbSchemaFiles, cache, 'dbSchemaFiles', parseDbSchemaXml,
+    await indexXmlFiles(dbSchemaFiles, cache, 'dbSchemaFiles', parseDbSchemaXml,
       (file, r) => dbSchemaIndex.addFile(file, r.references));
 
     // --- Discover themes and index layout XML files ---
@@ -389,7 +388,7 @@ export class ProjectManager {
     for (const mod of modules) {
       for (const subdir of ['layout', 'page_layout']) {
         for (const area of ['frontend', 'adminhtml', 'base']) {
-          for (const xmlFile of listXmlFiles(path.join(mod.path, 'view', area, subdir))) {
+          for (const xmlFile of await listXmlFiles(path.join(mod.path, 'view', area, subdir))) {
             layoutFiles.push({ file: xmlFile, context: xmlFile });
           }
         }
@@ -397,11 +396,11 @@ export class ProjectManager {
     }
     for (const theme of themeResolver.getAllThemes()) {
       try {
-        const entries = fs.readdirSync(theme.path);
+        const entries = await fs.promises.readdir(theme.path);
         for (const entry of entries) {
           if (!entry.includes('_')) continue;
           for (const subdir of ['layout', 'page_layout']) {
-            for (const xmlFile of listXmlFiles(path.join(theme.path, entry, subdir))) {
+            for (const xmlFile of await listXmlFiles(path.join(theme.path, entry, subdir))) {
               layoutFiles.push({ file: xmlFile, context: xmlFile });
             }
           }
@@ -410,7 +409,7 @@ export class ProjectManager {
         // Theme dir unreadable
       }
     }
-    indexXmlFiles(layoutFiles, cache, 'layoutFiles',
+    await indexXmlFiles(layoutFiles, cache, 'layoutFiles',
       (content, filePath) => parseLayoutXml(content, filePath),
       (file, r) => layoutIndex.addFile(file, r.references));
 
@@ -419,7 +418,7 @@ export class ProjectManager {
     for (const mod of modules) {
       const frontendDiXml = path.join(mod.path, 'etc', 'frontend', 'di.xml');
       try {
-        const content = fs.readFileSync(frontendDiXml, 'utf-8');
+        const content = await fs.promises.readFile(frontendDiXml, 'utf-8');
         const mappings = parseCompatModuleRegistrations(content);
         for (const mapping of mappings) {
           const compatMod = modules.find((m) => m.name === mapping.compatModule);
@@ -434,7 +433,7 @@ export class ProjectManager {
 
     // Build the plugin method index
     const pluginMethodIndex = new PluginMethodIndex();
-    pluginMethodIndex.build(index, psr4Map);
+    await pluginMethodIndex.build(index, psr4Map);
 
     // Save cache once (covers all indexed XML types)
     cache.save();
@@ -443,7 +442,7 @@ export class ProjectManager {
       + webapiFiles.length + aclFiles.length + menuFiles.length
       + uiFiles.length + routesFiles.length + dbSchemaFiles.length
       + layoutFiles.length;
-    console.log(`[magento2-lsp] Indexed ${modules.length} modules, ${totalFiles} XML files in ${Date.now() - t0}ms`);
+    process.stderr.write(`[magento2-lsp] Indexed ${modules.length} modules, ${totalFiles} XML files in ${Date.now() - t0}ms\n`);
 
     progress?.onEnd();
 
@@ -451,20 +450,22 @@ export class ProjectManager {
       root,
       modules,
       psr4Map,
-      index,
-      pluginMethodIndex,
-      magicMethodIndex: new MagicMethodIndex(),
-      eventsIndex,
-      layoutIndex,
+      indexes: {
+        di: index,
+        pluginMethod: pluginMethodIndex,
+        magicMethod: new MagicMethodIndex(),
+        events: eventsIndex,
+        layout: layoutIndex,
+        compatModule: compatModuleIndex,
+        systemConfig: systemConfigIndex,
+        webapi: webapiIndex,
+        acl: aclIndex,
+        menu: menuIndex,
+        uiComponentAcl: uiComponentAclIndex,
+        routes: routesIndex,
+        dbSchema: dbSchemaIndex,
+      },
       themeResolver,
-      compatModuleIndex,
-      systemConfigIndex,
-      webapiIndex,
-      aclIndex,
-      menuIndex,
-      uiComponentAclIndex,
-      routesIndex,
-      dbSchemaIndex,
       cache,
       indexingComplete: true,
     };
@@ -489,9 +490,10 @@ export class ProjectManager {
 }
 
 /** List all .xml files in a directory (non-recursive). Returns empty array if dir doesn't exist. */
-function listXmlFiles(dir: string): string[] {
+async function listXmlFiles(dir: string): Promise<string[]> {
   try {
-    return fs.readdirSync(dir)
+    const entries = await fs.promises.readdir(dir);
+    return entries
       .filter((f) => f.endsWith('.xml'))
       .map((f) => path.join(dir, f));
   } catch {
@@ -500,14 +502,14 @@ function listXmlFiles(dir: string): string[] {
 }
 
 /** List all .xml files in a directory recursively. Returns empty array if dir doesn't exist. */
-function listXmlFilesRecursive(dir: string): string[] {
+async function listXmlFilesRecursive(dir: string): Promise<string[]> {
   const results: string[] = [];
   try {
-    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
       const fullPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        results.push(...listXmlFilesRecursive(fullPath));
+        results.push(...await listXmlFilesRecursive(fullPath));
       } else if (entry.name.endsWith('.xml')) {
         results.push(fullPath);
       }

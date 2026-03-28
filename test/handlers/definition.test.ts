@@ -19,6 +19,8 @@ describe('handleDefinition', () => {
     return project;
   }
 
+  function noDocText(): undefined { return undefined; }
+
   function makeParams(filePath: string, line: number, character: number) {
     return {
       textDocument: { uri: URI.file(filePath).toString() },
@@ -28,7 +30,7 @@ describe('handleDefinition', () => {
 
   it('returns null for PHP files without magic method calls at cursor', () => {
     const phpFile = path.join(FIXTURE_ROOT, 'vendor/test/module-foo/Model/Foo.php');
-    const result = handleDefinition(makeParams(phpFile, 4, 6), getProject);
+    const result = handleDefinition(makeParams(phpFile, 4, 6), getProject, noDocText);
     expect(result).toBeNull();
   });
 
@@ -42,7 +44,7 @@ describe('handleDefinition', () => {
   it('navigates from $this->storage->getData() to DataObject::getData', () => {
     // Line 22 (0-based): $customerId = $this->storage->getData('customer_id');
     // "getData" starts at col 38
-    const result = handleDefinition(makeParams(customerSessionFile, 22, 40), getProject);
+    const result = handleDefinition(makeParams(customerSessionFile, 22, 40), getProject, noDocText);
     expect(result).not.toBeNull();
     const loc = result as { uri: string; range: { start: { line: number; character: number } } };
     expect(URI.parse(loc.uri).fsPath).toContain('DataObject.php');
@@ -53,7 +55,7 @@ describe('handleDefinition', () => {
   it('navigates from $this->storage->setData() to DataObject::setData', () => {
     // Line 16 (0-based): $this->storage->setData('customer_id', $id);
     // "setData" starts at col 24
-    const result = handleDefinition(makeParams(customerSessionFile, 16, 26), getProject);
+    const result = handleDefinition(makeParams(customerSessionFile, 16, 26), getProject, noDocText);
     expect(result).not.toBeNull();
     const loc = result as { uri: string; range: { start: { line: number; character: number } } };
     expect(URI.parse(loc.uri).fsPath).toContain('DataObject.php');
@@ -64,7 +66,7 @@ describe('handleDefinition', () => {
   it('navigates from $this->sessionManager->getCustomerId() to SessionManager::__call', () => {
     // Line 28 (0-based): return $this->sessionManager->getCustomerId();
     // "getCustomerId" starts at col 38
-    const result = handleDefinition(makeParams(customerSessionFile, 28, 40), getProject);
+    const result = handleDefinition(makeParams(customerSessionFile, 28, 40), getProject, noDocText);
     expect(result).not.toBeNull();
     const loc = result as { uri: string; range: { start: { line: number; character: number } } };
     expect(URI.parse(loc.uri).fsPath).toContain('SessionManager.php');
@@ -75,14 +77,14 @@ describe('handleDefinition', () => {
   it('returns null for $this->storage->init() (declared on StorageInterface)', () => {
     // Line 33 (0-based): $this->storage->init();
     // "init" starts at col 24
-    const result = handleDefinition(makeParams(customerSessionFile, 33, 25), getProject);
+    const result = handleDefinition(makeParams(customerSessionFile, 33, 25), getProject, noDocText);
     expect(result).toBeNull();
   });
 
   it('returns null for $this->sessionManager->start() (declared on SessionManager)', () => {
     // Line 34 (0-based): $this->sessionManager->start();
     // "start" starts at col 30
-    const result = handleDefinition(makeParams(customerSessionFile, 34, 31), getProject);
+    const result = handleDefinition(makeParams(customerSessionFile, 34, 31), getProject, noDocText);
     expect(result).toBeNull();
   });
 
@@ -97,7 +99,7 @@ describe('handleDefinition', () => {
     // FooService.php line 14 (0-based): $foo->save();
     // $foo is assigned from $this->fooFactory->create() which returns Foo
     // "save" starts at col 14
-    const result = handleDefinition(makeParams(fooServiceFile, 14, 15), getProject);
+    const result = handleDefinition(makeParams(fooServiceFile, 14, 15), getProject, noDocText);
     // save() IS declared on Foo, so our handler returns null (Intelephense handles it)
     // BUT: Foo is resolved via return type inference — the variable $foo's type comes
     // from FooFactory::create(): Foo. Since save() is declared on the resolved type,
@@ -108,7 +110,7 @@ describe('handleDefinition', () => {
   it('returns null when cursor is not on a reference', () => {
     const diXml = path.join(FIXTURE_ROOT, 'vendor/test/module-foo/etc/di.xml');
     // Line 0 is the XML declaration — no references there
-    const result = handleDefinition(makeParams(diXml, 0, 0), getProject);
+    const result = handleDefinition(makeParams(diXml, 0, 0), getProject, noDocText);
     expect(result).toBeNull();
   });
 
@@ -116,7 +118,7 @@ describe('handleDefinition', () => {
     const diXml = path.join(FIXTURE_ROOT, 'vendor/test/module-foo/etc/di.xml');
     // Line 2 has: <preference for="Test\Foo\Api\FooInterface" type="Test\Foo\Model\Foo" />
     // Find the 'type' attribute position — Test\Foo\Model\Foo
-    const refs = project.index.getReferencesForFqcn('Test\\Foo\\Model\\Foo');
+    const refs = project.indexes.di.getReferencesForFqcn('Test\\Foo\\Model\\Foo');
     const prefType = refs.find(
       (r) => r.kind === 'preference-type' && r.file === diXml,
     );
@@ -124,7 +126,7 @@ describe('handleDefinition', () => {
 
     const result = handleDefinition(
       makeParams(diXml, prefType!.line, prefType!.column),
-      getProject,
+      getProject, noDocText,
     );
     expect(result).not.toBeNull();
     // Should point to the PHP file
@@ -134,7 +136,7 @@ describe('handleDefinition', () => {
 
   it('navigates from preference for to effective implementation PHP class', () => {
     const diXml = path.join(FIXTURE_ROOT, 'vendor/test/module-foo/etc/di.xml');
-    const refs = project.index.getReferencesForFqcn('Test\\Foo\\Api\\FooInterface');
+    const refs = project.indexes.di.getReferencesForFqcn('Test\\Foo\\Api\\FooInterface');
     const prefFor = refs.find(
       (r) => r.kind === 'preference-for' && r.file === diXml,
     );
@@ -142,7 +144,7 @@ describe('handleDefinition', () => {
 
     const result = handleDefinition(
       makeParams(diXml, prefFor!.line, prefFor!.column),
-      getProject,
+      getProject, noDocText,
     );
     expect(result).not.toBeNull();
     const loc = result as { uri: string; range: { start: { line: number } } };
@@ -153,14 +155,14 @@ describe('handleDefinition', () => {
   it('navigates from virtualType reference to its di.xml declaration', () => {
     const diXml = path.join(FIXTURE_ROOT, 'app/code/Custom/Bar/etc/di.xml');
     // Line 2 has: <virtualType name="CustomBarVirtual" type="Test\Foo\Model\Foo">
-    const refs = project.index.getReferencesForFqcn('CustomBarVirtual');
+    const refs = project.indexes.di.getReferencesForFqcn('CustomBarVirtual');
     const vtRef = refs.find((r) => r.kind === 'virtualtype-name');
     expect(vtRef).toBeDefined();
 
     // Now simulate searching for CustomBarVirtual from another di.xml
     // In this fixture, CustomBarVirtual is only declared, not referenced elsewhere.
     // But we can test that getEffectiveVirtualType returns it
-    const vt = project.index.getEffectiveVirtualType('CustomBarVirtual');
+    const vt = project.indexes.di.getEffectiveVirtualType('CustomBarVirtual');
     expect(vt).toBeDefined();
     expect(vt!.parentType).toBe('Test\\Foo\\Model\\Foo');
   });
@@ -177,7 +179,7 @@ describe('handleDefinition', () => {
     const urnStart = line1.indexOf('urn:magento:');
     expect(urnStart).toBeGreaterThan(0);
 
-    const result = handleDefinition(makeParams(diXml, 1, urnStart + 5), getProject);
+    const result = handleDefinition(makeParams(diXml, 1, urnStart + 5), getProject, noDocText);
     expect(result).not.toBeNull();
     const loc = result as { uri: string };
     expect(URI.parse(loc.uri).fsPath).toContain('ObjectManager/etc/config.xsd');
@@ -195,7 +197,7 @@ describe('handleDefinition', () => {
     const urnStart = line2.indexOf('urn:magento:');
     expect(urnStart).toBeGreaterThan(0);
 
-    const result = handleDefinition(makeParams(xsdFile, 2, urnStart + 5), getProject);
+    const result = handleDefinition(makeParams(xsdFile, 2, urnStart + 5), getProject, noDocText);
     expect(result).not.toBeNull();
     const loc = result as { uri: string };
     expect(URI.parse(loc.uri).fsPath).toContain('Data/etc/argument/types.xsd');
@@ -204,7 +206,7 @@ describe('handleDefinition', () => {
   it('returns null when cursor is not on a URN in XML file', () => {
     const diXml = path.join(FIXTURE_ROOT, 'vendor/test/module-foo/etc/di.xml');
     // Line 0 is the XML declaration — no URN there
-    const result = handleDefinition(makeParams(diXml, 0, 5), getProject);
+    const result = handleDefinition(makeParams(diXml, 0, 5), getProject, noDocText);
     expect(result).toBeNull();
   });
 });

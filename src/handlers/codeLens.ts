@@ -99,7 +99,7 @@ function handlePhtmlCodeLens(
   let templateId: string | undefined;
 
   const theme = project.themeResolver.getThemeForFile(filePath);
-  const compatInfo = project.compatModuleIndex.getCompatModuleForFile(filePath);
+  const compatInfo = project.indexes.compatModule.getCompatModuleForFile(filePath);
 
   if (theme) {
     // File is a theme override — show "overrides Module::path" lens
@@ -116,7 +116,7 @@ function handlePhtmlCodeLens(
   } else if (compatInfo) {
     // File is a Hyvä compat module override — show "Hyvä compat override: ..." lens
     templateId = compatInfo.templateId;
-    const original = project.compatModuleIndex.getOriginalModuleTemplate(filePath, project.modules);
+    const original = project.indexes.compatModule.getOriginalModuleTemplate(filePath, project.modules);
     if (original) {
       lenses.push({
         range: Range.create(0, 0, 0, 0),
@@ -143,7 +143,7 @@ function handlePhtmlCodeLens(
   // This way, opening a theme override that is also overridden by a compat module
   // will show both the "overrides ..." lens and the "overridden in Hyvä compat module ..." lens.
   if (templateId) {
-    const compatOverrides = project.compatModuleIndex.findOverrides(templateId);
+    const compatOverrides = project.indexes.compatModule.findOverrides(templateId);
     for (const override of compatOverrides) {
       // Don't show "overridden by compat module X" if the current file IS that compat override
       if (override.filePath === filePath) continue;
@@ -181,13 +181,13 @@ function handlePhpCodeLens(
 
   const lenses: CodeLens[] = [];
   const methods = extractPhpMethods(content);
-  const isPluginClass = project.pluginMethodIndex.isPluginClass(classInfo.fqcn);
-  const hasPlugins = project.pluginMethodIndex.hasPlugins(classInfo.fqcn);
-  const isObserver = project.eventsIndex.getObserversForFqcn(classInfo.fqcn).length > 0;
+  const isPluginClass = project.indexes.pluginMethod.isPluginClass(classInfo.fqcn);
+  const hasPlugins = project.indexes.pluginMethod.hasPlugins(classInfo.fqcn);
+  const isObserver = project.indexes.events.getObserversForFqcn(classInfo.fqcn).length > 0;
 
   // --- Target class: show "N plugins" on class and intercepted methods ---
   if (hasPlugins) {
-    const totalPlugins = project.pluginMethodIndex.getTotalPluginCount(classInfo.fqcn);
+    const totalPlugins = project.indexes.pluginMethod.getTotalPluginCount(classInfo.fqcn);
     if (totalPlugins > 0) {
       lenses.push({
         range: Range.create(classInfo.line, classInfo.column, classInfo.line, classInfo.endColumn),
@@ -195,7 +195,7 @@ function handlePhpCodeLens(
       });
     }
 
-    const interceptedMethods = project.pluginMethodIndex.getInterceptedMethods(classInfo.fqcn);
+    const interceptedMethods = project.indexes.pluginMethod.getInterceptedMethods(classInfo.fqcn);
     if (interceptedMethods) {
       for (const method of methods) {
         const interceptions = interceptedMethods.get(method.name);
@@ -214,7 +214,7 @@ function handlePhpCodeLens(
   // --- Plugin class: show "→ Target\Class::method" on before/after/around methods ---
   if (isPluginClass) {
     for (const method of methods) {
-      const reverseEntry = project.pluginMethodIndex.getReverseEntry(
+      const reverseEntry = project.indexes.pluginMethod.getReverseEntry(
         classInfo.fqcn,
         method.name,
       );
@@ -231,7 +231,7 @@ function handlePhpCodeLens(
   if (isObserver) {
     const executeMethod = methods.find((m) => m.name === 'execute');
     if (executeMethod) {
-      const obsRefs = project.eventsIndex.getObserversForFqcn(classInfo.fqcn);
+      const obsRefs = project.indexes.events.getObserversForFqcn(classInfo.fqcn);
       const eventNames = [...new Set(obsRefs.map((r) => r.eventName))];
       for (const eventName of eventNames) {
         lenses.push({
@@ -245,8 +245,8 @@ function handlePhpCodeLens(
   // --- Service interface: show "GET /V1/..." on methods referenced in webapi.xml ---
   // Check both direct class and implemented interfaces
   const webapiClassRefs = [
-    ...project.webapiIndex.getRefsForFqcn(classInfo.fqcn),
-    ...classInfo.interfaces.flatMap((iface) => project.webapiIndex.getRefsForFqcn(iface)),
+    ...project.indexes.webapi.getRefsForFqcn(classInfo.fqcn),
+    ...classInfo.interfaces.flatMap((iface) => project.indexes.webapi.getRefsForFqcn(iface)),
   ];
   if (webapiClassRefs.length > 0) {
     for (const method of methods) {
@@ -287,14 +287,14 @@ function computeMagicMethodLenses(
   const lenses: CodeLens[] = [];
   const lines = content.split('\n');
   const typeMap = resolveVariableTypes(content, classInfo as any, (fqcn, method) =>
-    project.magicMethodIndex.resolveMethodReturnType(fqcn, method, project.psr4Map),
+    project.indexes.magicMethod.resolveMethodReturnType(fqcn, method, project.psr4Map),
   );
 
   // Pre-resolve DI preferences for each unique type (avoids repeated lookups)
   const concreteTypeCache = new Map<string, string>();
   function getConcreteType(fqcn: string): string {
     if (concreteTypeCache.has(fqcn)) return concreteTypeCache.get(fqcn)!;
-    const concrete = resolveConcreteType(fqcn, project.index);
+    const concrete = resolveConcreteType(fqcn, project.indexes.di);
     concreteTypeCache.set(fqcn, concrete);
     return concrete;
   }
@@ -318,7 +318,7 @@ function computeMagicMethodLenses(
 
       // Check if the method is declared on the original type — if so, no lens needed.
       // resolveMethod returns 'declared' when the method physically exists.
-      const originalResolution = project.magicMethodIndex.resolveMethod(
+      const originalResolution = project.indexes.magicMethod.resolveMethod(
         originalFqcn, methodName, project.psr4Map,
       );
       if (originalResolution?.kind === 'declared') continue;
@@ -328,7 +328,7 @@ function computeMagicMethodLenses(
 
       // Resolve the method on the concrete class (skip if same as original — already checked)
       const resolution = concreteFqcn !== originalFqcn
-        ? project.magicMethodIndex.resolveMethod(concreteFqcn, methodName, project.psr4Map)
+        ? project.indexes.magicMethod.resolveMethod(concreteFqcn, methodName, project.psr4Map)
         : originalResolution;
       if (!resolution) continue;
 

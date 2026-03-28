@@ -137,7 +137,7 @@ function validateDiXml(
     // virtualtype-name is a declaration, not a reference to a PHP class
     if (ref.kind === 'virtualtype-name') continue;
 
-    if (!classOrVirtualTypeExists(ref.fqcn, project.psr4Map, project.index, localVirtualTypeNames)) {
+    if (!classOrVirtualTypeExists(ref.fqcn, project.psr4Map, project.indexes.di, localVirtualTypeNames)) {
       diagnostics.push(makeDiagnostic(
         ref.line, ref.column, ref.endColumn,
         `Class "${ref.fqcn}" not found`,
@@ -148,7 +148,7 @@ function validateDiXml(
 
   // Duplicate plugin names (check within this file AND against the project index)
   if (includeExpensiveChecks) {
-    diagnostics.push(...findDuplicatePluginNames(references, context.file, project.index));
+    diagnostics.push(...findDuplicatePluginNames(references, context.file, project.indexes.di));
   }
 
   return diagnostics;
@@ -269,7 +269,7 @@ function implementsObserverInterface(
     if (classInfo.interfaces.includes(OBSERVER_INTERFACE)) return true;
 
     // Walk ancestors via class hierarchy
-    const ancestors = project.pluginMethodIndex.getAncestors(fqcn);
+    const ancestors = project.indexes.pluginMethod.getAncestors(fqcn);
     return ancestors.includes(OBSERVER_INTERFACE);
   } catch {
     return true; // Can't read file — don't warn
@@ -289,7 +289,7 @@ function validateLayoutXml(
 
   for (const ref of references) {
     if (ref.kind === 'block-class' || ref.kind === 'argument-object') {
-      if (!classOrVirtualTypeExists(ref.value, project.psr4Map, project.index, new Set())) {
+      if (!classOrVirtualTypeExists(ref.value, project.psr4Map, project.indexes.di, new Set())) {
         diagnostics.push(makeDiagnostic(
           ref.line, ref.column, ref.endColumn,
           `Class "${ref.value}" not found`,
@@ -328,7 +328,7 @@ function validateSystemConfigXml(
 
   for (const ref of references) {
     if (ref.fqcn && (ref.kind === 'source-model' || ref.kind === 'backend-model' || ref.kind === 'frontend-model')) {
-      if (!classOrVirtualTypeExists(ref.fqcn, project.psr4Map, project.index, new Set())) {
+      if (!classOrVirtualTypeExists(ref.fqcn, project.psr4Map, project.indexes.di, new Set())) {
         const label = ref.kind === 'source-model' ? 'Source model'
           : ref.kind === 'backend-model' ? 'Backend model'
           : 'Frontend model';
@@ -341,7 +341,7 @@ function validateSystemConfigXml(
     }
 
     if (ref.kind === 'section-resource' && ref.aclResourceId) {
-      if (project.aclIndex.getAllResources(ref.aclResourceId).length === 0) {
+      if (project.indexes.acl.getAllResources(ref.aclResourceId).length === 0) {
         diagnostics.push(makeDiagnostic(
           ref.line, ref.column, ref.endColumn,
           `ACL resource "${ref.aclResourceId}" not defined in any acl.xml`,
@@ -367,7 +367,7 @@ function validateWebapiXml(
 
   for (const ref of references) {
     if (ref.kind === 'service-class') {
-      if (!classOrVirtualTypeExists(ref.value, project.psr4Map, project.index, new Set())) {
+      if (!classOrVirtualTypeExists(ref.value, project.psr4Map, project.indexes.di, new Set())) {
         diagnostics.push(makeDiagnostic(
           ref.line, ref.column, ref.endColumn,
           `Service class "${ref.value}" not found`,
@@ -379,7 +379,7 @@ function validateWebapiXml(
     // Warn when a resource-ref points to an ACL resource not defined in any acl.xml.
     // "self" and "anonymous" are special Magento built-in values, not ACL resource IDs.
     if (ref.kind === 'resource-ref' && ref.value !== 'self' && ref.value !== 'anonymous') {
-      if (project.aclIndex.getAllResources(ref.value).length === 0) {
+      if (project.indexes.acl.getAllResources(ref.value).length === 0) {
         diagnostics.push(makeDiagnostic(
           ref.line, ref.column, ref.endColumn,
           `ACL resource "${ref.value}" not defined in any acl.xml`,
@@ -410,8 +410,6 @@ function validateWebapiXml(
 
   return diagnostics;
 }
-
-// --- menu.xml validation ---
 
 // --- routes.xml validation ---
 
@@ -453,7 +451,7 @@ function validateDbSchemaXml(
 
   for (const ref of references) {
     if (ref.kind === 'fk-ref-table') {
-      const tableDefs = project.dbSchemaIndex.getTableDefs(ref.value);
+      const tableDefs = project.indexes.dbSchema.getTableDefs(ref.value);
       if (tableDefs.length === 0) {
         diagnostics.push(makeDiagnostic(
           ref.line, ref.column, ref.endColumn,
@@ -465,11 +463,11 @@ function validateDbSchemaXml(
 
     if (ref.kind === 'fk-ref-column' && ref.fkRefTable) {
       // Check that the referenced column exists on the referenced table
-      const refTableCols = project.dbSchemaIndex.getColumnsForTable(ref.fkRefTable);
+      const refTableCols = project.indexes.dbSchema.getColumnsForTable(ref.fkRefTable);
       const colExists = refTableCols.some((c) => c.value === ref.value);
       if (!colExists) {
         // Only warn if the referenced table itself exists (otherwise the fk-ref-table warning covers it)
-        const tableDefs = project.dbSchemaIndex.getTableDefs(ref.fkRefTable);
+        const tableDefs = project.indexes.dbSchema.getTableDefs(ref.fkRefTable);
         if (tableDefs.length > 0) {
           diagnostics.push(makeDiagnostic(
             ref.line, ref.column, ref.endColumn,
@@ -495,7 +493,7 @@ function validateMenuXml(
   const { references } = parseMenuXml(content, context);
 
   for (const ref of references) {
-    if (project.aclIndex.getAllResources(ref.value).length === 0) {
+    if (project.indexes.acl.getAllResources(ref.value).length === 0) {
       diagnostics.push(makeDiagnostic(
         ref.line, ref.column, ref.endColumn,
         `ACL resource "${ref.value}" not defined in any acl.xml`,
@@ -518,7 +516,7 @@ function validateUiComponentAcl(
   const { references } = parseUiComponentAcl(content, context);
 
   for (const ref of references) {
-    if (project.aclIndex.getAllResources(ref.value).length === 0) {
+    if (project.indexes.acl.getAllResources(ref.value).length === 0) {
       diagnostics.push(makeDiagnostic(
         ref.line, ref.column, ref.endColumn,
         `ACL resource "${ref.value}" not defined in any acl.xml`,
@@ -554,7 +552,7 @@ function validatePhpAcl(
       const aclId = match[1];
       const idStart = match.index + match[0].indexOf(aclId);
 
-      if (project.aclIndex.getAllResources(aclId).length === 0) {
+      if (project.indexes.acl.getAllResources(aclId).length === 0) {
         diagnostics.push(makeDiagnostic(
           lineNum, idStart, idStart + aclId.length,
           `ACL resource "${aclId}" not defined in any acl.xml`,

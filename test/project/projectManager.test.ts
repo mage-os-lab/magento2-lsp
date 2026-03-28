@@ -38,13 +38,13 @@ describe('ProjectManager', () => {
   it('indexes di.xml files from the fixture', async () => {
     const pm = new ProjectManager();
     const project = await pm.ensureProject(FIXTURE_ROOT);
-    expect(project!.index.getFileCount()).toBeGreaterThanOrEqual(3);
+    expect(project!.indexes.di.getFileCount()).toBeGreaterThanOrEqual(3);
   });
 
   it('resolves references for classes in fixture di.xml files', async () => {
     const pm = new ProjectManager();
     const project = await pm.ensureProject(FIXTURE_ROOT);
-    const refs = project!.index.getReferencesForFqcn('Test\\Foo\\Model\\Foo');
+    const refs = project!.indexes.di.getReferencesForFqcn('Test\\Foo\\Model\\Foo');
     expect(refs.length).toBeGreaterThanOrEqual(1);
   });
 

@@ -14,7 +14,7 @@ describe('PluginMethodIndex', () => {
 
   describe('direct plugins (on the interface)', () => {
     it('finds plugins declared directly on the interface', () => {
-      const plugins = project.pluginMethodIndex.getPluginsForMethod(
+      const plugins = project.indexes.pluginMethod.getPluginsForMethod(
         'Test\\Foo\\Api\\FooInterface',
         'save',
       );
@@ -29,7 +29,7 @@ describe('PluginMethodIndex', () => {
     // Test\Foo\Model\Foo implements FooInterface, so it inherits the plugins.
 
     it('finds inherited plugins for save via interface', () => {
-      const plugins = project.pluginMethodIndex.getPluginsForMethod(
+      const plugins = project.indexes.pluginMethod.getPluginsForMethod(
         'Test\\Foo\\Model\\Foo',
         'save',
       );
@@ -39,7 +39,7 @@ describe('PluginMethodIndex', () => {
     });
 
     it('finds inherited after plugin', () => {
-      const plugins = project.pluginMethodIndex.getPluginsForMethod(
+      const plugins = project.indexes.pluginMethod.getPluginsForMethod(
         'Test\\Foo\\Model\\Foo',
         'getName',
       );
@@ -48,7 +48,7 @@ describe('PluginMethodIndex', () => {
     });
 
     it('finds inherited around plugin', () => {
-      const plugins = project.pluginMethodIndex.getPluginsForMethod(
+      const plugins = project.indexes.pluginMethod.getPluginsForMethod(
         'Test\\Foo\\Model\\Foo',
         'load',
       );
@@ -58,12 +58,12 @@ describe('PluginMethodIndex', () => {
 
     it('hasPlugins returns true for class with inherited plugins', () => {
       expect(
-        project.pluginMethodIndex.hasPlugins('Test\\Foo\\Model\\Foo'),
+        project.indexes.pluginMethod.hasPlugins('Test\\Foo\\Model\\Foo'),
       ).toBe(true);
     });
 
     it('lists all intercepted methods including inherited', () => {
-      const methods = project.pluginMethodIndex.getInterceptedMethods(
+      const methods = project.indexes.pluginMethod.getInterceptedMethods(
         'Test\\Foo\\Model\\Foo',
       );
       expect(methods).toBeDefined();
@@ -72,7 +72,7 @@ describe('PluginMethodIndex', () => {
     });
 
     it('reports correct total unique plugin count including inherited', () => {
-      const count = project.pluginMethodIndex.getTotalPluginCount(
+      const count = project.indexes.pluginMethod.getTotalPluginCount(
         'Test\\Foo\\Model\\Foo',
       );
       expect(count).toBe(1);
@@ -82,26 +82,26 @@ describe('PluginMethodIndex', () => {
   describe('non-intercepted', () => {
     it('returns empty for non-intercepted methods', () => {
       expect(
-        project.pluginMethodIndex.getPluginsForMethod('Test\\Foo\\Model\\Foo', 'nonExistent'),
+        project.indexes.pluginMethod.getPluginsForMethod('Test\\Foo\\Model\\Foo', 'nonExistent'),
       ).toHaveLength(0);
     });
 
     it('returns empty for classes without plugins', () => {
       expect(
-        project.pluginMethodIndex.getPluginsForMethod('Custom\\Bar\\Model\\Bar', 'save'),
+        project.indexes.pluginMethod.getPluginsForMethod('Custom\\Bar\\Model\\Bar', 'save'),
       ).toHaveLength(0);
     });
 
     it('hasPlugins returns false for non-plugged class', () => {
       expect(
-        project.pluginMethodIndex.hasPlugins('Custom\\Bar\\Model\\Bar'),
+        project.indexes.pluginMethod.hasPlugins('Custom\\Bar\\Model\\Bar'),
       ).toBe(false);
     });
   });
 
   describe('plugin method locations', () => {
     it('includes plugin method file and position', () => {
-      const plugins = project.pluginMethodIndex.getPluginsForMethod(
+      const plugins = project.indexes.pluginMethod.getPluginsForMethod(
         'Test\\Foo\\Api\\FooInterface',
         'save',
       );
@@ -111,7 +111,7 @@ describe('PluginMethodIndex', () => {
     });
 
     it('includes the di.xml reference', () => {
-      const plugins = project.pluginMethodIndex.getPluginsForMethod(
+      const plugins = project.indexes.pluginMethod.getPluginsForMethod(
         'Test\\Foo\\Api\\FooInterface',
         'save',
       );
@@ -122,7 +122,7 @@ describe('PluginMethodIndex', () => {
 
   describe('reverse lookup', () => {
     it('maps plugin method to target interface method', () => {
-      const entry = project.pluginMethodIndex.getReverseEntry(
+      const entry = project.indexes.pluginMethod.getReverseEntry(
         'Custom\\Bar\\Plugin\\FooPlugin',
         'beforeSave',
       );
@@ -133,7 +133,7 @@ describe('PluginMethodIndex', () => {
     });
 
     it('maps afterGetName to getName', () => {
-      const entry = project.pluginMethodIndex.getReverseEntry(
+      const entry = project.indexes.pluginMethod.getReverseEntry(
         'Custom\\Bar\\Plugin\\FooPlugin',
         'afterGetName',
       );
@@ -143,7 +143,7 @@ describe('PluginMethodIndex', () => {
 
     it('returns undefined for non-plugin method', () => {
       expect(
-        project.pluginMethodIndex.getReverseEntry('Custom\\Bar\\Plugin\\FooPlugin', 'someMethod'),
+        project.indexes.pluginMethod.getReverseEntry('Custom\\Bar\\Plugin\\FooPlugin', 'someMethod'),
       ).toBeUndefined();
     });
   });
@@ -151,13 +151,13 @@ describe('PluginMethodIndex', () => {
   describe('plugin class detection', () => {
     it('isPluginClass returns true for known plugin class', () => {
       expect(
-        project.pluginMethodIndex.isPluginClass('Custom\\Bar\\Plugin\\FooPlugin'),
+        project.indexes.pluginMethod.isPluginClass('Custom\\Bar\\Plugin\\FooPlugin'),
       ).toBe(true);
     });
 
     it('isPluginClass returns false for non-plugin class', () => {
       expect(
-        project.pluginMethodIndex.isPluginClass('Test\\Foo\\Model\\Foo'),
+        project.indexes.pluginMethod.isPluginClass('Test\\Foo\\Model\\Foo'),
       ).toBe(false);
     });
   });

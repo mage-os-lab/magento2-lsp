@@ -41,7 +41,7 @@ import { ProjectContext } from '../project/projectManager';
 import { extractPhpClass } from '../utils/phpNamespace';
 import { isObserverReference } from '../index/eventsIndex';
 import { realpath } from '../utils/realpath';
-import { createScopeConfigRegex, grepConfigPathInPhp } from '../utils/configPathGrep';
+import { createScopeConfigRegex, grepConfigPathInPhp, grepConfigPathsInPhp } from '../utils/configPathGrep';
 import { createPhpAclRegex, grepAclResourceInPhp } from '../utils/phpAclGrep';
 import { resolveSourceFqcn, generatedVariants } from '../utils/generatedClassResolver';
 import { isAreaCompatible } from '../utils/areaScope';
@@ -195,7 +195,7 @@ function getXmlRenameContext(
   project: ProjectContext,
 ): RenameContext | null {
   // --- Layout XML: block-class, block-template, argument-object ---
-  const layoutRef = project.layoutIndex.getReferenceAtPosition(filePath, line, character);
+  const layoutRef = project.indexes.layout.getReferenceAtPosition(filePath, line, character);
   if (layoutRef) {
     if (layoutRef.kind === 'block-class' || layoutRef.kind === 'argument-object') {
       return {
@@ -231,7 +231,7 @@ function getXmlRenameContext(
     // Alias-only renames would require tracking the full layout hierarchy, which the
     // LSP does not support.
     if (layoutRef.kind === 'block-alias') {
-      const nameRefs = project.layoutIndex.getRefsForName(layoutRef.value);
+      const nameRefs = project.indexes.layout.getRefsForName(layoutRef.value);
       const isKnownName = nameRefs.some(
         (r) => r.kind === 'block-name' || r.kind === 'container-name',
       );
@@ -249,7 +249,7 @@ function getXmlRenameContext(
   }
 
   // --- system.xml: models (FQCN), ACL resources, and config path segments ---
-  const sysRef = project.systemConfigIndex.getReferenceAtPosition(filePath, line, character);
+  const sysRef = project.indexes.systemConfig.getReferenceAtPosition(filePath, line, character);
   if (sysRef) {
     if (sysRef.fqcn) {
       return {
@@ -283,7 +283,7 @@ function getXmlRenameContext(
   }
 
   // --- webapi.xml: service class (FQCN), resource ref (ACL) ---
-  const webapiRef = project.webapiIndex.getReferenceAtPosition(filePath, line, character);
+  const webapiRef = project.indexes.webapi.getReferenceAtPosition(filePath, line, character);
   if (webapiRef) {
     if (webapiRef.kind === 'service-class') {
       return {
@@ -304,7 +304,7 @@ function getXmlRenameContext(
   }
 
   // --- acl.xml: resource definitions ---
-  const aclResource = project.aclIndex.getResourceAtPosition(filePath, line, character);
+  const aclResource = project.indexes.acl.getResourceAtPosition(filePath, line, character);
   if (aclResource) {
     return {
       kind: 'acl-resource',
@@ -314,7 +314,7 @@ function getXmlRenameContext(
   }
 
   // --- menu.xml: ACL resource attribute ---
-  const menuRef = project.menuIndex.getReferenceAtPosition(filePath, line, character);
+  const menuRef = project.indexes.menu.getReferenceAtPosition(filePath, line, character);
   if (menuRef) {
     return {
       kind: 'acl-resource',
@@ -324,7 +324,7 @@ function getXmlRenameContext(
   }
 
   // --- UI component aclResource ---
-  const uiAclRef = project.uiComponentAclIndex.getReferenceAtPosition(filePath, line, character);
+  const uiAclRef = project.indexes.uiComponentAcl.getReferenceAtPosition(filePath, line, character);
   if (uiAclRef) {
     return {
       kind: 'acl-resource',
@@ -334,7 +334,7 @@ function getXmlRenameContext(
   }
 
   // --- events.xml: observer class (FQCN) ---
-  const eventsRef = project.eventsIndex.getReferenceAtPosition(filePath, line, character);
+  const eventsRef = project.indexes.events.getReferenceAtPosition(filePath, line, character);
   if (eventsRef) {
     // Only observer FQCN references are renameable; event names are not
     if (isObserverReference(eventsRef)) {
@@ -348,7 +348,7 @@ function getXmlRenameContext(
   }
 
   // --- di.xml: all class references ---
-  const diRef = project.index.getReferenceAtPosition(filePath, line, character);
+  const diRef = project.indexes.di.getReferenceAtPosition(filePath, line, character);
   if (diRef) {
     // If the cursor is on a generated class (e.g. Foo\Proxy, FooFactory), resolve
     // to the base FQCN so the user renames the real class and generated variants
@@ -504,7 +504,7 @@ async function collectEdits(
       return collectConfigSegmentEdits(ctx, newName, project);
     case 'block-name': {
       // Filter by area: a rename in frontend only affects frontend + base files
-      const allRefs = project.layoutIndex.getRefsForName(ctx.currentValue);
+      const allRefs = project.indexes.layout.getRefsForName(ctx.currentValue);
       const sourceArea = ctx.sourceFile
         ? project.themeResolver.getAreaForFile(ctx.sourceFile)
         : undefined;
@@ -567,11 +567,11 @@ function collectFqcnEdits(
  */
 function queryAllFqcnIndexes(fqcn: string, project: ProjectContext): RefPosition[] {
   return [
-    ...project.index.getReferencesForFqcn(fqcn),
-    ...project.eventsIndex.getObserversForFqcn(fqcn),
-    ...project.layoutIndex.getReferencesForFqcn(fqcn),
-    ...project.systemConfigIndex.getRefsForFqcn(fqcn),
-    ...project.webapiIndex.getRefsForFqcn(fqcn).filter((r) => r.kind === 'service-class'),
+    ...project.indexes.di.getReferencesForFqcn(fqcn),
+    ...project.indexes.events.getObserversForFqcn(fqcn),
+    ...project.indexes.layout.getReferencesForFqcn(fqcn),
+    ...project.indexes.systemConfig.getRefsForFqcn(fqcn),
+    ...project.indexes.webapi.getRefsForFqcn(fqcn).filter((r) => r.kind === 'service-class'),
   ];
 }
 
@@ -583,7 +583,7 @@ function queryAllFqcnIndexes(fqcn: string, project: ProjectContext): RefPosition
  * attributes) are included.
  */
 function collectTemplateRefs(templateId: string, project: ProjectContext): RefPosition[] {
-  return project.layoutIndex.getReferencesForTemplate(templateId);
+  return project.indexes.layout.getReferencesForTemplate(templateId);
 }
 
 /**
@@ -594,11 +594,11 @@ function collectTemplateRefs(templateId: string, project: ProjectContext): RefPo
  */
 async function collectAclRefs(aclId: string, project: ProjectContext): Promise<RefPosition[]> {
   const xmlRefs: RefPosition[] = [
-    ...project.aclIndex.getAllResources(aclId),
-    ...project.webapiIndex.getRefsForResource(aclId),
-    ...project.systemConfigIndex.getRefsForAclResource(aclId),
-    ...project.menuIndex.getRefsForResource(aclId),
-    ...project.uiComponentAclIndex.getRefsForResource(aclId),
+    ...project.indexes.acl.getAllResources(aclId),
+    ...project.indexes.webapi.getRefsForResource(aclId),
+    ...project.indexes.systemConfig.getRefsForAclResource(aclId),
+    ...project.indexes.menu.getRefsForResource(aclId),
+    ...project.indexes.uiComponentAcl.getRefsForResource(aclId),
   ];
   const phpRefs = await grepAclResourceInPhp(aclId, project.root, project.psr4Map);
   return [...xmlRefs, ...phpRefs];
@@ -630,9 +630,9 @@ async function collectConfigSegmentEdits(
   // reference this field via <depends><field id="...">) with this exact path.
   // For a section/group rename, find descendants via prefix query.
   const sysRefs = segmentKind === 'field-id'
-    ? project.systemConfigIndex.getRefsForPath(configPath)
+    ? project.indexes.systemConfig.getRefsForPath(configPath)
         .filter((r) => r.kind === 'field-id' || r.kind === 'depends-field')
-    : project.systemConfigIndex.getRefsForPathPrefix(configPath)
+    : project.indexes.systemConfig.getRefsForPathPrefix(configPath)
         .filter((r) => r.kind === segmentKind && r.configPath === configPath);
 
   for (const ref of sysRefs) {
@@ -654,27 +654,23 @@ async function collectConfigSegmentEdits(
     // For section/group rename, find all descendant field paths and grep each one.
     // Collect unique full config paths that descend from the renamed segment.
     const descendantPaths = new Set<string>();
-    const allDescendantRefs = project.systemConfigIndex.getRefsForPathPrefix(configPath);
+    const allDescendantRefs = project.indexes.systemConfig.getRefsForPathPrefix(configPath);
     for (const ref of allDescendantRefs) {
       if (ref.kind === 'field-id') {
         descendantPaths.add(ref.configPath);
       }
     }
 
-    // For each descendant field path, grep PHP and rewrite the renamed segment
+    // Batch grep all descendant paths with concurrency limit
+    const pathList = [...descendantPaths];
+    const grepResults = await grepConfigPathsInPhp(pathList, project.root, project.psr4Map);
+
     const segmentIndex = segments.length - 1;
-    const grepPromises = [...descendantPaths].map(async (descendantPath) => {
-      const phpRefs = await grepConfigPathInPhp(descendantPath, project.root, project.psr4Map);
-      // Build new path by replacing the renamed segment at its position
+    for (const [descendantPath, phpRefs] of grepResults) {
       const parts = descendantPath.split('/');
       parts[segmentIndex] = newSegmentName;
       const newPath = parts.join('/');
-      return phpRefs.map((ref) => ({ ...ref, newText: newPath }));
-    });
-
-    const allPhpEdits = await Promise.all(grepPromises);
-    for (const phpEdits of allPhpEdits) {
-      edits.push(...phpEdits);
+      edits.push(...phpRefs.map((ref) => ({ ...ref, newText: newPath })));
     }
   }
 

@@ -29,13 +29,15 @@ const MAGENTO_DEFAULT_BLOCK_CLASS = 'Magento\\Framework\\View\\Element\\Template
 export function handleHover(
   params: HoverParams,
   getProject: (uri: string) => ProjectContext | undefined,
-  _token?: CancellationToken,
+  getDocumentText: (uri: string) => string | undefined,
+  token?: CancellationToken,
 ): Hover | null {
+  if (token?.isCancellationRequested) return null;
   const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
 
   // Handle PHP files: show ACL resource info for ADMIN_RESOURCE and isAllowed() patterns
   if (filePath.endsWith('.php')) {
-    return handlePhpHover(filePath, params, getProject);
+    return handlePhpHover(filePath, params, getProject, getDocumentText, token);
   }
 
   if (!filePath.endsWith('.xml')) return null;
@@ -46,14 +48,14 @@ export function handleHover(
   const { line, character } = params.position;
 
   // --- Try di.xml ---
-  const diRef = project.index.getReferenceAtPosition(filePath, line, character);
+  const diRef = project.indexes.di.getReferenceAtPosition(filePath, line, character);
   if (diRef) {
     let value: string;
     const range = Range.create(diRef.line, diRef.column, diRef.line, diRef.endColumn);
 
     switch (diRef.kind) {
       case 'preference-for': {
-        const effective = project.index.getEffectivePreferenceType(diRef.fqcn, diRef.area);
+        const effective = project.indexes.di.getEffectivePreferenceType(diRef.fqcn, diRef.area);
         value = effective
           ? `**Preference**\n\n\`${diRef.fqcn}\` → \`${effective.fqcn}\`\n\nModule: ${effective.module}, Area: ${effective.area}`
           : `**Preference**\n\n\`${diRef.fqcn}\` — no effective implementation`;
@@ -66,7 +68,7 @@ export function handleHover(
         break;
       }
       case 'type-name': {
-        const pluginCount = project.pluginMethodIndex.getTotalPluginCount(diRef.fqcn);
+        const pluginCount = project.indexes.pluginMethod.getTotalPluginCount(diRef.fqcn);
         value = pluginCount > 0
           ? `**Type**\n\n\`${diRef.fqcn}\`\n\n${pluginCount} plugin${pluginCount === 1 ? '' : 's'}`
           : `**Type**\n\n\`${diRef.fqcn}\``;
@@ -78,7 +80,7 @@ export function handleHover(
         break;
       }
       case 'virtualtype-name': {
-        const vt = project.index.getEffectiveVirtualType(diRef.fqcn);
+        const vt = project.indexes.di.getEffectiveVirtualType(diRef.fqcn);
         value = vt
           ? `**VirtualType**\n\n\`${vt.name}\` extends \`${vt.parentType}\``
           : `**VirtualType**\n\n\`${diRef.fqcn}\``;
@@ -103,7 +105,7 @@ export function handleHover(
   }
 
   // --- Try system.xml ---
-  const sysRef = project.systemConfigIndex.getReferenceAtPosition(filePath, line, character);
+  const sysRef = project.indexes.systemConfig.getReferenceAtPosition(filePath, line, character);
   if (sysRef) {
     const range = Range.create(sysRef.line, sysRef.column, sysRef.line, sysRef.endColumn);
     const isPartial = filePath.includes('/etc/adminhtml/system/');
@@ -139,13 +141,13 @@ export function handleHover(
         value = `**Frontend model** for \`${pathDisplay}\`\n\nClass: \`${sysRef.fqcn}\``;
         break;
       case 'section-resource': {
-        const aclDef = project.aclIndex.getResource(sysRef.aclResourceId ?? '');
+        const aclDef = project.indexes.acl.getResource(sysRef.aclResourceId ?? '');
         value = `**ACL Resource** \`${sysRef.aclResourceId}\``;
         if (aclDef?.title) {
           value += `\n\nTitle: ${aclDef.title}`;
           if (aclDef.hierarchyPath.length > 1) {
             const pathTitles = aclDef.hierarchyPath.map((id) => {
-              const res = project.aclIndex.getResource(id);
+              const res = project.indexes.acl.getResource(id);
               return res?.title || id;
             });
             value += `\n\nPath: ${pathTitles.join(' > ')}`;
@@ -162,7 +164,7 @@ export function handleHover(
   }
 
   // --- Try webapi.xml ---
-  const webapiRef = project.webapiIndex.getReferenceAtPosition(filePath, line, character);
+  const webapiRef = project.indexes.webapi.getReferenceAtPosition(filePath, line, character);
   if (webapiRef) {
     const range = Range.create(webapiRef.line, webapiRef.column, webapiRef.line, webapiRef.endColumn);
     let value: string;
@@ -180,14 +182,14 @@ export function handleHover(
           value = `**ACL** \`anonymous\` — no authentication required\n\nRoute: \`${webapiRef.httpMethod} ${webapiRef.routeUrl}\``;
         } else {
           // Enrich with title and hierarchy from acl.xml when available
-          const aclDef = project.aclIndex.getResource(webapiRef.value);
+          const aclDef = project.indexes.acl.getResource(webapiRef.value);
           value = `**ACL Resource** \`${webapiRef.value}\``;
           if (aclDef?.title) {
             value += `\n\nTitle: ${aclDef.title}`;
             // Show hierarchy path using titles where available
             if (aclDef.hierarchyPath.length > 1) {
               const pathTitles = aclDef.hierarchyPath.map((id) => {
-                const res = project.aclIndex.getResource(id);
+                const res = project.indexes.acl.getResource(id);
                 return res?.title || id;
               });
               value += `\n\nPath: ${pathTitles.join(' > ')}`;
@@ -203,7 +205,7 @@ export function handleHover(
   }
 
   // --- Try acl.xml ---
-  const aclResource = project.aclIndex.getResourceAtPosition(filePath, line, character);
+  const aclResource = project.indexes.acl.getResourceAtPosition(filePath, line, character);
   if (aclResource) {
     const range = Range.create(aclResource.line, aclResource.column, aclResource.line, aclResource.endColumn);
     let value = `**ACL Resource** \`${aclResource.id}\``;
@@ -213,7 +215,7 @@ export function handleHover(
     // Show hierarchy path using titles where available
     if (aclResource.hierarchyPath.length > 1) {
       const pathTitles = aclResource.hierarchyPath.map((id) => {
-        const res = project.aclIndex.getResource(id);
+        const res = project.indexes.acl.getResource(id);
         return res?.title || id;
       });
       value += `\n\nPath: ${pathTitles.join(' > ')}`;
@@ -221,13 +223,13 @@ export function handleHover(
     value += `\n\nModule: ${aclResource.module}`;
     // Show usage counts across all XML types that reference ACL resources
     const refCounts: string[] = [];
-    const webapiRefs = project.webapiIndex.getRefsForResource(aclResource.id);
+    const webapiRefs = project.indexes.webapi.getRefsForResource(aclResource.id);
     if (webapiRefs.length > 0) refCounts.push(`${webapiRefs.length} webapi.xml route${webapiRefs.length === 1 ? '' : 's'}`);
-    const systemRefs = project.systemConfigIndex.getRefsForAclResource(aclResource.id);
+    const systemRefs = project.indexes.systemConfig.getRefsForAclResource(aclResource.id);
     if (systemRefs.length > 0) refCounts.push(`${systemRefs.length} system.xml section${systemRefs.length === 1 ? '' : 's'}`);
-    const menuRefs = project.menuIndex.getRefsForResource(aclResource.id);
+    const menuRefs = project.indexes.menu.getRefsForResource(aclResource.id);
     if (menuRefs.length > 0) refCounts.push(`${menuRefs.length} menu item${menuRefs.length === 1 ? '' : 's'}`);
-    const uiRefs = project.uiComponentAclIndex.getRefsForResource(aclResource.id);
+    const uiRefs = project.indexes.uiComponentAcl.getRefsForResource(aclResource.id);
     if (uiRefs.length > 0) refCounts.push(`${uiRefs.length} UI component${uiRefs.length === 1 ? '' : 's'}`);
     if (refCounts.length > 0) {
       value += `\n\nReferenced in ${refCounts.join(', ')}`;
@@ -236,16 +238,16 @@ export function handleHover(
   }
 
   // --- Try menu.xml ---
-  const menuRef = project.menuIndex.getReferenceAtPosition(filePath, line, character);
+  const menuRef = project.indexes.menu.getReferenceAtPosition(filePath, line, character);
   if (menuRef) {
     const range = Range.create(menuRef.line, menuRef.column, menuRef.line, menuRef.endColumn);
-    const aclDef = project.aclIndex.getResource(menuRef.value);
+    const aclDef = project.indexes.acl.getResource(menuRef.value);
     let value = `**ACL Resource** \`${menuRef.value}\``;
     if (aclDef?.title) {
       value += `\n\nTitle: ${aclDef.title}`;
       if (aclDef.hierarchyPath.length > 1) {
         const pathTitles = aclDef.hierarchyPath.map((id) => {
-          const res = project.aclIndex.getResource(id);
+          const res = project.indexes.acl.getResource(id);
           return res?.title || id;
         });
         value += `\n\nPath: ${pathTitles.join(' > ')}`;
@@ -256,16 +258,16 @@ export function handleHover(
   }
 
   // --- Try UI component aclResource ---
-  const uiAclRef = project.uiComponentAclIndex.getReferenceAtPosition(filePath, line, character);
+  const uiAclRef = project.indexes.uiComponentAcl.getReferenceAtPosition(filePath, line, character);
   if (uiAclRef) {
     const range = Range.create(uiAclRef.line, uiAclRef.column, uiAclRef.line, uiAclRef.endColumn);
-    const aclDef = project.aclIndex.getResource(uiAclRef.value);
+    const aclDef = project.indexes.acl.getResource(uiAclRef.value);
     let value = `**ACL Resource** \`${uiAclRef.value}\``;
     if (aclDef?.title) {
       value += `\n\nTitle: ${aclDef.title}`;
       if (aclDef.hierarchyPath.length > 1) {
         const pathTitles = aclDef.hierarchyPath.map((id) => {
-          const res = project.aclIndex.getResource(id);
+          const res = project.indexes.acl.getResource(id);
           return res?.title || id;
         });
         value += `\n\nPath: ${pathTitles.join(' > ')}`;
@@ -275,7 +277,7 @@ export function handleHover(
   }
 
   // --- Try db_schema.xml ---
-  const dbSchemaRef = project.dbSchemaIndex.getReferenceAtPosition(filePath, line, character);
+  const dbSchemaRef = project.indexes.dbSchema.getReferenceAtPosition(filePath, line, character);
   if (dbSchemaRef) {
     const range = Range.create(dbSchemaRef.line, dbSchemaRef.column, dbSchemaRef.line, dbSchemaRef.endColumn);
     let value = '';
@@ -288,12 +290,12 @@ export function handleHover(
         if (dbSchemaRef.tableEngine) value += `  \nEngine: ${dbSchemaRef.tableEngine}`;
         value += `\n\nModule: ${dbSchemaRef.module}`;
         // Count how many modules define this table
-        const allDefs = project.dbSchemaIndex.getTableDefs(dbSchemaRef.value);
+        const allDefs = project.indexes.dbSchema.getTableDefs(dbSchemaRef.value);
         if (allDefs.length > 1) {
           value += `\n\nDefined in ${allDefs.length} modules`;
         }
         // Count columns across all modules
-        const allCols = project.dbSchemaIndex.getColumnsForTable(dbSchemaRef.value);
+        const allCols = project.indexes.dbSchema.getColumnsForTable(dbSchemaRef.value);
         if (allCols.length > 0) {
           value += `\n\n${allCols.length} column${allCols.length === 1 ? '' : 's'}`;
         }
@@ -322,7 +324,7 @@ export function handleHover(
         }
         if (dbSchemaRef.fkOnDelete) value += `\n\nON DELETE ${dbSchemaRef.fkOnDelete}`;
         // Show info about the referenced table
-        const refTableDefs = project.dbSchemaIndex.getTableDefs(dbSchemaRef.value);
+        const refTableDefs = project.indexes.dbSchema.getTableDefs(dbSchemaRef.value);
         if (refTableDefs.length > 0 && refTableDefs[0].tableComment) {
           value += `\n\n*${refTableDefs[0].tableComment}*`;
         }
@@ -335,7 +337,7 @@ export function handleHover(
         }
         if (dbSchemaRef.fkOnDelete) value += `\n\nON DELETE ${dbSchemaRef.fkOnDelete}`;
         // Show column type from the referenced table
-        const refCols = project.dbSchemaIndex.getColumnsForTable(dbSchemaRef.fkRefTable ?? '');
+        const refCols = project.indexes.dbSchema.getColumnsForTable(dbSchemaRef.fkRefTable ?? '');
         const refCol = refCols.find((c) => c.value === dbSchemaRef.value);
         if (refCol?.columnType) {
           value += `\n\nType: ${refCol.columnType}`;
@@ -350,14 +352,14 @@ export function handleHover(
   }
 
   // --- Try routes.xml ---
-  const routesRef = project.routesIndex.getReferenceAtPosition(filePath, line, character);
+  const routesRef = project.indexes.routes.getReferenceAtPosition(filePath, line, character);
   if (routesRef) {
     const range = Range.create(routesRef.line, routesRef.column, routesRef.line, routesRef.endColumn);
     const fnDisplay = routesRef.frontName || '*- empty -*';
     let value = '';
     if (routesRef.kind === 'route-frontname') {
       value = `**Route** \`${routesRef.value}\`\n\nRouter: ${routesRef.routerType}  \nArea: ${routesRef.area}`;
-      const moduleRefs = project.routesIndex.getRefsForFrontName(routesRef.value)
+      const moduleRefs = project.indexes.routes.getRefsForFrontName(routesRef.value)
         .filter((r) => r.kind === 'route-module');
       if (moduleRefs.length > 0) {
         value += '\n\nModules:\n' + moduleRefs.map((r) => `- ${r.value}`).join('\n');
@@ -372,7 +374,7 @@ export function handleHover(
     } else {
       // route-id
       value = `**Route** \`${routesRef.value}\` (frontName: ${fnDisplay})\n\nRouter: ${routesRef.routerType}  \nArea: ${routesRef.area}`;
-      const moduleRefs = project.routesIndex.getRefsForRouteId(routesRef.value)
+      const moduleRefs = project.indexes.routes.getRefsForRouteId(routesRef.value)
         .filter((r) => r.kind === 'route-module');
       if (moduleRefs.length > 0) {
         value += '\n\nModules:\n' + moduleRefs.map((r) => `- ${r.value}`).join('\n');
@@ -382,7 +384,7 @@ export function handleHover(
   }
 
   // --- Try events.xml ---
-  const eventsRef = project.eventsIndex.getReferenceAtPosition(filePath, line, character);
+  const eventsRef = project.indexes.events.getReferenceAtPosition(filePath, line, character);
   if (eventsRef) {
     const range = Range.create(eventsRef.line, eventsRef.column, eventsRef.line, eventsRef.endColumn);
 
@@ -390,7 +392,7 @@ export function handleHover(
       const value = `**Observer** for \`${eventsRef.eventName}\`\n\nClass: \`${eventsRef.fqcn}\`\n\nName: ${eventsRef.observerName}`;
       return { contents: { kind: MarkupKind.Markdown, value }, range };
     } else {
-      const observers = project.eventsIndex.getObserversForEvent(eventsRef.eventName);
+      const observers = project.indexes.events.getObserversForEvent(eventsRef.eventName);
       const count = observers.length;
       const value = count > 0
         ? `**Event** \`${eventsRef.eventName}\`\n\n${count} observer${count === 1 ? '' : 's'}`
@@ -400,7 +402,7 @@ export function handleHover(
   }
 
   // --- Try layout XML ---
-  const layoutRef = project.layoutIndex.getReferenceAtPosition(filePath, line, character);
+  const layoutRef = project.indexes.layout.getReferenceAtPosition(filePath, line, character);
   if (layoutRef) {
     const range = Range.create(layoutRef.line, layoutRef.column, layoutRef.line, layoutRef.endColumn);
 
@@ -442,7 +444,7 @@ export function handleHover(
     if (layoutRef.kind === 'reference-block') {
       let value = `**referenceBlock** \`${layoutRef.value}\``;
       // Look up the original block declaration to show its class
-      const decl = project.layoutIndex.getRefsForName(layoutRef.value)
+      const decl = project.indexes.layout.getRefsForName(layoutRef.value)
         .find((r) => r.kind === 'block-name');
       const blockClass = decl?.blockClass || MAGENTO_DEFAULT_BLOCK_CLASS;
       value += `\n\nClass: \`${blockClass}\``;
@@ -452,7 +454,7 @@ export function handleHover(
     if (layoutRef.kind === 'reference-container') {
       let value = `**referenceContainer** \`${layoutRef.value}\``;
       // Look up the original container declaration to show its label
-      const decl = project.layoutIndex.getRefsForName(layoutRef.value)
+      const decl = project.indexes.layout.getRefsForName(layoutRef.value)
         .find((r) => r.kind === 'container-name' && r.containerLabel);
       if (decl?.containerLabel) {
         value += `\n\nLabel: ${decl.containerLabel}`;
@@ -478,16 +480,15 @@ function handlePhpHover(
   filePath: string,
   params: HoverParams,
   getProject: (uri: string) => ProjectContext | undefined,
+  getDocumentText: (uri: string) => string | undefined,
+  token?: CancellationToken,
 ): Hover | null {
+  if (token?.isCancellationRequested) return null;
   const project = getProject(filePath);
   if (!project) return null;
 
-  let content: string;
-  try {
-    content = fs.readFileSync(filePath, 'utf-8');
-  } catch {
-    return null;
-  }
+  const content = getDocumentText(params.textDocument.uri) ?? readFileSafe(filePath);
+  if (!content) return null;
 
   const lines = content.split('\n');
   const line = lines[params.position.line];
@@ -507,7 +508,7 @@ function handlePhpHover(
         params.position.line, idStart,
         params.position.line, idEnd,
       );
-      const aclDef = project.aclIndex.getResource(aclId);
+      const aclDef = project.indexes.acl.getResource(aclId);
 
       let value = `**ACL Resource** \`${aclId}\``;
       if (aclDef?.title) {
@@ -515,7 +516,7 @@ function handlePhpHover(
         // Show hierarchy path using titles where available
         if (aclDef.hierarchyPath.length > 1) {
           const pathTitles = aclDef.hierarchyPath.map((id) => {
-            const res = project.aclIndex.getResource(id);
+            const res = project.indexes.acl.getResource(id);
             return res?.title || id;
           });
           value += `\n\nPath: ${pathTitles.join(' > ')}`;
@@ -528,4 +529,13 @@ function handlePhpHover(
   }
 
   return null;
+}
+
+/** Safely read a file from disk, returning undefined on any error. */
+function readFileSafe(filePath: string): string | undefined {
+  try {
+    return fs.readFileSync(filePath, 'utf-8');
+  } catch {
+    return undefined;
+  }
 }

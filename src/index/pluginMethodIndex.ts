@@ -22,6 +22,7 @@ import { DiReference } from '../indexer/types';
 import { resolveClassFile } from '../indexer/phpClassLocator';
 import { extractPhpMethods, getInterceptedMethodName, PhpMethodInfo } from '../utils/phpNamespace';
 import { Psr4Map } from '../indexer/types';
+import { yieldToEventLoop } from '../utils/async';
 
 /** Info about a single plugin interception of a method. */
 export interface PluginInterception {
@@ -71,6 +72,12 @@ export class PluginMethodIndex {
   private hierarchy = new ClassHierarchy();
 
   /**
+   * Tracks which di.xml files contributed plugin data for which target FQCNs.
+   * Used by rebuildForFile() to know what to invalidate on incremental updates.
+   */
+  private fileToTargets = new Map<string, Set<string>>();
+
+  /**
    * Build both forward and reverse indexes from the DI index.
    *
    * For each plugin-type reference in the DI index:
@@ -81,9 +88,10 @@ export class PluginMethodIndex {
    *   5. Store plugin method locations for forward navigation
    *   6. Build reverse entries for backward navigation
    */
-  build(diIndex: DiIndex, psr4Map: Psr4Map): void {
+  async build(diIndex: DiIndex, psr4Map: Psr4Map): Promise<void> {
     this.classMethodPlugins.clear();
     this.reverseIndex.clear();
+    this.fileToTargets.clear();
 
     // Collect all plugin-type refs grouped by their target class
     const allPluginEntries = [...diIndex.getAllPluginRefsWithTargets()];
@@ -92,6 +100,11 @@ export class PluginMethodIndex {
       const existing = pluginsByTarget.get(entry.targetFqcn) ?? [];
       existing.push(entry.pluginRef);
       pluginsByTarget.set(entry.targetFqcn, existing);
+
+      // Track file -> targets mapping
+      const targets = this.fileToTargets.get(entry.pluginRef.file) ?? new Set();
+      targets.add(entry.targetFqcn);
+      this.fileToTargets.set(entry.pluginRef.file, targets);
     }
 
     // Build class hierarchy for all type-name FQCNs referenced in di.xml.
@@ -106,9 +119,10 @@ export class PluginMethodIndex {
     for (const ref of diIndex.getAllTypeNameFqcns()) {
       allTypeNames.add(ref);
     }
-    this.hierarchy.buildForClasses(allTypeNames, psr4Map);
+    await this.hierarchy.buildForClasses(allTypeNames, psr4Map);
 
     // For each target class, resolve its plugin classes and find intercepted methods
+    let processed = 0;
     for (const [targetFqcn, pluginRefs] of pluginsByTarget) {
       const methodMap = new Map<string, PluginInterception[]>();
 
@@ -118,51 +132,164 @@ export class PluginMethodIndex {
 
         let methods: PhpMethodInfo[];
         try {
-          const content = fs.readFileSync(pluginFilePath, 'utf-8');
+          const content = await fs.promises.readFile(pluginFilePath, 'utf-8');
           methods = extractPhpMethods(content);
         } catch {
           continue;
         }
 
-        // Set up reverse index map for this plugin class
-        let reverseMap = this.reverseIndex.get(pluginRef.fqcn);
-        if (!reverseMap) {
-          reverseMap = new Map();
-          this.reverseIndex.set(pluginRef.fqcn, reverseMap);
-        }
-
-        for (const method of methods) {
-          const intercepted = getInterceptedMethodName(method.name);
-          if (!intercepted) continue;
-
-          // Forward index entry
-          const interception: PluginInterception = {
-            prefix: intercepted.prefix,
-            pluginFqcn: pluginRef.fqcn,
-            diRef: pluginRef,
-            pluginMethodFile: pluginFilePath,
-            pluginMethodLine: method.line,
-            pluginMethodColumn: method.column,
-            pluginMethodEndColumn: method.endColumn,
-            pluginMethodName: method.name,
-          };
-
-          const interceptions = methodMap.get(intercepted.methodName) ?? [];
-          interceptions.push(interception);
-          methodMap.set(intercepted.methodName, interceptions);
-
-          // Reverse index entry
-          reverseMap.set(method.name, {
-            targetFqcn,
-            targetMethodName: intercepted.methodName,
-            diRef: pluginRef,
-          });
-        }
+        this.addPluginMethods(targetFqcn, pluginRef, pluginFilePath, methods, methodMap);
       }
 
       if (methodMap.size > 0) {
         this.classMethodPlugins.set(targetFqcn, methodMap);
       }
+
+      if (++processed % 50 === 0) await yieldToEventLoop();
+    }
+  }
+
+  /**
+   * Incrementally rebuild plugin data for a single changed di.xml file.
+   * Only re-processes targets affected by that file, leaving the rest intact.
+   */
+  async rebuildForFile(
+    file: string,
+    diIndex: DiIndex,
+    psr4Map: Psr4Map,
+  ): Promise<void> {
+    // Collect old targets from this file
+    const oldTargets = this.fileToTargets.get(file) ?? new Set<string>();
+
+    // Collect new targets from the current DI index for this file
+    const newTargets = new Set<string>();
+    const newPluginsByTarget = new Map<string, DiReference[]>();
+    const fileRefs = diIndex.getRefsForFile(file);
+    for (const ref of fileRefs) {
+      if (ref.kind === 'plugin-type' && ref.parentTypeFqcn) {
+        newTargets.add(ref.parentTypeFqcn);
+        const existing = newPluginsByTarget.get(ref.parentTypeFqcn) ?? [];
+        existing.push(ref);
+        newPluginsByTarget.set(ref.parentTypeFqcn, existing);
+      }
+    }
+
+    // All affected targets = old union new
+    const affectedTargets = new Set([...oldTargets, ...newTargets]);
+    if (affectedTargets.size === 0) {
+      this.fileToTargets.delete(file);
+      return;
+    }
+
+    // Remove forward + reverse entries for affected targets
+    for (const targetFqcn of affectedTargets) {
+      const methodMap = this.classMethodPlugins.get(targetFqcn);
+      if (methodMap) {
+        // Remove reverse entries for plugins on this target
+        for (const interceptions of methodMap.values()) {
+          for (const i of interceptions) {
+            const reverseMap = this.reverseIndex.get(i.pluginFqcn);
+            if (reverseMap) {
+              reverseMap.delete(i.pluginMethodName);
+              if (reverseMap.size === 0) this.reverseIndex.delete(i.pluginFqcn);
+            }
+          }
+        }
+        this.classMethodPlugins.delete(targetFqcn);
+      }
+    }
+
+    // Update file -> targets mapping
+    if (newTargets.size > 0) {
+      this.fileToTargets.set(file, newTargets);
+    } else {
+      this.fileToTargets.delete(file);
+    }
+
+    // Rebuild hierarchy for any newly-added FQCNs
+    const newFqcns = [...newTargets].filter((t) => !oldTargets.has(t));
+    if (newFqcns.length > 0) {
+      await this.hierarchy.buildForClasses(newFqcns, psr4Map);
+    }
+
+    // Rebuild forward + reverse entries for affected targets using ALL plugin refs
+    // (not just from the changed file — other files may also declare plugins for the same target)
+    for (const targetFqcn of affectedTargets) {
+      const allPluginRefs: DiReference[] = [];
+      for (const entry of diIndex.getAllPluginRefsWithTargets()) {
+        if (entry.targetFqcn === targetFqcn) {
+          allPluginRefs.push(entry.pluginRef);
+        }
+      }
+
+      if (allPluginRefs.length === 0) continue;
+
+      const methodMap = new Map<string, PluginInterception[]>();
+      for (const pluginRef of allPluginRefs) {
+        const pluginFilePath = resolveClassFile(pluginRef.fqcn, psr4Map);
+        if (!pluginFilePath) continue;
+
+        let methods: PhpMethodInfo[];
+        try {
+          const content = await fs.promises.readFile(pluginFilePath, 'utf-8');
+          methods = extractPhpMethods(content);
+        } catch {
+          continue;
+        }
+
+        this.addPluginMethods(targetFqcn, pluginRef, pluginFilePath, methods, methodMap);
+      }
+
+      if (methodMap.size > 0) {
+        this.classMethodPlugins.set(targetFqcn, methodMap);
+      }
+    }
+  }
+
+  /**
+   * Shared helper: process a plugin class's methods and populate the forward
+   * and reverse indexes for a given target FQCN.
+   */
+  private addPluginMethods(
+    targetFqcn: string,
+    pluginRef: DiReference,
+    pluginFilePath: string,
+    methods: PhpMethodInfo[],
+    methodMap: Map<string, PluginInterception[]>,
+  ): void {
+    // Set up reverse index map for this plugin class
+    let reverseMap = this.reverseIndex.get(pluginRef.fqcn);
+    if (!reverseMap) {
+      reverseMap = new Map();
+      this.reverseIndex.set(pluginRef.fqcn, reverseMap);
+    }
+
+    for (const method of methods) {
+      const intercepted = getInterceptedMethodName(method.name);
+      if (!intercepted) continue;
+
+      // Forward index entry
+      const interception: PluginInterception = {
+        prefix: intercepted.prefix,
+        pluginFqcn: pluginRef.fqcn,
+        diRef: pluginRef,
+        pluginMethodFile: pluginFilePath,
+        pluginMethodLine: method.line,
+        pluginMethodColumn: method.column,
+        pluginMethodEndColumn: method.endColumn,
+        pluginMethodName: method.name,
+      };
+
+      const interceptions = methodMap.get(intercepted.methodName) ?? [];
+      interceptions.push(interception);
+      methodMap.set(intercepted.methodName, interceptions);
+
+      // Reverse index entry
+      reverseMap.set(method.name, {
+        targetFqcn,
+        targetMethodName: intercepted.methodName,
+        diRef: pluginRef,
+      });
     }
   }
 
@@ -260,8 +387,8 @@ export class PluginMethodIndex {
   }
 
   /** Ensure a class has been scanned for hierarchy data (extends/implements). */
-  ensureScanned(fqcn: string, psr4Map: Psr4Map): void {
-    this.hierarchy.buildForClasses([fqcn], psr4Map);
+  async ensureScanned(fqcn: string, psr4Map: Psr4Map): Promise<void> {
+    await this.hierarchy.buildForClasses([fqcn], psr4Map);
   }
 
   /** Get the direct parent class FQCN, or undefined if none. */

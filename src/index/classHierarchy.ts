@@ -17,6 +17,7 @@ import * as fs from 'fs';
 import { Psr4Map } from '../indexer/types';
 import { resolveClassFile } from '../indexer/phpClassLocator';
 import { extractPhpClass } from '../utils/phpNamespace';
+import { yieldToEventLoop } from '../utils/async';
 
 export class ClassHierarchy {
   /** Map from child FQCN to its parent class FQCN (extends). */
@@ -43,8 +44,9 @@ export class ClassHierarchy {
    *
    * Also recursively scans parent classes and interfaces to build the full chain.
    */
-  buildForClasses(fqcns: Iterable<string>, psr4Map: Psr4Map): void {
+  async buildForClasses(fqcns: Iterable<string>, psr4Map: Psr4Map): Promise<void> {
     const queue = [...fqcns];
+    let processed = 0;
 
     while (queue.length > 0) {
       const fqcn = queue.pop()!;
@@ -55,7 +57,7 @@ export class ClassHierarchy {
       if (!filePath) continue;
 
       try {
-        const content = fs.readFileSync(filePath, 'utf-8');
+        const content = await fs.promises.readFile(filePath, 'utf-8');
         const classInfo = extractPhpClass(content);
         if (!classInfo) continue;
 
@@ -79,6 +81,8 @@ export class ClassHierarchy {
       } catch {
         // File unreadable — skip
       }
+
+      if (++processed % 50 === 0) await yieldToEventLoop();
     }
   }
 

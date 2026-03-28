@@ -45,6 +45,10 @@ export class DiIndex {
   private fileToRefs = new Map<string, DiReference[]>();
   /** File path -> all virtualTypes in that file. */
   private fileToVirtualTypes = new Map<string, VirtualTypeDecl[]>();
+  /** Pre-computed lowercase FQCN -> original FQCN for efficient search. */
+  private lowerFqcnMap = new Map<string, string>();
+  /** Pre-computed lowercase VT name -> original name for efficient search. */
+  private lowerVtMap = new Map<string, string>();
   /** The "winning" config after merging — rebuilt on every index change. */
   private effective: EffectiveConfig = {
     preferences: new Map(),
@@ -57,26 +61,7 @@ export class DiIndex {
     refs: DiReference[],
     virtualTypes: VirtualTypeDecl[],
   ): void {
-    this.fileToRefs.set(file, refs);
-    this.fileToVirtualTypes.set(file, virtualTypes);
-
-    for (const ref of refs) {
-      const existing = this.fqcnToRefs.get(ref.fqcn);
-      if (existing) {
-        existing.push(ref);
-      } else {
-        this.fqcnToRefs.set(ref.fqcn, [ref]);
-      }
-    }
-
-    for (const vt of virtualTypes) {
-      const existing = this.virtualTypeDecls.get(vt.name);
-      if (existing) {
-        existing.push(vt);
-      } else {
-        this.virtualTypeDecls.set(vt.name, [vt]);
-      }
-    }
+    this.insertFileData(file, refs, virtualTypes);
 
     if (!this.batchMode) {
       this.rebuildEffective();
@@ -99,8 +84,9 @@ export class DiIndex {
    * Called before re-parsing a changed file, so the old data is cleaned up.
    */
   removeFile(file: string): void {
+    const affected = this.collectAffectedKeys(file);
     this.removeFileData(file);
-    this.rebuildEffective();
+    this.rebuildEffectiveForKeys(affected);
   }
 
   /**
@@ -112,8 +98,93 @@ export class DiIndex {
     refs: DiReference[],
     virtualTypes: VirtualTypeDecl[],
   ): void {
+    const affected = this.collectAffectedKeys(file);
     this.removeFileData(file);
+    this.insertFileData(file, refs, virtualTypes);
 
+    if (!this.batchMode) {
+      // Collect keys affected by the new data too
+      for (const ref of refs) {
+        if (ref.kind === 'preference-for' && ref.pairedFqcn) {
+          affected.prefKeys.add(`${ref.area}:${ref.fqcn}`);
+        }
+      }
+      for (const vt of virtualTypes) {
+        affected.vtNames.add(vt.name);
+      }
+      this.rebuildEffectiveForKeys(affected);
+    }
+  }
+
+  /**
+   * Collect the effective-config keys affected by a file's current data.
+   * Called BEFORE removeFileData so we know which keys to recompute.
+   */
+  private collectAffectedKeys(file: string): { prefKeys: Set<string>; vtNames: Set<string> } {
+    const prefKeys = new Set<string>();
+    const vtNames = new Set<string>();
+    const refs = this.fileToRefs.get(file);
+    if (refs) {
+      for (const ref of refs) {
+        if (ref.kind === 'preference-for' && ref.pairedFqcn) {
+          prefKeys.add(`${ref.area}:${ref.fqcn}`);
+        }
+      }
+    }
+    const vts = this.fileToVirtualTypes.get(file);
+    if (vts) {
+      for (const vt of vts) {
+        vtNames.add(vt.name);
+      }
+    }
+    return { prefKeys, vtNames };
+  }
+
+  /**
+   * Incrementally rebuild only the affected effective-config entries.
+   * Much cheaper than a full rebuildEffective() for single-file changes.
+   */
+  private rebuildEffectiveForKeys(affected: { prefKeys: Set<string>; vtNames: Set<string> }): void {
+    // --- Preferences: recompute only affected keys ---
+    for (const key of affected.prefKeys) {
+      this.effective.preferences.delete(key);
+      // key is "area:interfaceFqcn" — find all preference-for refs for that interface+area
+      const [area, interfaceFqcn] = splitEffectiveKey(key);
+      const allRefs = this.fqcnToRefs.get(interfaceFqcn);
+      if (allRefs) {
+        const typeRefs: DiReference[] = [];
+        for (const ref of allRefs) {
+          if (ref.kind === 'preference-for' && ref.area === area && ref.pairedFqcn) {
+            const typeRef = this.findPairedTypeRef(ref);
+            if (typeRef) typeRefs.push(typeRef);
+          }
+        }
+        const winner = this.pickWinner(typeRefs);
+        if (winner) {
+          this.effective.preferences.set(key, winner);
+        }
+      }
+    }
+
+    // --- VirtualTypes: recompute only affected names ---
+    for (const name of affected.vtNames) {
+      this.effective.virtualTypes.delete(name);
+      const decls = this.virtualTypeDecls.get(name);
+      if (decls) {
+        const winner = this.pickWinnerVt(decls);
+        if (winner) {
+          this.effective.virtualTypes.set(name, winner);
+        }
+      }
+    }
+  }
+
+  /** Insert a file's refs and virtualTypes into all internal maps. */
+  private insertFileData(
+    file: string,
+    refs: DiReference[],
+    virtualTypes: VirtualTypeDecl[],
+  ): void {
     this.fileToRefs.set(file, refs);
     this.fileToVirtualTypes.set(file, virtualTypes);
 
@@ -123,6 +194,7 @@ export class DiIndex {
         existing.push(ref);
       } else {
         this.fqcnToRefs.set(ref.fqcn, [ref]);
+        this.lowerFqcnMap.set(ref.fqcn.toLowerCase(), ref.fqcn);
       }
     }
 
@@ -132,11 +204,8 @@ export class DiIndex {
         existing.push(vt);
       } else {
         this.virtualTypeDecls.set(vt.name, [vt]);
+        this.lowerVtMap.set(vt.name.toLowerCase(), vt.name);
       }
-    }
-
-    if (!this.batchMode) {
-      this.rebuildEffective();
     }
   }
 
@@ -152,6 +221,7 @@ export class DiIndex {
             this.fqcnToRefs.set(ref.fqcn, filtered);
           } else {
             this.fqcnToRefs.delete(ref.fqcn);
+            this.lowerFqcnMap.delete(ref.fqcn.toLowerCase());
           }
         }
       }
@@ -168,6 +238,7 @@ export class DiIndex {
             this.virtualTypeDecls.set(vt.name, filtered);
           } else {
             this.virtualTypeDecls.delete(vt.name);
+            this.lowerVtMap.delete(vt.name.toLowerCase());
           }
         }
       }
@@ -275,6 +346,36 @@ export class DiIndex {
     return this.virtualTypeDecls.keys();
   }
 
+  /**
+   * Search FQCNs by case-insensitive substring match.
+   * Returns up to `limit` matching FQCNs without allocating lowercase strings per candidate.
+   */
+  searchFqcns(lowerQuery: string, limit: number): string[] {
+    const results: string[] = [];
+    for (const [lower, original] of this.lowerFqcnMap) {
+      if (lower.includes(lowerQuery)) {
+        results.push(original);
+        if (results.length >= limit) break;
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Search virtual type names by case-insensitive substring match.
+   * Returns up to `limit` matching names without allocating lowercase strings per candidate.
+   */
+  searchVirtualTypeNames(lowerQuery: string, limit: number): string[] {
+    const results: string[] = [];
+    for (const [lower, original] of this.lowerVtMap) {
+      if (lower.includes(lowerQuery)) {
+        results.push(original);
+        if (results.length >= limit) break;
+      }
+    }
+    return results;
+  }
+
   /** Return all references in a single file (for per-file validation). */
   getRefsForFile(file: string): DiReference[] {
     return this.fileToRefs.get(file) ?? [];
@@ -291,6 +392,8 @@ export class DiIndex {
     this.virtualTypeDecls.clear();
     this.fileToRefs.clear();
     this.fileToVirtualTypes.clear();
+    this.lowerFqcnMap.clear();
+    this.lowerVtMap.clear();
     this.effective.preferences.clear();
     this.effective.virtualTypes.clear();
   }
@@ -402,4 +505,10 @@ export class DiIndex {
       return current.moduleOrder >= best.moduleOrder ? current : best;
     });
   }
+}
+
+/** Split an effective-config key like "frontend:Magento\\Store\\Api\\StoreManagerInterface" into [area, fqcn]. */
+function splitEffectiveKey(key: string): [string, string] {
+  const colonIdx = key.indexOf(':');
+  return [key.slice(0, colonIdx), key.slice(colonIdx + 1)];
 }

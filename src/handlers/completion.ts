@@ -125,25 +125,25 @@ function getCompletionCandidates(
       if (isAttr) {
         // <preference for="..." type="...">
         if (elementName === 'preference' && (attributeName === 'for' || attributeName === 'type')) {
-          return { candidates: project.index.getAllFqcns(), kind: CompletionItemKind.Class };
+          return { candidates: project.indexes.di.getAllFqcns(), kind: CompletionItemKind.Class };
         }
         // <type name="...">
         if (elementName === 'type' && attributeName === 'name') {
-          return { candidates: project.index.getAllFqcns(), kind: CompletionItemKind.Class };
+          return { candidates: project.indexes.di.getAllFqcns(), kind: CompletionItemKind.Class };
         }
         // <plugin type="...">
         if (elementName === 'plugin' && attributeName === 'type') {
-          return { candidates: project.index.getAllFqcns(), kind: CompletionItemKind.Class };
+          return { candidates: project.indexes.di.getAllFqcns(), kind: CompletionItemKind.Class };
         }
         // <virtualType type="...">
         if (elementName === 'virtualType' && attributeName === 'type') {
-          return { candidates: project.index.getAllFqcns(), kind: CompletionItemKind.Class };
+          return { candidates: project.indexes.di.getAllFqcns(), kind: CompletionItemKind.Class };
         }
       }
       // <argument xsi:type="object">FQCN</argument>
       if (isText && elementName === 'argument' && xsiType === 'object') {
         return {
-          candidates: chain(project.index.getAllFqcns(), project.index.getAllVirtualTypeNames()),
+          candidates: chain(project.indexes.di.getAllFqcns(), project.indexes.di.getAllVirtualTypeNames()),
           kind: CompletionItemKind.Class,
         };
       }
@@ -155,11 +155,11 @@ function getCompletionCandidates(
       if (isAttr) {
         // <event name="...">
         if (elementName === 'event' && attributeName === 'name') {
-          return { candidates: project.eventsIndex.getAllEventNames(), kind: CompletionItemKind.Event };
+          return { candidates: project.indexes.events.getAllEventNames(), kind: CompletionItemKind.Event };
         }
         // <observer instance="...">
         if (elementName === 'observer' && attributeName === 'instance') {
-          return { candidates: project.index.getAllFqcns(), kind: CompletionItemKind.Class };
+          return { candidates: project.indexes.di.getAllFqcns(), kind: CompletionItemKind.Class };
         }
       }
       return undefined;
@@ -170,40 +170,40 @@ function getCompletionCandidates(
       if (isAttr) {
         // <block class="...">
         if (elementName === 'block' && attributeName === 'class') {
-          return { candidates: project.index.getAllFqcns(), kind: CompletionItemKind.Class };
+          return { candidates: project.indexes.di.getAllFqcns(), kind: CompletionItemKind.Class };
         }
         // <block template="..."> or <referenceBlock template="...">
         if ((elementName === 'block' || elementName === 'referenceBlock') && attributeName === 'template') {
-          return { candidates: project.layoutIndex.getAllTemplateIds(), kind: CompletionItemKind.File };
+          return { candidates: project.indexes.layout.getAllTemplateIds(), kind: CompletionItemKind.File };
         }
         // <update handle="...">
         if (elementName === 'update' && attributeName === 'handle') {
-          return { candidates: project.layoutIndex.getAllHandles(), kind: CompletionItemKind.Reference };
+          return { candidates: project.indexes.layout.getAllHandles(), kind: CompletionItemKind.Reference };
         }
         // <referenceBlock name="...">
         if (elementName === 'referenceBlock' && attributeName === 'name') {
-          return { candidates: project.layoutIndex.getAllBlockNames(), kind: CompletionItemKind.Reference };
+          return { candidates: project.indexes.layout.getAllBlockNames(), kind: CompletionItemKind.Reference };
         }
         // <referenceContainer name="...">
         if (elementName === 'referenceContainer' && attributeName === 'name') {
-          return { candidates: project.layoutIndex.getAllContainerNames(), kind: CompletionItemKind.Reference };
+          return { candidates: project.indexes.layout.getAllContainerNames(), kind: CompletionItemKind.Reference };
         }
         // <move element="..."> — could be a block or container
         if (elementName === 'move' && attributeName === 'element') {
           return {
-            candidates: chain(project.layoutIndex.getAllBlockNames(), project.layoutIndex.getAllContainerNames()),
+            candidates: chain(project.indexes.layout.getAllBlockNames(), project.indexes.layout.getAllContainerNames()),
             kind: CompletionItemKind.Reference,
           };
         }
         // <move destination="..."> — target is always a container
         if (elementName === 'move' && attributeName === 'destination') {
-          return { candidates: project.layoutIndex.getAllContainerNames(), kind: CompletionItemKind.Reference };
+          return { candidates: project.indexes.layout.getAllContainerNames(), kind: CompletionItemKind.Reference };
         }
       }
       // <argument xsi:type="object">FQCN</argument> in layout XML
       if (isText && elementName === 'argument' && xsiType === 'object') {
         return {
-          candidates: chain(project.index.getAllFqcns(), project.index.getAllVirtualTypeNames()),
+          candidates: chain(project.indexes.di.getAllFqcns(), project.indexes.di.getAllVirtualTypeNames()),
           kind: CompletionItemKind.Class,
         };
       }
@@ -215,11 +215,11 @@ function getCompletionCandidates(
       if (isAttr) {
         // <service class="...">
         if (elementName === 'service' && attributeName === 'class') {
-          return { candidates: project.webapiIndex.getAllServiceClasses(), kind: CompletionItemKind.Class };
+          return { candidates: project.indexes.webapi.getAllServiceClasses(), kind: CompletionItemKind.Class };
         }
         // <resource ref="...">
         if (elementName === 'resource' && attributeName === 'ref') {
-          return { candidates: project.aclIndex.getAllResourceIds(), kind: CompletionItemKind.Constant };
+          return { candidates: project.indexes.acl.getAllResourceIds(), kind: CompletionItemKind.Constant };
         }
       }
       return undefined;
@@ -232,13 +232,13 @@ function getCompletionCandidates(
       // as models (not in di.xml) still appear in completions.
       if (isText && (elementName === 'source_model' || elementName === 'backend_model' || elementName === 'frontend_model')) {
         return {
-          candidates: chain(project.index.getAllFqcns(), project.systemConfigIndex.getAllModelFqcns()),
+          candidates: chain(project.indexes.di.getAllFqcns(), project.indexes.systemConfig.getAllModelFqcns()),
           kind: CompletionItemKind.Class,
         };
       }
       // <resource>ACL_ID</resource>
       if (isText && elementName === 'resource') {
-        return { candidates: project.aclIndex.getAllResourceIds(), kind: CompletionItemKind.Constant };
+        return { candidates: project.indexes.acl.getAllResourceIds(), kind: CompletionItemKind.Constant };
       }
       return undefined;
     }
@@ -248,7 +248,7 @@ function getCompletionCandidates(
       if (isAttr) {
         // <add resource="...">
         if (elementName === 'add' && attributeName === 'resource') {
-          return { candidates: project.aclIndex.getAllResourceIds(), kind: CompletionItemKind.Constant };
+          return { candidates: project.indexes.acl.getAllResourceIds(), kind: CompletionItemKind.Constant };
         }
       }
       return undefined;
@@ -258,7 +258,7 @@ function getCompletionCandidates(
     case 'ui_component': {
       // <aclResource>ACL_ID</aclResource>
       if (isText && elementName === 'aclResource') {
-        return { candidates: project.aclIndex.getAllResourceIds(), kind: CompletionItemKind.Constant };
+        return { candidates: project.indexes.acl.getAllResourceIds(), kind: CompletionItemKind.Constant };
       }
       return undefined;
     }
@@ -268,13 +268,13 @@ function getCompletionCandidates(
       if (isAttr) {
         // <constraint ... referenceTable="...">
         if (elementName === 'constraint' && attributeName === 'referenceTable') {
-          return { candidates: project.dbSchemaIndex.getAllTableNames(), kind: CompletionItemKind.Field };
+          return { candidates: project.indexes.dbSchema.getAllTableNames(), kind: CompletionItemKind.Field };
         }
         // <constraint ... referenceColumn="..."> — columns from the referenceTable on the same element
         if (elementName === 'constraint' && attributeName === 'referenceColumn') {
           const refTable = extractReferenceTableFromContext(documentText, context);
           if (refTable) {
-            const columns = project.dbSchemaIndex.getColumnsForTable(refTable)
+            const columns = project.indexes.dbSchema.getColumnsForTable(refTable)
               .map((c) => c.value);
             return { candidates: columns, kind: CompletionItemKind.Field };
           }
@@ -408,13 +408,13 @@ function handlePhpCompletion(
   // Each regex matches from line start up to the cursor, capturing the partial string value.
   const patterns: Array<[RegExp, () => Iterable<string>, CompletionItemKind]> = [
     // ->dispatch('partial  (event names)
-    [/dispatch\(\s*['"]([^'"]*)$/, () => project.eventsIndex.getAllEventNames(), CompletionItemKind.Event],
+    [/dispatch\(\s*['"]([^'"]*)$/, () => project.indexes.events.getAllEventNames(), CompletionItemKind.Event],
     // ->getValue('partial  or  ->isSetFlag('partial  (config paths)
-    [/(?:getValue|isSetFlag)\(\s*['"]([^'"]*)$/, () => project.systemConfigIndex.getAllConfigPaths(), CompletionItemKind.Value],
+    [/(?:getValue|isSetFlag)\(\s*['"]([^'"]*)$/, () => project.indexes.systemConfig.getAllConfigPaths(), CompletionItemKind.Value],
     // ->isAllowed('partial  (ACL resource IDs)
-    [/isAllowed\(\s*['"]([^'"]*)$/, () => project.aclIndex.getAllResourceIds(), CompletionItemKind.Constant],
+    [/isAllowed\(\s*['"]([^'"]*)$/, () => project.indexes.acl.getAllResourceIds(), CompletionItemKind.Constant],
     // ADMIN_RESOURCE = 'partial  (ACL resource IDs)
-    [/ADMIN_RESOURCE\s*=\s*['"]([^'"]*)$/, () => project.aclIndex.getAllResourceIds(), CompletionItemKind.Constant],
+    [/ADMIN_RESOURCE\s*=\s*['"]([^'"]*)$/, () => project.indexes.acl.getAllResourceIds(), CompletionItemKind.Constant],
   ];
 
   for (const [regex, getCandidates, kind] of patterns) {

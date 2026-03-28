@@ -18,6 +18,8 @@ describe('handleReferences', () => {
     return project;
   }
 
+  function noDocText(): undefined { return undefined; }
+
   function makeParams(filePath: string, line: number, character: number) {
     return {
       textDocument: { uri: URI.file(filePath).toString() },
@@ -29,7 +31,7 @@ describe('handleReferences', () => {
   it('finds references from di.xml cursor position', async () => {
     const diXml = path.join(FIXTURE_ROOT, 'vendor/test/module-foo/etc/di.xml');
     // Find a reference to Test\Foo\Model\Foo on the type-name line
-    const refs = project.index.getReferencesForFqcn('Test\\Foo\\Model\\Foo');
+    const refs = project.indexes.di.getReferencesForFqcn('Test\\Foo\\Model\\Foo');
     const typeNameRef = refs.find(
       (r) => r.kind === 'type-name' && r.file === diXml,
     );
@@ -37,7 +39,7 @@ describe('handleReferences', () => {
 
     const result = await handleReferences(
       makeParams(diXml, typeNameRef!.line, typeNameRef!.column),
-      getProject,
+      getProject, noDocText,
     );
     expect(result).not.toBeNull();
     // Test\Foo\Model\Foo should appear as preference-type, type-name, and virtualtype-type
@@ -50,7 +52,7 @@ describe('handleReferences', () => {
       'vendor/test/module-foo/Model/Foo.php',
     );
     // Line 6 (0-based): "class Foo implements FooInterface" — class name at col 6
-    const result = await handleReferences(makeParams(phpFile, 6, 6), getProject);
+    const result = await handleReferences(makeParams(phpFile, 6, 6), getProject, noDocText);
     expect(result).not.toBeNull();
     expect(result!.length).toBeGreaterThanOrEqual(1);
 
@@ -67,7 +69,7 @@ describe('handleReferences', () => {
       'vendor/test/module-foo/Model/Foo.php',
     );
     // Line 0: "<?php" — not a class declaration
-    const result = await handleReferences(makeParams(phpFile, 0, 0), getProject);
+    const result = await handleReferences(makeParams(phpFile, 0, 0), getProject, noDocText);
     expect(result).toBeNull();
   });
 
@@ -77,7 +79,7 @@ describe('handleReferences', () => {
       'vendor/test/module-foo/Api/FooInterface.php',
     );
     // Line 4: "interface FooInterface" — name starts at column 10
-    const result = await handleReferences(makeParams(phpFile, 4, 10), getProject);
+    const result = await handleReferences(makeParams(phpFile, 4, 10), getProject, noDocText);
     expect(result).not.toBeNull();
     // Should find at least the preference-for reference
     expect(result!.length).toBeGreaterThanOrEqual(1);
@@ -86,7 +88,7 @@ describe('handleReferences', () => {
   it('returns null for unknown file types', async () => {
     const result = await handleReferences(
       makeParams('/some/file.txt', 0, 0),
-      getProject,
+      getProject, noDocText,
     );
     expect(result).toBeNull();
   });
@@ -97,7 +99,7 @@ describe('handleReferences', () => {
       'vendor/test/module-foo/Model/Foo.php',
     );
     // Line 8 (0-based): "    public function save(): void {}" — "save" starts at col 20
-    const result = await handleReferences(makeParams(phpFile, 8, 20), getProject);
+    const result = await handleReferences(makeParams(phpFile, 8, 20), getProject, noDocText);
     expect(result).not.toBeNull();
     // Should include the plugin PHP method (beforeSave), the di.xml declaration,
     // AND the webapi.xml route for FooInterface::save
@@ -115,7 +117,7 @@ describe('handleReferences', () => {
     );
     // Line 6: "    public function beforeSave($subject): void {}"
     // "beforeSave" starts at col 20
-    const result = await handleReferences(makeParams(pluginFile, 6, 20), getProject);
+    const result = await handleReferences(makeParams(pluginFile, 6, 20), getProject, noDocText);
     expect(result).not.toBeNull();
     // Should include the target method (save on FooInterface) and the di.xml declaration
     expect(result!).toHaveLength(2);
@@ -131,7 +133,7 @@ describe('handleReferences', () => {
       'vendor/test/module-foo/Model/Foo.php',
     );
     // Line 11 (0-based): "    public function delete(): void {}" — "delete" starts at col 20
-    const result = await handleReferences(makeParams(phpFile, 11, 20), getProject);
+    const result = await handleReferences(makeParams(phpFile, 11, 20), getProject, noDocText);
     expect(result).toBeNull();
   });
 });

@@ -41,18 +41,20 @@ import * as fs from 'fs';
 export async function handleReferences(
   params: ReferenceParams,
   getProject: (uri: string) => ProjectContext | undefined,
+  getDocumentText: (uri: string) => string | undefined,
   token?: CancellationToken,
 ): Promise<Location[] | null> {
+  if (token?.isCancellationRequested) return null;
   const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
   const project = getProject(filePath);
   if (!project) return null;
 
   if (filePath.endsWith('.xml')) {
-    return handleXmlReferences(filePath, params, project);
+    return handleXmlReferences(filePath, params, project, token);
   }
 
   if (filePath.endsWith('.php')) {
-    return handlePhpReferences(filePath, params, project, token);
+    return handlePhpReferences(filePath, params, project, getDocumentText, token);
   }
 
   if (filePath.endsWith('.phtml')) {
@@ -70,17 +72,18 @@ async function handleXmlReferences(
   filePath: string,
   params: ReferenceParams,
   project: ProjectContext,
+  token?: CancellationToken,
 ): Promise<Location[] | null> {
   const { line, character } = params.position;
 
   // --- Try layout XML ---
-  const layoutRef = project.layoutIndex.getReferenceAtPosition(filePath, line, character);
+  const layoutRef = project.indexes.layout.getReferenceAtPosition(filePath, line, character);
   if (layoutRef) {
     if (layoutRef.kind === 'block-template' || layoutRef.kind === 'refblock-template') {
       // Template identifier -> find all layout files using this template,
       // scoped by area (a template in frontend only shows frontend + base refs)
       const templateId = layoutRef.resolvedTemplateId ?? layoutRef.value;
-      const allTemplateRefs = project.layoutIndex.getReferencesForTemplate(templateId);
+      const allTemplateRefs = project.indexes.layout.getReferencesForTemplate(templateId);
       const sourceArea = project.themeResolver.getAreaForFile(filePath);
       const filteredTemplateRefs = allTemplateRefs.filter((ref) =>
         isAreaCompatible(sourceArea, project.themeResolver.getAreaForFile(ref.file)),
@@ -93,7 +96,7 @@ async function handleXmlReferences(
       layoutRef.kind === 'block-name' || layoutRef.kind === 'container-name'
       || layoutRef.kind === 'reference-block' || layoutRef.kind === 'reference-container'
     ) {
-      const allRefs = project.layoutIndex.getRefsForName(layoutRef.value);
+      const allRefs = project.indexes.layout.getRefsForName(layoutRef.value);
       const sourceArea = project.themeResolver.getAreaForFile(filePath);
       const filtered = allRefs.filter((ref) =>
         isAreaCompatible(sourceArea, project.themeResolver.getAreaForFile(ref.file)),
@@ -101,135 +104,135 @@ async function handleXmlReferences(
       return refsToLocations(filtered);
     }
     // block-class or argument-object -> find all layout + di.xml refs for this FQCN
-    const layoutRefs = project.layoutIndex.getReferencesForFqcn(layoutRef.value);
-    const diRefs = project.index.getReferencesForFqcn(layoutRef.value);
+    const layoutRefs = project.indexes.layout.getReferencesForFqcn(layoutRef.value);
+    const diRefs = project.indexes.di.getReferencesForFqcn(layoutRef.value);
     return refsToLocations([...layoutRefs, ...diRefs]);
   }
 
   // --- Try system.xml ---
-  const sysRef = project.systemConfigIndex.getReferenceAtPosition(filePath, line, character);
+  const sysRef = project.indexes.systemConfig.getReferenceAtPosition(filePath, line, character);
   if (sysRef) {
     if (sysRef.fqcn) {
       // source/backend/frontend model -> all refs for that FQCN (system.xml + di.xml)
-      const sysRefs = project.systemConfigIndex.getRefsForFqcn(sysRef.fqcn);
-      const diRefs = project.index.getReferencesForFqcn(sysRef.fqcn);
+      const sysRefs = project.indexes.systemConfig.getRefsForFqcn(sysRef.fqcn);
+      const diRefs = project.indexes.di.getReferencesForFqcn(sysRef.fqcn);
       return refsToLocations([...sysRefs, ...diRefs]);
     }
     // section-resource -> all system.xml + acl.xml refs for that ACL resource
     if (sysRef.kind === 'section-resource' && sysRef.aclResourceId) {
-      const sysRefs = project.systemConfigIndex.getRefsForAclResource(sysRef.aclResourceId);
-      const aclDefs = project.aclIndex.getAllResources(sysRef.aclResourceId);
+      const sysRefs = project.indexes.systemConfig.getRefsForAclResource(sysRef.aclResourceId);
+      const aclDefs = project.indexes.acl.getAllResources(sysRef.aclResourceId);
       return refsToLocations([...sysRefs, ...aclDefs]);
     }
     // section/group/field -> XML declarations + PHP usages of this config path
-    const pathRefs = project.systemConfigIndex.getRefsForPath(sysRef.configPath)
+    const pathRefs = project.indexes.systemConfig.getRefsForPath(sysRef.configPath)
       .filter((r) => r.kind === sysRef.kind);
-    const phpUsages = sysRef.kind === 'field-id'
+    const phpUsages = sysRef.kind === 'field-id' && !token?.isCancellationRequested
       ? await grepConfigPathInPhp(sysRef.configPath, project.root, project.psr4Map)
       : [];
     return refsToLocations([...pathRefs, ...phpUsages]);
   }
 
   // --- Try webapi.xml ---
-  const webapiRef = project.webapiIndex.getReferenceAtPosition(filePath, line, character);
+  const webapiRef = project.indexes.webapi.getReferenceAtPosition(filePath, line, character);
   if (webapiRef) {
     if (webapiRef.kind === 'service-class') {
-      const webapiRefs = project.webapiIndex.getRefsForFqcn(webapiRef.value);
-      const diRefs = project.index.getReferencesForFqcn(webapiRef.value);
+      const webapiRefs = project.indexes.webapi.getRefsForFqcn(webapiRef.value);
+      const diRefs = project.indexes.di.getReferencesForFqcn(webapiRef.value);
       return refsToLocations([...webapiRefs, ...diRefs]);
     }
     if (webapiRef.kind === 'service-method' && webapiRef.fqcn && webapiRef.methodName) {
-      return refsToLocations(project.webapiIndex.getRefsForMethod(webapiRef.fqcn, webapiRef.methodName));
+      return refsToLocations(project.indexes.webapi.getRefsForMethod(webapiRef.fqcn, webapiRef.methodName));
     }
     if (webapiRef.kind === 'resource-ref') {
       // Include both webapi.xml usages and the acl.xml definition(s)
-      const webapiRefs = project.webapiIndex.getRefsForResource(webapiRef.value);
-      const aclDefs = project.aclIndex.getAllResources(webapiRef.value);
+      const webapiRefs = project.indexes.webapi.getRefsForResource(webapiRef.value);
+      const aclDefs = project.indexes.acl.getAllResources(webapiRef.value);
       return refsToLocations([...webapiRefs, ...aclDefs]);
     }
   }
 
   // --- Try acl.xml ---
-  const aclResource = project.aclIndex.getResourceAtPosition(filePath, line, character);
+  const aclResource = project.indexes.acl.getResourceAtPosition(filePath, line, character);
   if (aclResource) {
     // From an acl.xml resource definition, find all references across XML types and PHP files
-    const webapiRefs = project.webapiIndex.getRefsForResource(aclResource.id);
-    const systemRefs = project.systemConfigIndex.getRefsForAclResource(aclResource.id);
-    const menuRefs = project.menuIndex.getRefsForResource(aclResource.id);
-    const uiRefs = project.uiComponentAclIndex.getRefsForResource(aclResource.id);
-    const phpUsages = await grepAclResourceInPhp(aclResource.id, project.root, project.psr4Map);
+    const webapiRefs = project.indexes.webapi.getRefsForResource(aclResource.id);
+    const systemRefs = project.indexes.systemConfig.getRefsForAclResource(aclResource.id);
+    const menuRefs = project.indexes.menu.getRefsForResource(aclResource.id);
+    const uiRefs = project.indexes.uiComponentAcl.getRefsForResource(aclResource.id);
+    const phpUsages = token?.isCancellationRequested ? [] : await grepAclResourceInPhp(aclResource.id, project.root, project.psr4Map);
     return refsToLocations([...webapiRefs, ...systemRefs, ...menuRefs, ...uiRefs, ...phpUsages]);
   }
 
   // --- Try menu.xml ---
-  const menuRef = project.menuIndex.getReferenceAtPosition(filePath, line, character);
+  const menuRef = project.indexes.menu.getReferenceAtPosition(filePath, line, character);
   if (menuRef) {
-    const menuRefs = project.menuIndex.getRefsForResource(menuRef.value);
-    const aclDefs = project.aclIndex.getAllResources(menuRef.value);
+    const menuRefs = project.indexes.menu.getRefsForResource(menuRef.value);
+    const aclDefs = project.indexes.acl.getAllResources(menuRef.value);
     return refsToLocations([...menuRefs, ...aclDefs]);
   }
 
   // --- Try UI component aclResource ---
-  const uiAclRef = project.uiComponentAclIndex.getReferenceAtPosition(filePath, line, character);
+  const uiAclRef = project.indexes.uiComponentAcl.getReferenceAtPosition(filePath, line, character);
   if (uiAclRef) {
-    const uiRefs = project.uiComponentAclIndex.getRefsForResource(uiAclRef.value);
-    const aclDefs = project.aclIndex.getAllResources(uiAclRef.value);
+    const uiRefs = project.indexes.uiComponentAcl.getRefsForResource(uiAclRef.value);
+    const aclDefs = project.indexes.acl.getAllResources(uiAclRef.value);
     return refsToLocations([...uiRefs, ...aclDefs]);
   }
 
   // --- Try db_schema.xml ---
-  const dbSchemaRef = project.dbSchemaIndex.getReferenceAtPosition(filePath, line, character);
+  const dbSchemaRef = project.indexes.dbSchema.getReferenceAtPosition(filePath, line, character);
   if (dbSchemaRef) {
     if (dbSchemaRef.kind === 'table-name' || dbSchemaRef.kind === 'fk-ref-table') {
       // Show all refs for this table across all modules
       const tableName = dbSchemaRef.value;
-      return refsToLocations(project.dbSchemaIndex.getRefsForTable(tableName));
+      return refsToLocations(project.indexes.dbSchema.getRefsForTable(tableName));
     }
     if (dbSchemaRef.kind === 'column-name') {
       // Show all column-name refs with same name on same table across modules
-      const cols = project.dbSchemaIndex.getColumnsForTable(dbSchemaRef.tableName)
+      const cols = project.indexes.dbSchema.getColumnsForTable(dbSchemaRef.tableName)
         .filter((r) => r.value === dbSchemaRef.value);
       return refsToLocations(cols);
     }
     if (dbSchemaRef.kind === 'fk-ref-column') {
       // Show all refs for the referenced table
       const tableName = dbSchemaRef.fkRefTable ?? dbSchemaRef.tableName;
-      return refsToLocations(project.dbSchemaIndex.getRefsForTable(tableName));
+      return refsToLocations(project.indexes.dbSchema.getRefsForTable(tableName));
     }
     return null;
   }
 
   // --- Try routes.xml ---
-  const routesRef = project.routesIndex.getReferenceAtPosition(filePath, line, character);
+  const routesRef = project.indexes.routes.getReferenceAtPosition(filePath, line, character);
   if (routesRef) {
     if (routesRef.kind === 'route-module') {
       // Show all declarations for the route this module is part of
-      return refsToLocations(project.routesIndex.getRefsForRouteId(routesRef.routeId));
+      return refsToLocations(project.indexes.routes.getRefsForRouteId(routesRef.routeId));
     } else {
       // route-frontname or route-id: show same-kind refs from OTHER files only,
       // since same-file refs are already visible and clients filter same-line results
-      const allRefs = project.routesIndex.getRefsForRouteId(routesRef.routeId);
+      const allRefs = project.indexes.routes.getRefsForRouteId(routesRef.routeId);
       const otherFileRefs = allRefs.filter((r) => r.file !== filePath);
       return refsToLocations(otherFileRefs);
     }
   }
 
   // --- Try events.xml ---
-  const eventsRef = project.eventsIndex.getReferenceAtPosition(filePath, line, character);
+  const eventsRef = project.indexes.events.getReferenceAtPosition(filePath, line, character);
   if (eventsRef) {
     if (isObserverReference(eventsRef)) {
-      const observers = project.eventsIndex.getObserversForFqcn(eventsRef.fqcn);
+      const observers = project.indexes.events.getObserversForFqcn(eventsRef.fqcn);
       return refsToLocations(observers);
     } else {
-      const observers = project.eventsIndex.getObserversForEvent(eventsRef.eventName);
+      const observers = project.indexes.events.getObserversForEvent(eventsRef.eventName);
       return refsToLocations(observers);
     }
   }
 
   // --- Try di.xml ---
-  const ref = project.index.getReferenceAtPosition(filePath, line, character);
+  const ref = project.indexes.di.getReferenceAtPosition(filePath, line, character);
   if (!ref) return null;
-  return refsToLocations(project.index.getReferencesForFqcn(ref.fqcn));
+  return refsToLocations(project.indexes.di.getReferencesForFqcn(ref.fqcn));
 }
 
 /**
@@ -243,14 +246,11 @@ async function handlePhpReferences(
   filePath: string,
   params: ReferenceParams,
   project: ProjectContext,
+  getDocumentText: (uri: string) => string | undefined,
   token?: CancellationToken,
 ): Promise<Location[] | null> {
-  let content: string;
-  try {
-    content = fs.readFileSync(filePath, 'utf-8');
-  } catch {
-    return null;
-  }
+  const content = getDocumentText(params.textDocument.uri) ?? readFileSafe(filePath);
+  if (!content) return null;
 
   const classInfo = extractPhpClass(content);
   if (!classInfo) return null;
@@ -266,18 +266,18 @@ async function handlePhpReferences(
     // Include di.xml, events.xml, layout XML, system.xml, webapi.xml, and plugin method refs,
     // plus inherited di.xml/webapi refs from ancestor classes/interfaces.
     const allRefs: { file: string; line: number; column: number; endColumn: number }[] = [
-      ...project.index.getReferencesForFqcn(classInfo.fqcn),
-      ...project.eventsIndex.getObserversForFqcn(classInfo.fqcn),
-      ...project.layoutIndex.getReferencesForFqcn(classInfo.fqcn),
-      ...project.systemConfigIndex.getRefsForFqcn(classInfo.fqcn),
-      ...project.webapiIndex.getRefsForFqcn(classInfo.fqcn).filter((r) => r.kind === 'service-class'),
+      ...project.indexes.di.getReferencesForFqcn(classInfo.fqcn),
+      ...project.indexes.events.getObserversForFqcn(classInfo.fqcn),
+      ...project.indexes.layout.getReferencesForFqcn(classInfo.fqcn),
+      ...project.indexes.systemConfig.getRefsForFqcn(classInfo.fqcn),
+      ...project.indexes.webapi.getRefsForFqcn(classInfo.fqcn).filter((r) => r.kind === 'service-class'),
     ];
-    for (const ancestor of project.pluginMethodIndex.getAncestors(classInfo.fqcn)) {
-      allRefs.push(...project.index.getReferencesForFqcn(ancestor));
-      allRefs.push(...project.webapiIndex.getRefsForFqcn(ancestor).filter((r) => r.kind === 'service-class'));
+    for (const ancestor of project.indexes.pluginMethod.getAncestors(classInfo.fqcn)) {
+      allRefs.push(...project.indexes.di.getReferencesForFqcn(ancestor));
+      allRefs.push(...project.indexes.webapi.getRefsForFqcn(ancestor).filter((r) => r.kind === 'service-class'));
     }
     // Include plugin PHP method locations (before/after/around methods)
-    const interceptedMethods = project.pluginMethodIndex.getInterceptedMethods(classInfo.fqcn);
+    const interceptedMethods = project.indexes.pluginMethod.getInterceptedMethods(classInfo.fqcn);
     if (interceptedMethods) {
       const seen = new Set<string>();
       for (const interceptions of interceptedMethods.values()) {
@@ -308,7 +308,7 @@ async function handlePhpReferences(
     ) {
       // --- Case A: This is a plugin class and the method is a before/after/around method ---
       // Navigate to the intercepted method on the target class + the di.xml declaration.
-      const reverseEntry = project.pluginMethodIndex.getReverseEntry(
+      const reverseEntry = project.indexes.pluginMethod.getReverseEntry(
         classInfo.fqcn,
         method.name,
       );
@@ -365,7 +365,7 @@ async function handlePhpReferences(
 
       // --- Observer execute() method -> events.xml declarations ---
       if (method.name === 'execute') {
-        const observerRefs = project.eventsIndex.getObserversForFqcn(classInfo.fqcn);
+        const observerRefs = project.indexes.events.getObserversForFqcn(classInfo.fqcn);
         if (observerRefs.length > 0) {
           const locs = refsToLocations(observerRefs);
           if (locs) locations.push(...locs);
@@ -374,10 +374,10 @@ async function handlePhpReferences(
 
       // --- Service interface method -> webapi.xml routes ---
       const webapiMethodRefs: { file: string; line: number; column: number; endColumn: number }[] = [
-        ...project.webapiIndex.getRefsForMethod(classInfo.fqcn, method.name),
+        ...project.indexes.webapi.getRefsForMethod(classInfo.fqcn, method.name),
       ];
       for (const iface of classInfo.interfaces) {
-        webapiMethodRefs.push(...project.webapiIndex.getRefsForMethod(iface, method.name));
+        webapiMethodRefs.push(...project.indexes.webapi.getRefsForMethod(iface, method.name));
       }
       if (webapiMethodRefs.length > 0) {
         const locs = refsToLocations(webapiMethodRefs);
@@ -385,7 +385,7 @@ async function handlePhpReferences(
       }
 
       // --- Plugins: di.xml declarations + plugin PHP methods ---
-      const plugins = project.pluginMethodIndex.getPluginsForMethod(
+      const plugins = project.indexes.pluginMethod.getPluginsForMethod(
         classInfo.fqcn,
         method.name,
       );
@@ -433,11 +433,11 @@ async function handlePhpReferences(
   const lines = content.split('\n');
   const currentLine = lines[line];
   if (currentLine) {
-    const configRefs = await findPhpConfigPathRefs(currentLine, character, project);
+    const configRefs = await findPhpConfigPathRefs(currentLine, character, project, token);
     if (configRefs) return configRefs;
 
     // --- ACL resource detection: const ADMIN_RESOURCE = '...' or ->isAllowed('...') ---
-    const aclRefs = await findPhpAclRefs(currentLine, character, project);
+    const aclRefs = await findPhpAclRefs(currentLine, character, project, token);
     if (aclRefs) return aclRefs;
   }
 
@@ -452,6 +452,7 @@ async function findPhpConfigPathRefs(
   line: string,
   character: number,
   project: ProjectContext,
+  token?: CancellationToken,
 ): Promise<Location[] | null> {
   const re = createScopeConfigRegex();
   let match;
@@ -462,9 +463,9 @@ async function findPhpConfigPathRefs(
 
     // Use <= to give a slightly generous hit area (one char past the token)
     if (character >= pathStart && character <= pathEnd) {
-      const fieldRefs = project.systemConfigIndex.getRefsForPath(configPath)
+      const fieldRefs = project.indexes.systemConfig.getRefsForPath(configPath)
         .filter((r) => r.kind === 'field-id');
-      const phpUsages = await grepConfigPathInPhp(configPath, project.root, project.psr4Map);
+      const phpUsages = token?.isCancellationRequested ? [] : await grepConfigPathInPhp(configPath, project.root, project.psr4Map);
       return refsToLocations([...fieldRefs, ...phpUsages]);
     }
   }
@@ -484,6 +485,7 @@ async function findPhpAclRefs(
   line: string,
   character: number,
   project: ProjectContext,
+  token?: CancellationToken,
 ): Promise<Location[] | null> {
   const re = createPhpAclRegex();
   let match;
@@ -495,12 +497,12 @@ async function findPhpAclRefs(
     // Use <= to give a slightly generous hit area (one char past the token)
     if (character >= idStart && character <= idEnd) {
       // Collect references from all sources: acl.xml definitions + all XML indexes + PHP grep
-      const aclDefs = project.aclIndex.getAllResources(aclId);
-      const webapiRefs = project.webapiIndex.getRefsForResource(aclId);
-      const systemRefs = project.systemConfigIndex.getRefsForAclResource(aclId);
-      const menuRefs = project.menuIndex.getRefsForResource(aclId);
-      const uiRefs = project.uiComponentAclIndex.getRefsForResource(aclId);
-      const phpUsages = await grepAclResourceInPhp(aclId, project.root, project.psr4Map);
+      const aclDefs = project.indexes.acl.getAllResources(aclId);
+      const webapiRefs = project.indexes.webapi.getRefsForResource(aclId);
+      const systemRefs = project.indexes.systemConfig.getRefsForAclResource(aclId);
+      const menuRefs = project.indexes.menu.getRefsForResource(aclId);
+      const uiRefs = project.indexes.uiComponentAcl.getRefsForResource(aclId);
+      const phpUsages = token?.isCancellationRequested ? [] : await grepAclResourceInPhp(aclId, project.root, project.psr4Map);
       return refsToLocations([
         ...aclDefs, ...webapiRefs, ...systemRefs, ...menuRefs, ...uiRefs, ...phpUsages,
       ]);
@@ -537,7 +539,7 @@ function handlePhtmlReferences(
     filePath,
     project.modules,
     project.themeResolver,
-    project.compatModuleIndex,
+    project.indexes.compatModule,
   );
   if (!templateId) return null;
 
@@ -545,7 +547,7 @@ function handlePhtmlReferences(
 
   // 1. Layout XML files that use this template, scoped by area
   const area = project.themeResolver.getAreaForFile(filePath) ?? 'frontend';
-  const layoutRefs = project.layoutIndex.getReferencesForTemplate(templateId);
+  const layoutRefs = project.indexes.layout.getReferencesForTemplate(templateId);
   for (const r of layoutRefs) {
     if (!isAreaCompatible(area, project.themeResolver.getAreaForFile(r.file))) continue;
     locations.push(
@@ -569,7 +571,7 @@ function handlePhtmlReferences(
   }
 
   // 3. Hyvä compat module override files for this template
-  const compatOverrides = project.compatModuleIndex.findOverrides(templateId);
+  const compatOverrides = project.indexes.compatModule.findOverrides(templateId);
   for (const { filePath: overridePath } of compatOverrides) {
     if (overridePath === filePath) continue;
     locations.push(
@@ -592,7 +594,7 @@ function handlePhtmlReferences(
   }
 
   // 5. If the current file is a compat module override, include the original module template
-  const compatOriginal = project.compatModuleIndex.getOriginalModuleTemplate(filePath, project.modules);
+  const compatOriginal = project.indexes.compatModule.getOriginalModuleTemplate(filePath, project.modules);
   if (compatOriginal) {
     locations.push(
       Location.create(
@@ -614,4 +616,13 @@ function refsToLocations(refs: { file: string; line: number; column: number; end
       Range.create(r.line, r.column, r.line, r.endColumn),
     ),
   );
+}
+
+/** Safely read a file from disk, returning undefined on any error. */
+function readFileSafe(filePath: string): string | undefined {
+  try {
+    return fs.readFileSync(filePath, 'utf-8');
+  } catch {
+    return undefined;
+  }
 }

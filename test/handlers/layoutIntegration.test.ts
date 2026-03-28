@@ -19,6 +19,7 @@ describe('layout XML integration', () => {
   function getProject(): ProjectContext | undefined {
     return project;
   }
+  function noDocText(): undefined { return undefined; }
 
   const layoutFile = path.join(
     FIXTURE_ROOT,
@@ -28,7 +29,7 @@ describe('layout XML integration', () => {
   describe('definition from layout XML', () => {
     it('navigates from block class to PHP file', async () => {
       // Find the block-class reference
-      const ref = project.layoutIndex.getReferencesForFqcn('Test\\Foo\\Block\\FooList')[0];
+      const ref = project.indexes.layout.getReferencesForFqcn('Test\\Foo\\Block\\FooList')[0];
       expect(ref).toBeDefined();
 
       const result = handleDefinition(
@@ -36,7 +37,7 @@ describe('layout XML integration', () => {
           textDocument: { uri: URI.file(layoutFile).toString() },
           position: { line: ref.line, character: ref.column },
         },
-        getProject,
+        getProject, noDocText,
       );
       // FooList.php doesn't exist in fixtures, so definition returns null
       // But the handler tries and falls through correctly
@@ -44,7 +45,7 @@ describe('layout XML integration', () => {
     });
 
     it('navigates from template identifier to .phtml file', async () => {
-      const refs = project.layoutIndex.getReferencesForTemplate('Test_Foo::product/list.phtml');
+      const refs = project.indexes.layout.getReferencesForTemplate('Test_Foo::product/list.phtml');
       const ref = refs[0];
       expect(ref).toBeDefined();
 
@@ -53,7 +54,7 @@ describe('layout XML integration', () => {
           textDocument: { uri: URI.file(layoutFile).toString() },
           position: { line: ref.line, character: ref.column },
         },
-        getProject,
+        getProject, noDocText,
       );
       expect(result).not.toBeNull();
       const loc = result as { uri: string };
@@ -82,7 +83,7 @@ describe('layout XML integration', () => {
 
   describe('references from layout XML', () => {
     it('finds all layout refs for a template identifier', async () => {
-      const refs = project.layoutIndex.getReferencesForTemplate('Test_Foo::product/list.phtml');
+      const refs = project.indexes.layout.getReferencesForTemplate('Test_Foo::product/list.phtml');
       const ref = refs[0];
 
       const result = await handleReferences(
@@ -91,14 +92,14 @@ describe('layout XML integration', () => {
           position: { line: ref.line, character: ref.column },
           context: { includeDeclaration: true },
         },
-        getProject,
+        getProject, noDocText,
       );
       expect(result).not.toBeNull();
       expect(result!.length).toBeGreaterThanOrEqual(1);
     });
 
     it('finds all layout refs for a block class', async () => {
-      const ref = project.layoutIndex.getReferencesForFqcn('Test\\Foo\\Block\\FooList')[0];
+      const ref = project.indexes.layout.getReferencesForFqcn('Test\\Foo\\Block\\FooList')[0];
 
       const result = await handleReferences(
         {
@@ -106,7 +107,7 @@ describe('layout XML integration', () => {
           position: { line: ref.line, character: ref.column },
           context: { includeDeclaration: true },
         },
-        getProject,
+        getProject, noDocText,
       );
       expect(result).not.toBeNull();
       expect(result!.length).toBeGreaterThanOrEqual(1);
@@ -144,7 +145,7 @@ describe('layout XML integration', () => {
     it('shows "overridden in N themes" on a module template', async () => {
       const result = handleCodeLens(
         { textDocument: { uri: URI.file(moduleTemplate).toString() } },
-        getProject,
+        getProject, noDocText,
       );
       expect(result).not.toBeNull();
       // Both parent and child themes override this template, plus the compat module
@@ -156,7 +157,7 @@ describe('layout XML integration', () => {
     it('shows "overrides ..." on a theme override template', async () => {
       const result = handleCodeLens(
         { textDocument: { uri: URI.file(childThemeOverride).toString() } },
-        getProject,
+        getProject, noDocText,
       );
       expect(result).not.toBeNull();
       const titles = result!.map((l) => l.command?.title);
@@ -168,7 +169,7 @@ describe('layout XML integration', () => {
       // that a compat module overrides the same template
       const result = handleCodeLens(
         { textDocument: { uri: URI.file(childThemeOverride).toString() } },
-        getProject,
+        getProject, noDocText,
       );
       expect(result).not.toBeNull();
       const titles = result!.map((l) => l.command?.title);
@@ -183,7 +184,7 @@ describe('layout XML integration', () => {
       const diXml = path.join(FIXTURE_ROOT, 'vendor/test/module-foo/etc/di.xml');
       const result = handleCodeLens(
         { textDocument: { uri: URI.file(diXml).toString() } },
-        getProject,
+        getProject, noDocText,
       );
       expect(result).toBeNull();
     });
@@ -197,7 +198,7 @@ describe('layout XML integration', () => {
           position: { line: 0, character: 0 },
           context: { includeDeclaration: true },
         },
-        getProject,
+        getProject, noDocText,
       );
       expect(result).not.toBeNull();
       // Should include the layout XML file that references Test_Foo::product/list.phtml
@@ -212,7 +213,7 @@ describe('layout XML integration', () => {
           position: { line: 0, character: 0 },
           context: { includeDeclaration: true },
         },
-        getProject,
+        getProject, noDocText,
       );
       expect(result).not.toBeNull();
       const uris = result!.map((l) => URI.parse(l.uri).fsPath);
@@ -228,7 +229,7 @@ describe('layout XML integration', () => {
           position: { line: 0, character: 0 },
           context: { includeDeclaration: true },
         },
-        getProject,
+        getProject, noDocText,
       );
       expect(result).not.toBeNull();
       const uris = result!.map((l) => URI.parse(l.uri).fsPath);
@@ -247,7 +248,7 @@ describe('layout XML integration', () => {
           textDocument: { uri: URI.file(childThemeOverride).toString() },
           position: { line: 0, character: 0 },
         },
-        getProject,
+        getProject, noDocText,
       );
       expect(result).not.toBeNull();
       const loc = result as { uri: string };
@@ -263,7 +264,7 @@ describe('layout XML integration', () => {
           textDocument: { uri: URI.file(moduleTemplate).toString() },
           position: { line: 0, character: 0 },
         },
-        getProject,
+        getProject, noDocText,
       );
       // Module template IS the definition — nowhere to go
       expect(result).toBeNull();
@@ -289,7 +290,7 @@ describe('layout XML integration', () => {
     it('shows compat module override lens on a module template', async () => {
       const result = handleCodeLens(
         { textDocument: { uri: URI.file(moduleTemplate).toString() } },
-        getProject,
+        getProject, noDocText,
       );
       expect(result).not.toBeNull();
       const titles = result!.map((l) => l.command?.title);
@@ -299,7 +300,7 @@ describe('layout XML integration', () => {
     it('shows "Hyvä compat override: ..." on a compat module override template', async () => {
       const result = handleCodeLens(
         { textDocument: { uri: URI.file(compatOverride).toString() } },
-        getProject,
+        getProject, noDocText,
       );
       expect(result).not.toBeNull();
       expect(result!).toHaveLength(1);
@@ -317,7 +318,7 @@ describe('layout XML integration', () => {
           position: { line: 0, character: 0 },
           context: { includeDeclaration: true },
         },
-        getProject,
+        getProject, noDocText,
       );
       expect(result).not.toBeNull();
       const uris = result!.map((l) => URI.parse(l.uri).fsPath);
@@ -331,7 +332,7 @@ describe('layout XML integration', () => {
           position: { line: 0, character: 0 },
           context: { includeDeclaration: true },
         },
-        getProject,
+        getProject, noDocText,
       );
       expect(result).not.toBeNull();
       const uris = result!.map((l) => URI.parse(l.uri).fsPath);
@@ -361,7 +362,7 @@ describe('layout XML integration', () => {
   describe('definition from <update handle="..."/>', () => {
     it('navigates to layout files matching the handle name', async () => {
       // Find the update-handle reference in the source file
-      const ref = project.layoutIndex.getReferenceAtPosition(
+      const ref = project.indexes.layout.getReferenceAtPosition(
         updateSourceFile,
         2, // line of <update handle="test_foo_index"/>
         20, // character within the handle value
@@ -375,7 +376,7 @@ describe('layout XML integration', () => {
           textDocument: { uri: URI.file(updateSourceFile).toString() },
           position: { line: ref!.line, character: ref!.column },
         },
-        getProject,
+        getProject, noDocText,
       );
       expect(result).not.toBeNull();
       // Should be an array of locations (module file + hyva variant + theme override)
@@ -391,7 +392,7 @@ describe('layout XML integration', () => {
     });
 
     it('includes theme override files in results', async () => {
-      const ref = project.layoutIndex.getReferenceAtPosition(
+      const ref = project.indexes.layout.getReferenceAtPosition(
         updateSourceFile,
         2,
         20,
@@ -403,7 +404,7 @@ describe('layout XML integration', () => {
           textDocument: { uri: URI.file(updateSourceFile).toString() },
           position: { line: ref!.line, character: ref!.column },
         },
-        getProject,
+        getProject, noDocText,
       );
       const locations = result as { uri: string; range: unknown }[];
       const paths = locations.map((l) => URI.parse(l.uri).fsPath);
@@ -441,14 +442,14 @@ describe('layout XML integration', () => {
 
   describe('vendor theme with hyphenated name', () => {
     it('indexes layout files from vendor theme with hyphenated name', () => {
-      const refs = project.layoutIndex.getRefsForFile(vendorThemeLayoutFile);
+      const refs = project.indexes.layout.getRefsForFile(vendorThemeLayoutFile);
       expect(refs.length).toBeGreaterThan(0);
     });
 
     it('navigates from block class in vendor theme layout to definition', () => {
       // Line 3 (0-based): <block class="Test\Foo\Block\FooList" .../>
       // class=" starts at col 15, value at col 22
-      const ref = project.layoutIndex.getReferenceAtPosition(
+      const ref = project.indexes.layout.getReferenceAtPosition(
         vendorThemeLayoutFile,
         3, // line of <block class="Test\Foo\Block\FooList" .../>
         25, // character within the class value
@@ -459,7 +460,7 @@ describe('layout XML integration', () => {
     });
 
     it('includes vendor theme layout refs in references for block class', async () => {
-      const refs = project.layoutIndex.getReferencesForFqcn('Test\\Foo\\Block\\FooList');
+      const refs = project.indexes.layout.getReferencesForFqcn('Test\\Foo\\Block\\FooList');
       const files = refs.map((r) => r.file);
       expect(files.some((f) => f.includes('theme-hyphen'))).toBe(true);
     });
@@ -472,7 +473,7 @@ describe('layout XML integration', () => {
           textDocument: { uri: URI.file(compatOverride).toString() },
           position: { line: 0, character: 0 },
         },
-        getProject,
+        getProject, noDocText,
       );
       expect(result).not.toBeNull();
       const loc = result as { uri: string };

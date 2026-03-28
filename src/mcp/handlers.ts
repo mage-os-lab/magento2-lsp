@@ -114,10 +114,10 @@ function validateParams(
 
 function buildDiSummary(project: ProjectContext, fqcn: string, area: string) {
   const root = project.root;
-  const refs = project.index.getReferencesForFqcn(fqcn);
+  const refs = project.indexes.di.getReferencesForFqcn(fqcn);
 
   // Effective preference
-  const effectivePref = project.index.getEffectivePreferenceType(fqcn, area);
+  const effectivePref = project.indexes.di.getEffectivePreferenceType(fqcn, area);
   const preference = effectivePref
     ? {
         implementation: effectivePref.fqcn,
@@ -147,7 +147,7 @@ function buildDiSummary(project: ProjectContext, fqcn: string, area: string) {
     }));
 
   // Layout XML references
-  const layoutRefs = project.layoutIndex.getReferencesForFqcn(fqcn);
+  const layoutRefs = project.indexes.layout.getReferencesForFqcn(fqcn);
   const layoutReferences = layoutRefs.map((r) => ({
     kind: r.kind,
     file: relPath(r.file, root),
@@ -174,7 +174,7 @@ export async function handleGetDiConfig(
     buildDiSummary(project, fqcn, area);
 
   // Plugins summary from the plugin method index (grouped by plugin class)
-  const interceptedMethods = project.pluginMethodIndex.getInterceptedMethods(fqcn);
+  const interceptedMethods = project.indexes.pluginMethod.getInterceptedMethods(fqcn);
   const plugins: {
     pluginClass: string;
     methods: string[];
@@ -215,9 +215,9 @@ export async function handleGetDiConfig(
 
   // Enrich virtual types with effective parent type info
   const virtualTypes = baseVirtualTypes.map((vt) => {
-    const vtDecls = project.index.getAllVirtualTypeDecls(vt.name);
+    const vtDecls = project.indexes.di.getAllVirtualTypeDecls(vt.name);
     const effectiveVt = vtDecls.length > 0
-      ? project.index.getEffectiveVirtualType(vtDecls[0].name)
+      ? project.indexes.di.getEffectiveVirtualType(vtDecls[0].name)
       : undefined;
     return {
       ...vt,
@@ -249,11 +249,11 @@ export async function handleGetPluginsForMethod(
   const fqcn = params.fqcn as string;
   const method = params.method as string;
   const root = project.root;
-  const interceptions = project.pluginMethodIndex.getPluginsForMethod(fqcn, method);
+  const interceptions = project.indexes.pluginMethod.getPluginsForMethod(fqcn, method);
 
   const plugins = interceptions.map((i) => {
     // Use the reverse index to find which target class the plugin was declared on
-    const reverseEntry = project.pluginMethodIndex.getReverseEntry(
+    const reverseEntry = project.indexes.pluginMethod.getReverseEntry(
       i.pluginFqcn,
       i.pluginMethodName,
     );
@@ -293,7 +293,7 @@ export async function handleGetEventObservers(
   }
 
   if (eventName) {
-    const observers = project.eventsIndex.getObserversForEvent(eventName);
+    const observers = project.indexes.events.getObserversForEvent(eventName);
     return {
       eventName,
       observers: observers.map((o) => ({
@@ -307,7 +307,7 @@ export async function handleGetEventObservers(
   }
 
   // Query by observer class
-  const registrations = project.eventsIndex.getObserversForFqcn(observerClass!);
+  const registrations = project.indexes.events.getObserversForFqcn(observerClass!);
   return {
     observerClass,
     events: registrations.map((o) => ({
@@ -347,7 +347,7 @@ export async function handleGetTemplateOverrides(
   }));
 
   // Layout XML files using this template
-  const layoutRefs = project.layoutIndex.getReferencesForTemplate(templateId);
+  const layoutRefs = project.indexes.layout.getReferencesForTemplate(templateId);
   const layoutUsages = layoutRefs.map((r) => ({
     kind: r.kind,
     file: relPath(r.file, root),
@@ -383,7 +383,7 @@ export async function handleGetClassContext(
     buildDiSummary(project, fqcn, 'global');
 
   // All plugin interceptions, grouped by method
-  const interceptedMethods = project.pluginMethodIndex.getInterceptedMethods(fqcn);
+  const interceptedMethods = project.indexes.pluginMethod.getInterceptedMethods(fqcn);
   const pluginsByMethod: Record<string, {
     prefix: string;
     pluginClass: string;
@@ -397,7 +397,7 @@ export async function handleGetClassContext(
   if (interceptedMethods) {
     for (const [methodName, interceptions] of interceptedMethods) {
       pluginsByMethod[methodName] = interceptions.map((i) => {
-        const reverseEntry = project.pluginMethodIndex.getReverseEntry(
+        const reverseEntry = project.indexes.pluginMethod.getReverseEntry(
           i.pluginFqcn,
           i.pluginMethodName,
         );
@@ -416,7 +416,7 @@ export async function handleGetClassContext(
   }
 
   // Event observer registrations (if this class is an observer)
-  const observerRegistrations = project.eventsIndex.getObserversForFqcn(fqcn);
+  const observerRegistrations = project.indexes.events.getObserversForFqcn(fqcn);
   const events = observerRegistrations.map((o) => ({
     eventName: o.eventName,
     observerName: o.observerName,
@@ -426,10 +426,10 @@ export async function handleGetClassContext(
   }));
 
   // Is this class used as a plugin? If so, find the target class(es) it intercepts.
-  const isPlugin = project.pluginMethodIndex.isPluginClass(fqcn);
+  const isPlugin = project.indexes.pluginMethod.isPluginClass(fqcn);
   const pluginTargets = isPlugin
     ? [...new Set(
-        project.pluginMethodIndex.getAllReverseEntries(fqcn).map((e) => e.targetFqcn),
+        project.indexes.pluginMethod.getAllReverseEntries(fqcn).map((e) => e.targetFqcn),
       )]
     : [];
 
@@ -474,7 +474,7 @@ export async function handleGetModuleOverview(
   }
 
   // DI declarations from this module
-  const diRefs = project.index.getReferencesByModule(mod.name);
+  const diRefs = project.indexes.di.getReferencesByModule(mod.name);
 
   const preferences: { interface: string; implementation: string; area: string; file: string }[] = [];
   const plugins: { targetClass: string; pluginClass: string; area: string; file: string }[] = [];
@@ -510,7 +510,7 @@ export async function handleGetModuleOverview(
   }
 
   // Event observers declared by this module
-  const moduleObservers = project.eventsIndex.getObserversByModule(mod.name);
+  const moduleObservers = project.indexes.events.getObserversByModule(mod.name);
   const observers = moduleObservers.map((o) => ({
     eventName: o.eventName,
     observerName: o.observerName,
@@ -520,7 +520,7 @@ export async function handleGetModuleOverview(
   }));
 
   // Routes declared by this module (from routes.xml)
-  const routeModuleRefs = project.routesIndex.getRefsByModule(mod.name);
+  const routeModuleRefs = project.indexes.routes.getRefsByModule(mod.name);
   const routes = routeModuleRefs.map((r) => ({
     routeId: r.routeId,
     frontName: r.frontName,
@@ -529,7 +529,7 @@ export async function handleGetModuleOverview(
   }));
 
   // REST API endpoints declared by this module (from webapi.xml)
-  const webapiRefs = project.webapiIndex.getRefsByModule(mod.name);
+  const webapiRefs = project.indexes.webapi.getRefsByModule(mod.name);
   const webapiEndpoints = webapiRefs
     .filter((r) => r.kind === 'service-method')
     .map((r) => ({
@@ -540,13 +540,13 @@ export async function handleGetModuleOverview(
     }));
 
   // Database tables declared by this module (from db_schema.xml)
-  const dbRefs = project.dbSchemaIndex.getRefsByModule(mod.name);
+  const dbRefs = project.indexes.dbSchema.getRefsByModule(mod.name);
   const dbTables = [...new Set(
     dbRefs.filter((r) => r.kind === 'table-name').map((r) => r.value),
   )];
 
   // ACL resources declared by this module (from acl.xml)
-  const aclResources = project.aclIndex.getResourcesByModule(mod.name).map((r) => ({
+  const aclResources = project.indexes.acl.getResourcesByModule(mod.name).map((r) => ({
     id: r.id,
     title: r.title || null,
   }));
@@ -643,10 +643,10 @@ export async function handleRescanProject(
   return {
     projectRoot,
     moduleCount: project.modules.length,
-    diXmlFiles: project.index.getFileCount(),
-    eventsXmlFiles: project.eventsIndex.getFileCount(),
-    layoutXmlFiles: project.layoutIndex.getFileCount(),
-    routesXmlFiles: project.routesIndex.getFileCount(),
+    diXmlFiles: project.indexes.di.getFileCount(),
+    eventsXmlFiles: project.indexes.events.getFileCount(),
+    layoutXmlFiles: project.indexes.layout.getFileCount(),
+    routesXmlFiles: project.indexes.routes.getFileCount(),
     themes: project.themeResolver.getAllThemes().length,
   };
 }
@@ -670,7 +670,7 @@ export async function handleGetDbSchema(
   const tableName = params.tableName as string;
   const root = project.root;
 
-  const allRefs = project.dbSchemaIndex.getRefsForTable(tableName);
+  const allRefs = project.indexes.dbSchema.getRefsForTable(tableName);
   if (allRefs.length === 0) {
     return { tableName, error: `Table '${tableName}' not found in any db_schema.xml.` };
   }
@@ -767,10 +767,10 @@ export async function handleSearchSymbols(
 
   // DI-configured FQCNs
   const classes: SymbolResult[] = [];
-  for (const fqcn of project.index.getAllFqcns()) {
+  for (const fqcn of project.indexes.di.getAllFqcns()) {
     if (classes.length >= MAX_PER_CATEGORY) break;
     if (!fqcn.toLowerCase().includes(query)) continue;
-    const refs = project.index.getReferencesForFqcn(fqcn);
+    const refs = project.indexes.di.getReferencesForFqcn(fqcn);
     if (refs.length > 0) {
       const resolved = resolveClassFile(fqcn, project.psr4Map);
       classes.push({
@@ -784,10 +784,10 @@ export async function handleSearchSymbols(
 
   // Virtual types
   const virtualTypes: SymbolResult[] = [];
-  for (const name of project.index.getAllVirtualTypeNames()) {
+  for (const name of project.indexes.di.getAllVirtualTypeNames()) {
     if (virtualTypes.length >= MAX_PER_CATEGORY) break;
     if (!name.toLowerCase().includes(query)) continue;
-    const decls = project.index.getAllVirtualTypeDecls(name);
+    const decls = project.indexes.di.getAllVirtualTypeDecls(name);
     if (decls.length > 0) {
       virtualTypes.push({ name, kind: 'virtualType', file: relPath(decls[0].file, root) });
     }
@@ -795,10 +795,10 @@ export async function handleSearchSymbols(
 
   // Event names
   const events: SymbolResult[] = [];
-  for (const eventName of project.eventsIndex.getAllEventNames()) {
+  for (const eventName of project.indexes.events.getAllEventNames()) {
     if (events.length >= MAX_PER_CATEGORY) break;
     if (!eventName.toLowerCase().includes(query)) continue;
-    const refs = project.eventsIndex.getEventNameRefs(eventName);
+    const refs = project.indexes.events.getEventNameRefs(eventName);
     if (refs.length > 0) {
       events.push({ name: eventName, kind: 'event', file: relPath(refs[0].file, root) });
     }
@@ -806,10 +806,10 @@ export async function handleSearchSymbols(
 
   // Database table names
   const tables: SymbolResult[] = [];
-  for (const tableName of project.dbSchemaIndex.getAllTableNames()) {
+  for (const tableName of project.indexes.dbSchema.getAllTableNames()) {
     if (tables.length >= MAX_PER_CATEGORY) break;
     if (!tableName.toLowerCase().includes(query)) continue;
-    const defs = project.dbSchemaIndex.getTableDefs(tableName);
+    const defs = project.indexes.dbSchema.getTableDefs(tableName);
     if (defs.length > 0) {
       tables.push({ name: tableName, kind: 'table', file: relPath(defs[0].file, root) });
     }
@@ -817,10 +817,10 @@ export async function handleSearchSymbols(
 
   // System config paths (e.g., "payment/account/active")
   const configPaths: SymbolResult[] = [];
-  for (const configPath of project.systemConfigIndex.getAllConfigPaths()) {
+  for (const configPath of project.indexes.systemConfig.getAllConfigPaths()) {
     if (configPaths.length >= MAX_PER_CATEGORY) break;
     if (!configPath.toLowerCase().includes(query)) continue;
-    const refs = project.systemConfigIndex.getRefsForPath(configPath);
+    const refs = project.indexes.systemConfig.getRefsForPath(configPath);
     if (refs.length > 0) {
       configPaths.push({ name: configPath, kind: 'configPath', file: relPath(refs[0].file, root) });
     }
@@ -828,10 +828,10 @@ export async function handleSearchSymbols(
 
   // ACL resource IDs (e.g., "Magento_Catalog::catalog")
   const aclResources: SymbolResult[] = [];
-  for (const resourceId of project.aclIndex.getAllResourceIds()) {
+  for (const resourceId of project.indexes.acl.getAllResourceIds()) {
     if (aclResources.length >= MAX_PER_CATEGORY) break;
     if (!resourceId.toLowerCase().includes(query)) continue;
-    const resource = project.aclIndex.getResource(resourceId);
+    const resource = project.indexes.acl.getResource(resourceId);
     if (resource) {
       aclResources.push({ name: resourceId, kind: 'aclResource', file: relPath(resource.file, root) });
     }
@@ -839,10 +839,10 @@ export async function handleSearchSymbols(
 
   // Route frontNames (e.g., "catalog", "customer", "checkout")
   const routes: SymbolResult[] = [];
-  for (const frontName of project.routesIndex.getAllFrontNames()) {
+  for (const frontName of project.indexes.routes.getAllFrontNames()) {
     if (routes.length >= MAX_PER_CATEGORY) break;
     if (!frontName.toLowerCase().includes(query)) continue;
-    const refs = project.routesIndex.getRefsForFrontName(frontName);
+    const refs = project.indexes.routes.getRefsForFrontName(frontName);
     if (refs.length > 0) {
       routes.push({ name: frontName, kind: 'route', file: relPath(refs[0].file, root) });
     }
@@ -871,11 +871,11 @@ export async function handleGetClassHierarchy(
   const root = project.root;
 
   // Ensure the class is scanned (it may not have been referenced in di.xml)
-  project.pluginMethodIndex.ensureScanned(fqcn, project.psr4Map);
+  await project.indexes.pluginMethod.ensureScanned(fqcn, project.psr4Map);
 
-  const parentClass = project.pluginMethodIndex.getParent(fqcn) ?? null;
-  const interfaces = project.pluginMethodIndex.getInterfaces(fqcn);
-  const ancestors = project.pluginMethodIndex.getAncestors(fqcn);
+  const parentClass = project.indexes.pluginMethod.getParent(fqcn) ?? null;
+  const interfaces = project.indexes.pluginMethod.getInterfaces(fqcn);
+  const ancestors = project.indexes.pluginMethod.getAncestors(fqcn);
 
   const classFile = resolveClassFile(fqcn, project.psr4Map);
   const mod = classFile ? findModuleForFile(classFile, project.modules) : undefined;
