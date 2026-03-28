@@ -132,7 +132,10 @@ export class IndexCache {
   load(): boolean {
     try {
       const raw = fs.readFileSync(this.cachePath, 'utf-8');
-      const parsed = JSON.parse(raw) as CacheFile;
+      const parsed = JSON.parse(raw, (key, value) => {
+        if (key === '__proto__' || key === 'constructor') return undefined;
+        return value;
+      }) as CacheFile;
       if (parsed.version !== CACHE_VERSION) {
         this.data = createEmptyData();
         return false;

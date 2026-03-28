@@ -51,7 +51,7 @@ export async function grepConfigPathInPhp(
     new Promise<void>((resolve) => {
       execFile(
         'grep',
-        ['-rn', '--include=*.php', '-F', configPath, dir],
+        ['-rn', '--include=*.php', '-F', '-e', configPath, '--', dir],
         { encoding: 'utf-8', timeout: 5000, maxBuffer: 1024 * 1024 },
         (err, stdout) => {
           if (stdout) {
@@ -111,10 +111,11 @@ export async function grepConfigPathsInPhp(
   // Process in chunks of `concurrency` paths per grep call
   for (let i = 0; i < configPaths.length; i += concurrency) {
     const batch = configPaths.slice(i, i + concurrency);
-    const args = ['-rn', '--include=*.php', '-F'];
+    const args: string[] = ['-rn', '--include=*.php', '-F'];
     for (const p of batch) {
       args.push('-e', p);
     }
+    args.push('--');
 
     const dirPromises = dirs.map((dir) =>
       new Promise<void>((resolve) => {

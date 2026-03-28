@@ -15,6 +15,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import * as os from 'os';
 import { Diagnostic, DiagnosticSeverity, Range } from 'vscode-languageserver';
 import { ModuleInfo } from '../indexer/types';
@@ -108,7 +109,7 @@ export async function validateXmlFile(
   let catalogPath = catalogCache.get(catalogKey);
   if (!catalogPath || !fileExists(catalogPath)) {
     const catalogContent = generateXsdCatalog(xsdPath, magentoRoot, modules);
-    catalogPath = path.join(os.tmpdir(), `magento2-lsp-catalog-${hashString(catalogKey)}.xml`);
+    catalogPath = path.join(os.tmpdir(), `magento2-lsp-catalog-${crypto.randomUUID()}.xml`);
     fs.writeFileSync(catalogPath, catalogContent, 'utf-8');
     catalogCache.set(catalogKey, catalogPath);
   }
@@ -119,13 +120,13 @@ export async function validateXmlFile(
   try {
     const diskContent = await fs.promises.readFile(xmlFilePath, 'utf-8');
     if (diskContent !== xmlContent) {
-      tempFile = path.join(os.tmpdir(), `magento2-lsp-validate-${hashString(xmlFilePath)}-${path.basename(xmlFilePath)}`);
+      tempFile = path.join(os.tmpdir(), `magento2-lsp-validate-${crypto.randomUUID()}-${path.basename(xmlFilePath)}`);
       fs.writeFileSync(tempFile, xmlContent, 'utf-8');
       fileToValidate = tempFile;
     }
   } catch {
     // File doesn't exist on disk yet — write content to temp
-    tempFile = path.join(os.tmpdir(), `magento2-lsp-validate-${hashString(xmlFilePath)}-${path.basename(xmlFilePath)}`);
+    tempFile = path.join(os.tmpdir(), `magento2-lsp-validate-${crypto.randomUUID()}-${path.basename(xmlFilePath)}`);
     fs.writeFileSync(tempFile, xmlContent, 'utf-8');
     fileToValidate = tempFile;
   }
@@ -159,15 +160,6 @@ export async function validateXmlFile(
       try { fs.unlinkSync(tempFile); } catch { /* ignore */ }
     }
   }
-}
-
-/** Simple string hash for creating deterministic temp file names. */
-function hashString(s: string): string {
-  let hash = 0;
-  for (let i = 0; i < s.length; i++) {
-    hash = ((hash << 5) - hash + s.charCodeAt(i)) | 0;
-  }
-  return Math.abs(hash).toString(36);
 }
 
 let xmllintAvailable: boolean | undefined;

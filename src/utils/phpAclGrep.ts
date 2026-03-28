@@ -61,7 +61,7 @@ export async function grepAclResourceInPhp(
     new Promise<void>((resolve) => {
       execFile(
         'grep',
-        ['-rn', '--include=*.php', '-F', resourceId, dir],
+        ['-rn', '--include=*.php', '-F', '-e', resourceId, '--', dir],
         { encoding: 'utf-8', timeout: 5000, maxBuffer: 1024 * 1024 },
         (err, stdout) => {
           if (stdout) {
