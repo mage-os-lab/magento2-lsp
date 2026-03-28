@@ -252,3 +252,20 @@ Rename updates references inside XML config files and string literals in PHP (e.
 - **Rename ACL resource ID** from `acl.xml`, `webapi.xml`, `menu.xml`, `system.xml`, or UI component XML: renames across all `acl.xml` definitions, `webapi.xml` resource refs, `menu.xml` resource attributes, `system.xml` section resources, UI component `<aclResource>` elements, and PHP `ADMIN_RESOURCE` constants / `isAllowed()` calls
 - **Rename config section, group, or field** from `system.xml`: the rename placeholder shows just the segment name (e.g., `redirect_dashboard`, not the full path). The `id` attribute in `system.xml` is updated, and PHP `scopeConfig->getValue()` / `isSetFlag()` calls are rewritten with the full new config path. Section and group renames cascade to all descendant PHP config path references. Field renames also update `<depends><field id="...">` references that depend on the renamed field.
 - **Rename block or container name** from any layout XML file: renames `<block name="X">` / `<container name="X">` declarations and all `<referenceBlock name="X">` / `<referenceContainer name="X">` usages across module and theme layout files, scoped by area - a rename in a frontend file only affects frontend + base files, adminhtml only affects adminhtml + base, and base affects all areas. Cursor on either a declaration or a reference triggers the same rename.
+
+## Inlay Hints / Code Lens Mode
+
+Display-only indicators (plugin counts, observer targets, webapi routes, template overrides, magic method resolution) can be delivered as **inlay hints** or **code lenses**.
+
+- **Code lenses** (default): shown as a separate line above the code. The traditional approach, supported by VS Code and Neovim.
+- **Inlay hints** (default for Zed): shown inline after the symbol (e.g., `function save() ·1 plugin·`). Used as the default for Zed because it does not support code lenses.
+
+The mode is configured via the `hintMode` setting:
+
+| Priority | Source | Example |
+|----------|--------|---------|
+| 1 | `initializationOptions.hintMode` | `"codeLens"` or `"inlayHint"` |
+| 2 | `MAGENTO_LSP_HINT_MODE` env var | `export MAGENTO_LSP_HINT_MODE=inlayHint` |
+| 3 | Editor-specific default | `"inlayHint"` for Zed, `"codeLens"` for all others |
+
+See the editor-specific setup docs for how to set `hintMode` in your editor.

@@ -37,8 +37,9 @@ By default the extension finds `magento2-lsp` on your `$PATH`. To use a custom p
 
 ## Settings
 
-Server settings are passed via `initializationOptions`. To configure them, the VS Code extension would need to forward settings — this is not yet wired in the extension. In the meantime, you can set the `MAGENTO_LSP_TEMPLATES_DIR` environment variable globally to customize code action templates.
+Server settings are passed via `initializationOptions`. To configure them, the VS Code extension would need to forward settings — this is not yet wired in the extension. In the meantime, you can use environment variables: `MAGENTO_LSP_TEMPLATES_DIR` for custom code action templates, and `MAGENTO_LSP_HINT_MODE` to switch between inlay hints and code lenses.
 
 | Setting | Type | Description |
 |---------|------|-------------|
 | `templateDir` | `string` | Optional. Path to a directory with custom code action templates (absolute, or relative to the project root). Overrides `MAGENTO_LSP_TEMPLATES_DIR` env var and built-in defaults. When omitted, the env var or built-in templates are used. See [Code Actions](features.md#code-actions-quick-fixes) for template file details. |
+| `hintMode` | `string` | Optional. `"codeLens"` (default) uses traditional code lenses; `"inlayHint"` delivers indicators as inlay hints inline after the symbol. Overrides `MAGENTO_LSP_HINT_MODE` env var. |

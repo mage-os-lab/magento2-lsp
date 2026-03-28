@@ -24,7 +24,7 @@ import {
   WorkDoneProgress,
 } from 'vscode-languageserver/node';
 import { URI } from 'vscode-uri';
-import { SERVER_CAPABILITIES } from './capabilities';
+import { buildCapabilities } from './capabilities';
 import { ProjectManager, ProjectContext } from './project/projectManager';
 import { handleDefinition } from './handlers/definition';
 import { handleReferences } from './handlers/references';
@@ -35,7 +35,8 @@ import { handleWorkspaceSymbol } from './handlers/workspaceSymbol';
 import { handlePrepareRename, handleRename } from './handlers/rename';
 import { handleCompletion } from './handlers/completion';
 import { handleCodeAction, handleCodeActionResolve, type CreateFileActionData, type AddInterfaceActionData } from './handlers/codeAction';
-import { updateSettings } from './settings';
+import { handleInlayHint } from './handlers/inlayHint';
+import { updateSettings, setClientName, getEffectiveHintMode } from './settings';
 import { UnifiedFileWatcher, createXmlWatcherHandler } from './watcher/fileWatcher';
 import { CacheSectionKey } from './cache/indexCache';
 import {
@@ -110,10 +111,13 @@ function log(msg: string): void {
 
 connection.onInitialize((params: InitializeParams): InitializeResult => {
   log('onInitialize');
+  setClientName(params.clientInfo?.name);
   if (params.initializationOptions) {
     updateSettings(params.initializationOptions);
   }
-  return { capabilities: SERVER_CAPABILITIES };
+  const hintMode = getEffectiveHintMode();
+  log(`hintMode: ${hintMode} (client: ${params.clientInfo?.name ?? 'unknown'})`);
+  return { capabilities: buildCapabilities(hintMode) };
 });
 
 connection.onInitialized(async () => {
@@ -168,6 +172,11 @@ connection.onReferences(async (params, token) => {
 connection.onCodeLens((params, token) => {
   const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
   return handleCodeLens(params, () => projectManager.getProjectForFile(filePath), token);
+});
+
+connection.languages.inlayHint.on((params, token) => {
+  const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
+  return handleInlayHint(params, () => projectManager.getProjectForFile(filePath), token);
 });
 
 connection.onHover((params, token) => {

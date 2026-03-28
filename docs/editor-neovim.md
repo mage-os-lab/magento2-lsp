@@ -48,6 +48,7 @@ To configure the server (e.g., custom code action templates), add `init_options`
   end,
   init_options = {
     templateDir = '.magento2-lsp/templates',
+    hintMode = 'inlayHint',  -- or 'codeLens' (default)
   },
 },
 ```
@@ -57,3 +58,4 @@ Available settings:
 | Setting | Type | Description |
 |---------|------|-------------|
 | `templateDir` | `string` | Optional. Path to a directory with custom code action templates (absolute, or relative to the project root). Overrides `MAGENTO_LSP_TEMPLATES_DIR` env var and built-in defaults. When omitted, the env var or built-in templates are used. See [Code Actions](features.md#code-actions-quick-fixes) for template file details. |
+| `hintMode` | `string` | Optional. `"codeLens"` (default) uses traditional code lenses; `"inlayHint"` delivers plugin/observer/webapi indicators as inlay hints inline after the symbol. Overrides `MAGENTO_LSP_HINT_MODE` env var. |
