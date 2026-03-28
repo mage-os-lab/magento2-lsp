@@ -120,6 +120,25 @@ export function resolveClassFile(
 }
 
 /**
+ * Resolve a FQCN to its expected filesystem path using PSR-4 mappings,
+ * without checking whether the file actually exists on disk.
+ * Used by code actions to determine where a new class file should be created.
+ */
+export function resolveExpectedClassPath(
+  fqcn: string,
+  psr4Map: Psr4Map,
+): string | undefined {
+  for (const entry of psr4Map) {
+    if (fqcn.startsWith(entry.prefix) || (fqcn + '\\').startsWith(entry.prefix)) {
+      const relativePart = fqcn.slice(entry.prefix.length);
+      const relPath = relativePart.replace(/\\/g, path.sep) + '.php';
+      return path.join(entry.path, relPath);
+    }
+  }
+  return undefined;
+}
+
+/**
  * Reverse PSR-4 lookup: resolve a PHP file path to its FQCN.
  * Returns undefined if the file doesn't match any PSR-4 entry.
  */

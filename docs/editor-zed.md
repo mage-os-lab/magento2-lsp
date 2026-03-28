@@ -48,3 +48,27 @@ Replace `/absolute/path/to/magento2-lsp` with the path to the `magento2-lsp` bin
 The `"..."` keeps any other default servers enabled.
 
 Go-to-definition, find-references, hover, and workspace symbol search all work out of the box. Code lenses are [not yet supported by Zed](https://github.com/zed-industries/zed/issues/11565).
+
+## Settings
+
+To configure server settings (e.g., custom code action templates), add `initialization_options` to the LSP config:
+
+```json
+{
+  "lsp": {
+    "magento2-lsp": {
+      "binary": {
+        "path": "/absolute/path/to/magento2-lsp",
+        "arguments": ["--stdio"]
+      },
+      "initialization_options": {
+        "templateDir": ".magento2-lsp/templates"
+      }
+    }
+  }
+}
+```
+
+| Setting | Type | Description |
+|---------|------|-------------|
+| `templateDir` | `string` | Optional. Path to a directory with custom code action templates (absolute, or relative to the project root). Overrides `MAGENTO_LSP_TEMPLATES_DIR` env var and built-in defaults. When omitted, the env var or built-in templates are used. See [Code Actions](features.md#code-actions-quick-fixes) for template file details. |

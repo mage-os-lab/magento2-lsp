@@ -44,6 +44,20 @@ import {
 } from '../project/moduleResolver';
 import type { ProjectContext } from '../project/projectManager';
 import type { DiReference, LayoutReference, Psr4Map, ModuleInfo } from '../indexer/types';
+import {
+  DIAG_CLASS_NOT_FOUND,
+  DIAG_OBSERVER_CLASS_NOT_FOUND,
+  DIAG_OBSERVER_MISSING_INTERFACE,
+  DIAG_SERVICE_CLASS_NOT_FOUND,
+  DIAG_MODEL_CLASS_NOT_FOUND,
+  DIAG_TEMPLATE_NOT_FOUND,
+  DIAG_DUPLICATE_PLUGIN_NAME,
+  DIAG_ACL_RESOURCE_NOT_FOUND,
+  DIAG_METHOD_NOT_FOUND,
+  DIAG_MODULE_NOT_ACTIVE,
+  DIAG_FK_TABLE_NOT_FOUND,
+  DIAG_FK_COLUMN_NOT_FOUND,
+} from './diagnosticCodes';
 
 /**
  * Run semantic validation on a single XML file by parsing the current buffer content.
@@ -142,6 +156,8 @@ function validateDiXml(
         ref.line, ref.column, ref.endColumn,
         `Class "${ref.fqcn}" not found`,
         DiagnosticSeverity.Error,
+        DIAG_CLASS_NOT_FOUND,
+        { fqcn: ref.fqcn },
       ));
     }
   }
@@ -180,6 +196,7 @@ function findDuplicatePluginNames(
         ref.line, ref.column, ref.endColumn,
         `Duplicate plugin name "${ref.pluginName}" for ${ref.parentTypeFqcn}`,
         DiagnosticSeverity.Warning,
+        DIAG_DUPLICATE_PLUGIN_NAME,
       ));
     }
   }
@@ -203,6 +220,7 @@ function findDuplicatePluginNames(
             ref.line, ref.column, ref.endColumn,
             `Plugin name "${ref.pluginName}" already declared for ${ref.parentTypeFqcn} in ${path.basename(path.dirname(path.dirname(pluginRef.file)))}`,
             DiagnosticSeverity.Warning,
+            DIAG_DUPLICATE_PLUGIN_NAME,
           ));
           break; // One match is enough to flag it
         }
@@ -234,6 +252,8 @@ function validateEventsXml(
         ref.line, ref.column, ref.endColumn,
         `Observer class "${ref.fqcn}" not found`,
         DiagnosticSeverity.Error,
+        DIAG_OBSERVER_CLASS_NOT_FOUND,
+        { fqcn: ref.fqcn },
       ));
       continue;
     }
@@ -245,6 +265,8 @@ function validateEventsXml(
           ref.line, ref.column, ref.endColumn,
           `"${ref.fqcn}" does not implement ObserverInterface`,
           DiagnosticSeverity.Warning,
+          DIAG_OBSERVER_MISSING_INTERFACE,
+          { fqcn: ref.fqcn, classFile },
         ));
       }
     }
@@ -294,6 +316,8 @@ function validateLayoutXml(
           ref.line, ref.column, ref.endColumn,
           `Class "${ref.value}" not found`,
           DiagnosticSeverity.Error,
+          DIAG_CLASS_NOT_FOUND,
+          { fqcn: ref.value },
         ));
       }
     } else if (ref.kind === 'block-template' || ref.kind === 'refblock-template') {
@@ -308,6 +332,8 @@ function validateLayoutXml(
           ref.line, ref.column, ref.endColumn,
           `Template "${templateId}" not found`,
           DiagnosticSeverity.Warning,
+          DIAG_TEMPLATE_NOT_FOUND,
+          { templateId, area },
         ));
       }
     }
@@ -336,6 +362,8 @@ function validateSystemConfigXml(
           ref.line, ref.column, ref.endColumn,
           `${label} class "${ref.fqcn}" not found`,
           DiagnosticSeverity.Error,
+          DIAG_MODEL_CLASS_NOT_FOUND,
+          { fqcn: ref.fqcn },
         ));
       }
     }
@@ -346,6 +374,7 @@ function validateSystemConfigXml(
           ref.line, ref.column, ref.endColumn,
           `ACL resource "${ref.aclResourceId}" not defined in any acl.xml`,
           DiagnosticSeverity.Warning,
+          DIAG_ACL_RESOURCE_NOT_FOUND,
         ));
       }
     }
@@ -372,6 +401,8 @@ function validateWebapiXml(
           ref.line, ref.column, ref.endColumn,
           `Service class "${ref.value}" not found`,
           DiagnosticSeverity.Error,
+          DIAG_SERVICE_CLASS_NOT_FOUND,
+          { fqcn: ref.value },
         ));
       }
     }
@@ -384,6 +415,7 @@ function validateWebapiXml(
           ref.line, ref.column, ref.endColumn,
           `ACL resource "${ref.value}" not defined in any acl.xml`,
           DiagnosticSeverity.Warning,
+          DIAG_ACL_RESOURCE_NOT_FOUND,
         ));
       }
     }
@@ -399,6 +431,7 @@ function validateWebapiXml(
               ref.line, ref.column, ref.endColumn,
               `Method "${ref.value}" not found on "${ref.fqcn}"`,
               DiagnosticSeverity.Warning,
+              DIAG_METHOD_NOT_FOUND,
             ));
           }
         } catch {
@@ -428,6 +461,7 @@ function validateRoutesXml(
         ref.line, ref.column, ref.endColumn,
         `Module "${ref.value}" is not an active module`,
         DiagnosticSeverity.Warning,
+        DIAG_MODULE_NOT_ACTIVE,
       ));
     }
   }
@@ -457,6 +491,7 @@ function validateDbSchemaXml(
           ref.line, ref.column, ref.endColumn,
           `Referenced table "${ref.value}" not found in any db_schema.xml`,
           DiagnosticSeverity.Warning,
+          DIAG_FK_TABLE_NOT_FOUND,
         ));
       }
     }
@@ -473,6 +508,7 @@ function validateDbSchemaXml(
             ref.line, ref.column, ref.endColumn,
             `Column "${ref.value}" not found on table "${ref.fkRefTable}"`,
             DiagnosticSeverity.Warning,
+            DIAG_FK_COLUMN_NOT_FOUND,
           ));
         }
       }
@@ -498,6 +534,7 @@ function validateMenuXml(
         ref.line, ref.column, ref.endColumn,
         `ACL resource "${ref.value}" not defined in any acl.xml`,
         DiagnosticSeverity.Warning,
+        DIAG_ACL_RESOURCE_NOT_FOUND,
       ));
     }
   }
@@ -521,6 +558,7 @@ function validateUiComponentAcl(
         ref.line, ref.column, ref.endColumn,
         `ACL resource "${ref.value}" not defined in any acl.xml`,
         DiagnosticSeverity.Warning,
+        DIAG_ACL_RESOURCE_NOT_FOUND,
       ));
     }
   }
@@ -557,6 +595,7 @@ function validatePhpAcl(
           lineNum, idStart, idStart + aclId.length,
           `ACL resource "${aclId}" not defined in any acl.xml`,
           DiagnosticSeverity.Warning,
+          DIAG_ACL_RESOURCE_NOT_FOUND,
         ));
       }
     }
@@ -627,8 +666,10 @@ function makeDiagnostic(
   endColumn: number,
   message: string,
   severity: DiagnosticSeverity,
+  code?: string,
+  data?: unknown,
 ): Diagnostic {
-  return {
+  const diag: Diagnostic = {
     range: {
       start: { line, character: column },
       end: { line, character: endColumn },
@@ -637,4 +678,7 @@ function makeDiagnostic(
     source: 'magento2-lsp',
     message,
   };
+  if (code !== undefined) diag.code = code;
+  if (data !== undefined) diag.data = data;
+  return diag;
 }

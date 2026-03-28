@@ -195,11 +195,12 @@ export class ProjectManager {
     filePath: string,
     progress?: ProgressCallback,
   ): Promise<ProjectContext | undefined> {
-    let isDir: boolean;
+    let isDir = false;
     try {
       isDir = fs.statSync(filePath).isDirectory();
     } catch {
-      return undefined;
+      // File doesn't exist on disk yet (e.g., new unsaved buffer) — that's fine,
+      // use its parent directory for root detection.
     }
     const root = this.cachedDetectRoot(isDir ? filePath : path.dirname(filePath));
     if (!root) return undefined;

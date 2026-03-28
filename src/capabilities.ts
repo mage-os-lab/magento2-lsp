@@ -3,7 +3,7 @@
  *
  * Tells the editor which LSP features this server supports:
  * definition, references, hover, completion, document symbols, workspace symbol,
- * code lens, and rename.
+ * code lens, code actions, and rename.
  *
  * TextDocumentSyncKind.Full means the editor sends the full file content on every change.
  * This is used for di.xml files so we can re-parse them immediately when edited.
@@ -11,6 +11,7 @@
  */
 
 import {
+  CodeActionKind,
   ServerCapabilities,
   TextDocumentSyncKind,
 } from 'vscode-languageserver';
@@ -24,6 +25,10 @@ export const SERVER_CAPABILITIES: ServerCapabilities = {
   workspaceSymbolProvider: true,
   codeLensProvider: {
     resolveProvider: false,
+  },
+  codeActionProvider: {
+    codeActionKinds: [CodeActionKind.QuickFix],
+    resolveProvider: true,
   },
   renameProvider: {
     prepareProvider: true,

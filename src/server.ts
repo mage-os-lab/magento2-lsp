@@ -34,6 +34,8 @@ import { handleDocumentSymbol } from './handlers/documentSymbol';
 import { handleWorkspaceSymbol } from './handlers/workspaceSymbol';
 import { handlePrepareRename, handleRename } from './handlers/rename';
 import { handleCompletion } from './handlers/completion';
+import { handleCodeAction, handleCodeActionResolve, type CreateFileActionData, type AddInterfaceActionData } from './handlers/codeAction';
+import { updateSettings } from './settings';
 import { UnifiedFileWatcher, createXmlWatcherHandler } from './watcher/fileWatcher';
 import { CacheSectionKey } from './cache/indexCache';
 import {
@@ -47,6 +49,7 @@ import {
   discoverUiComponentAclFiles,
   deriveDiXmlContext,
   deriveEventsXmlContext,
+  deriveLayoutXmlContext,
   deriveSystemXmlContext,
   deriveWebapiXmlContext,
   deriveAclXmlContext,
@@ -76,6 +79,8 @@ import * as path from 'path';
 const connection = createConnection(ProposedFeatures.all);
 const projectManager = new ProjectManager();
 const watchers: { close(): void }[] = [];
+/** Per-project unified watcher, for adding patterns at runtime (e.g., after code action creates a file in a new directory). */
+const projectWatchers = new Map<string, UnifiedFileWatcher>();
 let xmllintEnabled = false;
 
 /**
@@ -103,8 +108,11 @@ function log(msg: string): void {
 
 // --- LSP lifecycle ---
 
-connection.onInitialize((_params: InitializeParams): InitializeResult => {
+connection.onInitialize((params: InitializeParams): InitializeResult => {
   log('onInitialize');
+  if (params.initializationOptions) {
+    updateSettings(params.initializationOptions);
+  }
   return { capabilities: SERVER_CAPABILITIES };
 });
 
@@ -199,6 +207,49 @@ connection.onCompletion((params, token) => {
     getDocumentText,
     token,
   );
+});
+
+connection.onCodeAction((params, token) => {
+  const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
+  return handleCodeAction(
+    params,
+    () => projectManager.getProjectForFile(filePath),
+    getDocumentText,
+    token,
+  );
+});
+
+connection.onCodeActionResolve((action) => {
+  const resolved = handleCodeActionResolve(action);
+
+  // After resolve, re-index and re-validate the source document so
+  // diagnostics clear and go-to-definition works immediately.
+  const data = resolved.data as CreateFileActionData | AddInterfaceActionData | undefined;
+  const sourceUri = data?.sourceUri;
+  if (sourceUri) {
+    const sourceFilePath = realpath(URI.parse(sourceUri).fsPath);
+    const project = projectManager.getProjectForFile(sourceFilePath);
+    if (project) {
+      // For file creation: ensure the watcher covers the new directory
+      if (data.type === 'create-file') {
+        const watcher = projectWatchers.get(project.root);
+        if (watcher) {
+          watcher.add([path.join(path.dirname(data.targetPath), '*')]);
+        }
+      }
+
+      const content = documentContents.get(sourceUri)
+        ?? (fs.existsSync(sourceFilePath) ? fs.readFileSync(sourceFilePath, 'utf-8') : undefined);
+      if (content !== undefined) {
+        if (sourceFilePath.endsWith('.xml')) {
+          indexSingleXmlFile(sourceFilePath, content, project);
+        }
+        validateAndPublish(sourceUri, content, project, 0, true);
+      }
+    }
+  }
+
+  return resolved;
 });
 
 // --- Lazy project initialization ---
@@ -361,6 +412,13 @@ connection.onDidSaveTextDocument((params) => {
   try {
     const content = fs.readFileSync(filePath, 'utf-8');
     validateAndPublish(params.textDocument.uri, content, project, 0, true);
+
+    // Index the file if it's a recognized XML type. This catches files that the
+    // file watcher missed (e.g., new files in directories that didn't exist at
+    // watch time) and ensures go-to-definition works immediately after save.
+    if (filePath.endsWith('.xml')) {
+      indexSingleXmlFile(filePath, content, project);
+    }
   } catch {
     // File unreadable
   }
@@ -377,6 +435,95 @@ connection.onDidCloseTextDocument((params) => {
     validationTimers.delete(params.textDocument.uri);
   }
 });
+
+/**
+ * Parse and index a single XML file on save. This supplements the file watcher
+ * by handling files in directories that didn't exist when the watcher started.
+ * Uses replaceFile so it's safe to call repeatedly for the same file.
+ */
+function indexSingleXmlFile(filePath: string, content: string, project: ProjectContext): void {
+  try {
+    const diCtx = deriveDiXmlContext(filePath, project.root, project.modules);
+    if (diCtx) {
+      const result = parseDiXml(content, diCtx);
+      project.indexes.di.replaceFile(filePath, result.references, result.virtualTypes);
+      return;
+    }
+
+    const eventsCtx = deriveEventsXmlContext(filePath, project.modules);
+    if (eventsCtx) {
+      const result = parseEventsXml(content, eventsCtx);
+      project.indexes.events.removeFile(filePath);
+      project.indexes.events.addFile(filePath, result.events, result.observers);
+      return;
+    }
+
+    if (deriveLayoutXmlContext(filePath)) {
+      const result = parseLayoutXml(content, filePath);
+      project.indexes.layout.removeFile(filePath);
+      project.indexes.layout.addFile(filePath, result.references);
+      return;
+    }
+
+    const sysCtx = deriveSystemXmlContext(filePath, project.modules);
+    if (sysCtx) {
+      const result = parseSystemXml(content, sysCtx);
+      project.indexes.systemConfig.removeFile(filePath);
+      project.indexes.systemConfig.addFile(filePath, result.references);
+      return;
+    }
+
+    const webapiCtx = deriveWebapiXmlContext(filePath, project.modules);
+    if (webapiCtx) {
+      const result = parseWebapiXml(content, webapiCtx);
+      project.indexes.webapi.removeFile(filePath);
+      project.indexes.webapi.addFile(filePath, result.references);
+      return;
+    }
+
+    const aclCtx = deriveAclXmlContext(filePath, project.modules);
+    if (aclCtx) {
+      const result = parseAclXml(content, aclCtx);
+      project.indexes.acl.removeFile(filePath);
+      project.indexes.acl.addFile(filePath, result.resources);
+      return;
+    }
+
+    const menuCtx = deriveMenuXmlContext(filePath, project.modules);
+    if (menuCtx) {
+      const result = parseMenuXml(content, menuCtx);
+      project.indexes.menu.removeFile(filePath);
+      project.indexes.menu.addFile(filePath, result.references);
+      return;
+    }
+
+    const routesCtx = deriveRoutesXmlContext(filePath, project.modules);
+    if (routesCtx) {
+      const result = parseRoutesXml(content, routesCtx);
+      project.indexes.routes.removeFile(filePath);
+      project.indexes.routes.addFile(filePath, result.references);
+      return;
+    }
+
+    const dbCtx = deriveDbSchemaXmlContext(filePath, project.modules);
+    if (dbCtx) {
+      const result = parseDbSchemaXml(content, dbCtx);
+      project.indexes.dbSchema.removeFile(filePath);
+      project.indexes.dbSchema.addFile(filePath, result.references);
+      return;
+    }
+
+    const uiCtx = deriveUiComponentAclContext(filePath, project.modules);
+    if (uiCtx) {
+      const result = parseUiComponentAcl(content, uiCtx);
+      project.indexes.uiComponentAcl.removeFile(filePath);
+      project.indexes.uiComponentAcl.addFile(filePath, result.references);
+      return;
+    }
+  } catch {
+    // Don't let indexing errors break the save handler
+  }
+}
 
 // --- File watcher setup ---
 
@@ -709,6 +856,7 @@ function setupFileWatchers(project: ProjectContext): void {
   // Start the single unified watcher
   unified.watch(allPatterns);
   watchers.push(unified);
+  projectWatchers.set(project.root, unified);
 }
 
 // --- Shutdown ---

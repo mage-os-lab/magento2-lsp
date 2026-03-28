@@ -152,6 +152,43 @@ Trigger characters: `"`, `'`, `\`, `/`, `:`
 
 Diagnostics update on every keystroke (debounced). Expensive checks (duplicate plugins, ObserverInterface) also run on file open and save.
 
+## Code Actions (Quick Fixes)
+
+Quick-fix actions appear on diagnostics produced by semantic validation. They create missing files or fix code issues.
+
+- **Create class**: offered when a FQCN in XML config doesn't resolve to a PHP file. Creates the file at the PSR-4 path with a class skeleton. Works for broken references in `di.xml`, `events.xml`, layout XML, `system.xml`, and `webapi.xml`.
+- **Create observer class**: offered when an observer class in `events.xml` doesn't exist. Creates a PHP class that already implements `ObserverInterface` with an `execute()` method stub.
+- **Create template**: offered when a layout XML template reference (e.g., `Vendor_Module::path/to/file.phtml`) doesn't resolve. Creates the `.phtml` file in the module's `view/{area}/templates/` directory.
+- **Add implements ObserverInterface**: offered when an observer class exists but doesn't implement `ObserverInterface`. Adds the `implements` clause and `use` import to the existing PHP file.
+
+### Custom Templates
+
+Generated files use built-in templates by default. You can override them at two levels:
+
+1. **Per-project**: set `templateDir` in `initializationOptions` (see editor setup docs)
+2. **Per-user**: set the `MAGENTO_LSP_TEMPLATES_DIR` environment variable to a directory path
+
+The project-level setting takes priority over the environment variable, which takes priority over built-in defaults. If a template file is not found at a higher-priority level, the next level is checked.
+
+Template files use `{{variable}}` placeholders:
+
+| Variable | Example | Description |
+|----------|---------|-------------|
+| `{{namespace}}` | `Vendor\Module\Model` | PHP namespace |
+| `{{className}}` | `MyClass` | Short class name |
+| `{{fqcn}}` | `Vendor\Module\Model\MyClass` | Fully qualified class name |
+| `{{moduleName}}` | `Vendor_Module` | Magento module name |
+| `{{year}}` | `2026` | Current year |
+| `{{date}}` | `2026-03-28` | Current date (YYYY-MM-DD) |
+
+Template file names by convention:
+
+| File | Used for |
+|------|----------|
+| `class.php.tpl` | Generic PHP class creation |
+| `observer.php.tpl` | Observer class creation |
+| `template.phtml.tpl` | `.phtml` template creation |
+
 ## XSD Validation and URN Navigation
 
 - **XML Validation** against declared XSD schemas: diagnostics are published on file open, save, and edit (requires `xmllint` on `$PATH`)

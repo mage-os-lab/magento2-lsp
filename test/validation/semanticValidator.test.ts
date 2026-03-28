@@ -1,5 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import { DiagnosticSeverity } from 'vscode-languageserver/node';
+import {
+  DIAG_CLASS_NOT_FOUND,
+  DIAG_OBSERVER_CLASS_NOT_FOUND,
+  DIAG_DUPLICATE_PLUGIN_NAME,
+  DIAG_TEMPLATE_NOT_FOUND,
+  DIAG_MODEL_CLASS_NOT_FOUND,
+} from '../../src/validation/diagnosticCodes';
 import { validateSemantics } from '../../src/validation/semanticValidator';
 import { DiIndex } from '../../src/index/diIndex';
 import { EventsIndex } from '../../src/index/eventsIndex';
@@ -121,6 +128,8 @@ describe('semanticValidator', () => {
       expect(diags[0].severity).toBe(DiagnosticSeverity.Error);
       expect(diags[0].message).toContain('NonExistent');
       expect(diags[0].source).toBe('magento2-lsp');
+      expect(diags[0].code).toBe(DIAG_CLASS_NOT_FOUND);
+      expect(diags[0].data).toEqual({ fqcn: 'Vendor\\Module\\Model\\NonExistent' });
     });
 
     it('does not report error for existing class', () => {
@@ -164,6 +173,9 @@ describe('semanticValidator', () => {
       const diags = validateSemantics(DI_FILE, content, project, false);
       expect(diags).toHaveLength(2);
       expect(diags.every((d) => d.severity === DiagnosticSeverity.Error)).toBe(true);
+      expect(diags.every((d) => d.code === DIAG_CLASS_NOT_FOUND)).toBe(true);
+      expect((diags[0].data as any).fqcn).toBe('Missing\\Interface');
+      expect((diags[1].data as any).fqcn).toBe('Missing\\Implementation');
     });
 
     it('reports broken plugin-type', () => {
@@ -219,6 +231,7 @@ describe('semanticValidator', () => {
       const dupWarnings = diagsSave.filter((d) => d.message.includes('Duplicate'));
       expect(dupWarnings).toHaveLength(2);
       expect(dupWarnings[0].severity).toBe(DiagnosticSeverity.Warning);
+      expect(dupWarnings[0].code).toBe(DIAG_DUPLICATE_PLUGIN_NAME);
     });
 
     it('detects duplicate plugin name across files via project index', () => {
@@ -273,6 +286,8 @@ describe('semanticValidator', () => {
       expect(diags[0].severity).toBe(DiagnosticSeverity.Error);
       expect(diags[0].message).toContain('Observer class');
       expect(diags[0].message).toContain('not found');
+      expect(diags[0].code).toBe(DIAG_OBSERVER_CLASS_NOT_FOUND);
+      expect(diags[0].data).toEqual({ fqcn: 'Vendor\\Module\\Observer\\NonExistent' });
     });
 
     it('does not report error for existing observer class', () => {
@@ -331,6 +346,9 @@ describe('semanticValidator', () => {
       const templateDiags = diags.filter((d) => d.message.includes('Template'));
       expect(templateDiags).toHaveLength(1);
       expect(templateDiags[0].severity).toBe(DiagnosticSeverity.Warning);
+      expect(templateDiags[0].code).toBe(DIAG_TEMPLATE_NOT_FOUND);
+      expect((templateDiags[0].data as any).templateId).toBe('Vendor_Module::nonexistent/template.phtml');
+      expect((templateDiags[0].data as any).area).toBe('frontend');
     });
   });
 
@@ -361,6 +379,8 @@ ${body}
       expect(diags[0].severity).toBe(DiagnosticSeverity.Error);
       expect(diags[0].message).toContain('Source model');
       expect(diags[0].message).toContain('not found');
+      expect(diags[0].code).toBe(DIAG_MODEL_CLASS_NOT_FOUND);
+      expect(diags[0].data).toEqual({ fqcn: 'Missing\\Source\\Model' });
     });
 
     it('reports error for broken backend_model class', () => {

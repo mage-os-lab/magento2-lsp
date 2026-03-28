@@ -152,6 +152,11 @@ export class UnifiedFileWatcher {
     this.watcher.on('unlink', (fp) => dispatch(fp as string, 'remove'));
   }
 
+  /** Add new glob patterns to the running watcher. */
+  add(patterns: string[]): void {
+    this.watcher?.add(patterns);
+  }
+
   /** Stop watching and release resources. */
   close(): void {
     this.watcher?.close();
