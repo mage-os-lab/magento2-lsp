@@ -114,8 +114,11 @@ export function handleCodeActionResolve(action: CodeAction): CodeAction {
     try {
       fs.mkdirSync(path.dirname(data.targetPath), { recursive: true });
       fs.writeFileSync(data.targetPath, data.content, { flag: 'wx' });
-    } catch {
-      // File already exists or directory not writable
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== 'EEXIST') {
+        process.stderr.write(`[magento2-lsp] Failed to create ${data.targetPath}: ${err}\n`);
+      }
     }
   }
 

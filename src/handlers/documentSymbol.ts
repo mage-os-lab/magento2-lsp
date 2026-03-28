@@ -145,10 +145,11 @@ function expandRangeToChildren(symbol: DocumentSymbol): void {
 
   // Ensure start is strictly before the first child's start
   let startLine = symbol.range.start.line;
-  let startChar = 0;
+  let startChar = symbol.range.start.character;
   if (startLine === firstChild.range.start.line && startChar >= firstChild.range.start.character) {
     // Same line and can't be before the child — move up one line
     startLine = Math.max(0, startLine - 1);
+    startChar = 0;
   }
 
   // Ensure end is at or past the last child's end

@@ -92,7 +92,7 @@ export interface ProjectContext {
 
 /** Callback interface for reporting indexing progress to the LSP client (editor). */
 export interface ProgressCallback {
-  onBegin(total: number): void;
+  onBegin(): void;
   onProgress(current: number, total: number, file: string): void;
   onEnd(): void;
 }
@@ -257,7 +257,7 @@ export class ProjectManager {
       }
     }
 
-    progress?.onBegin(diXmlFiles.length);
+    progress?.onBegin();
 
     index.beginBatch();
     try {

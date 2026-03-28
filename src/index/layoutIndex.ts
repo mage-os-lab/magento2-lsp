@@ -59,6 +59,12 @@ export class LayoutIndex {
     }
   }
 
+  /** Replace all data for a file in one operation (remove old + add new). */
+  replaceFile(file: string, refs: LayoutReference[]): void {
+    this.removeFile(file);
+    this.addFile(file, refs);
+  }
+
   removeFile(file: string): void {
     const refs = this.fileToRefs.get(file);
     if (!refs) return;

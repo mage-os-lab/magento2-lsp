@@ -27,6 +27,12 @@ export class UiComponentAclIndex {
     }
   }
 
+  /** Replace all data for a file in one operation (remove old + add new). */
+  replaceFile(file: string, refs: UiComponentAclReference[]): void {
+    this.removeFile(file);
+    this.addFile(file, refs);
+  }
+
   /** Remove all references from a single file. */
   removeFile(file: string): void {
     const refs = this.fileToRefs.get(file);

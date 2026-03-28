@@ -286,7 +286,7 @@ connection.onDidOpenTextDocument(async (params) => {
   }
 
   const project = await projectManager.ensureProject(filePath, {
-    onBegin(total: number) {
+    onBegin() {
       try {
         connection.sendProgress(
           WorkDoneProgress.type,
@@ -440,84 +440,99 @@ connection.onDidCloseTextDocument((params) => {
  * Parse and index a single XML file on save. This supplements the file watcher
  * by handling files in directories that didn't exist when the watcher started.
  * Uses replaceFile so it's safe to call repeatedly for the same file.
+ * Also updates the disk cache and triggers plugin rebuild for di.xml changes.
  */
 function indexSingleXmlFile(filePath: string, content: string, project: ProjectContext): void {
   try {
+    const mtimeMs = fs.statSync(filePath).mtimeMs;
+
     const diCtx = deriveDiXmlContext(filePath, project.root, project.modules);
     if (diCtx) {
       const result = parseDiXml(content, diCtx);
       project.indexes.di.replaceFile(filePath, result.references, result.virtualTypes);
+      project.cache.setDiEntry(filePath, mtimeMs, result.references, result.virtualTypes);
+      project.cache.save();
+      project.indexes.pluginMethod.rebuildForFile(filePath, project.indexes.di, project.psr4Map);
       return;
     }
 
     const eventsCtx = deriveEventsXmlContext(filePath, project.modules);
     if (eventsCtx) {
       const result = parseEventsXml(content, eventsCtx);
-      project.indexes.events.removeFile(filePath);
-      project.indexes.events.addFile(filePath, result.events, result.observers);
+      project.indexes.events.replaceFile(filePath, result.events, result.observers);
+      project.cache.setEntry('eventsFiles', filePath, { mtimeMs, ...result });
+      project.cache.save();
       return;
     }
 
     if (deriveLayoutXmlContext(filePath)) {
       const result = parseLayoutXml(content, filePath);
-      project.indexes.layout.removeFile(filePath);
-      project.indexes.layout.addFile(filePath, result.references);
+      project.indexes.layout.replaceFile(filePath, result.references);
+      project.cache.setEntry('layoutFiles', filePath, { mtimeMs, ...result });
+      project.cache.save();
       return;
     }
 
     const sysCtx = deriveSystemXmlContext(filePath, project.modules);
     if (sysCtx) {
       const result = parseSystemXml(content, sysCtx);
-      project.indexes.systemConfig.removeFile(filePath);
-      project.indexes.systemConfig.addFile(filePath, result.references);
+      project.indexes.systemConfig.replaceFile(filePath, result.references);
+      project.cache.setEntry('systemConfigFiles', filePath, { mtimeMs, ...result });
+      project.cache.save();
       return;
     }
 
     const webapiCtx = deriveWebapiXmlContext(filePath, project.modules);
     if (webapiCtx) {
       const result = parseWebapiXml(content, webapiCtx);
-      project.indexes.webapi.removeFile(filePath);
-      project.indexes.webapi.addFile(filePath, result.references);
+      project.indexes.webapi.replaceFile(filePath, result.references);
+      project.cache.setEntry('webapiFiles', filePath, { mtimeMs, ...result });
+      project.cache.save();
       return;
     }
 
     const aclCtx = deriveAclXmlContext(filePath, project.modules);
     if (aclCtx) {
       const result = parseAclXml(content, aclCtx);
-      project.indexes.acl.removeFile(filePath);
-      project.indexes.acl.addFile(filePath, result.resources);
+      project.indexes.acl.replaceFile(filePath, result.resources);
+      project.cache.setEntry('aclFiles', filePath, { mtimeMs, ...result });
+      project.cache.save();
       return;
     }
 
     const menuCtx = deriveMenuXmlContext(filePath, project.modules);
     if (menuCtx) {
       const result = parseMenuXml(content, menuCtx);
-      project.indexes.menu.removeFile(filePath);
-      project.indexes.menu.addFile(filePath, result.references);
+      project.indexes.menu.replaceFile(filePath, result.references);
+      project.cache.setEntry('menuFiles', filePath, { mtimeMs, ...result });
+      project.cache.save();
       return;
     }
 
     const routesCtx = deriveRoutesXmlContext(filePath, project.modules);
     if (routesCtx) {
       const result = parseRoutesXml(content, routesCtx);
-      project.indexes.routes.removeFile(filePath);
-      project.indexes.routes.addFile(filePath, result.references);
+      project.indexes.routes.replaceFile(filePath, result.references);
+      project.cache.setEntry('routesFiles', filePath, { mtimeMs, ...result });
+      project.cache.save();
       return;
     }
 
     const dbCtx = deriveDbSchemaXmlContext(filePath, project.modules);
     if (dbCtx) {
       const result = parseDbSchemaXml(content, dbCtx);
-      project.indexes.dbSchema.removeFile(filePath);
-      project.indexes.dbSchema.addFile(filePath, result.references);
+      project.indexes.dbSchema.replaceFile(filePath, result.references);
+      project.cache.setEntry('dbSchemaFiles', filePath, { mtimeMs, ...result });
+      project.cache.save();
       return;
     }
 
     const uiCtx = deriveUiComponentAclContext(filePath, project.modules);
     if (uiCtx) {
       const result = parseUiComponentAcl(content, uiCtx);
-      project.indexes.uiComponentAcl.removeFile(filePath);
-      project.indexes.uiComponentAcl.addFile(filePath, result.references);
+      project.indexes.uiComponentAcl.replaceFile(filePath, result.references);
+      project.cache.setEntry('uiComponentAclFiles', filePath, { mtimeMs, ...result });
+      project.cache.save();
       return;
     }
   } catch {
@@ -582,7 +597,7 @@ function buildTypedHandler<TCtx, TResult>(
     buildWatchTargets: () => { patterns: string[]; contextMap: Map<string, TCtx> };
     deriveContext: (file: string) => TCtx | undefined;
     parse: (content: string, ctx: TCtx) => TResult;
-    addToIndex: (file: string, result: TResult) => void;
+    replaceInIndex: (file: string, result: TResult) => void;
     removeFromIndex: (file: string) => void;
     afterChange?: (file: string) => void;
   },
@@ -598,8 +613,7 @@ function buildTypedHandler<TCtx, TResult>(
         resolveContext: makeContextResolver(contextMap, config.deriveContext),
         parse: config.parse,
         onParsed(file, mtimeMs, result) {
-          config.removeFromIndex(file);
-          config.addToIndex(file, result);
+          config.replaceInIndex(file, result);
           project.cache.setEntry(config.section, file, { mtimeMs, ...result as Record<string, unknown> });
         },
         onRemoved(file) {
@@ -686,7 +700,7 @@ function setupFileWatchers(project: ProjectContext): void {
     ),
     deriveContext: (file) => deriveEventsXmlContext(file, project.modules),
     parse: parseEventsXml,
-    addToIndex: (file, r) => project.indexes.events.addFile(file, r.events, r.observers),
+    replaceInIndex: (file, r) => project.indexes.events.replaceFile(file, r.events, r.observers),
     removeFromIndex: (file) => project.indexes.events.removeFile(file),
   }, (fp) => fp.endsWith('/events.xml'), debouncedCacheSave);
   allPatterns.push(...eventsH.patterns);
@@ -702,7 +716,7 @@ function setupFileWatchers(project: ProjectContext): void {
     ),
     deriveContext: (file) => deriveWebapiXmlContext(file, project.modules),
     parse: parseWebapiXml,
-    addToIndex: (file, r) => project.indexes.webapi.addFile(file, r.references),
+    replaceInIndex: (file, r) => project.indexes.webapi.replaceFile(file, r.references),
     removeFromIndex: (file) => project.indexes.webapi.removeFile(file),
   }, (fp) => fp.endsWith('/webapi.xml'), debouncedCacheSave);
   allPatterns.push(...webapiH.patterns);
@@ -718,7 +732,7 @@ function setupFileWatchers(project: ProjectContext): void {
     ),
     deriveContext: (file) => deriveAclXmlContext(file, project.modules),
     parse: parseAclXml,
-    addToIndex: (file, r) => project.indexes.acl.addFile(file, r.resources),
+    replaceInIndex: (file, r) => project.indexes.acl.replaceFile(file, r.resources),
     removeFromIndex: (file) => project.indexes.acl.removeFile(file),
   }, (fp) => fp.endsWith('/acl.xml'), debouncedCacheSave);
   allPatterns.push(...aclH.patterns);
@@ -734,7 +748,7 @@ function setupFileWatchers(project: ProjectContext): void {
     ),
     deriveContext: (file) => deriveMenuXmlContext(file, project.modules),
     parse: parseMenuXml,
-    addToIndex: (file, r) => project.indexes.menu.addFile(file, r.references),
+    replaceInIndex: (file, r) => project.indexes.menu.replaceFile(file, r.references),
     removeFromIndex: (file) => project.indexes.menu.removeFile(file),
   }, (fp) => fp.endsWith('/menu.xml'), debouncedCacheSave);
   allPatterns.push(...menuH.patterns);
@@ -750,7 +764,7 @@ function setupFileWatchers(project: ProjectContext): void {
     ),
     deriveContext: (file) => deriveRoutesXmlContext(file, project.modules),
     parse: parseRoutesXml,
-    addToIndex: (file, r) => project.indexes.routes.addFile(file, r.references),
+    replaceInIndex: (file, r) => project.indexes.routes.replaceFile(file, r.references),
     removeFromIndex: (file) => project.indexes.routes.removeFile(file),
   }, (fp) => fp.endsWith('/routes.xml'), debouncedCacheSave);
   allPatterns.push(...routesH.patterns);
@@ -766,7 +780,7 @@ function setupFileWatchers(project: ProjectContext): void {
     ),
     deriveContext: (file) => deriveDbSchemaXmlContext(file, project.modules),
     parse: parseDbSchemaXml,
-    addToIndex: (file, r) => project.indexes.dbSchema.addFile(file, r.references),
+    replaceInIndex: (file, r) => project.indexes.dbSchema.replaceFile(file, r.references),
     removeFromIndex: (file) => project.indexes.dbSchema.removeFile(file),
   }, (fp) => fp.endsWith('/db_schema.xml'), debouncedCacheSave);
   allPatterns.push(...dbSchemaH.patterns);
@@ -788,7 +802,7 @@ function setupFileWatchers(project: ProjectContext): void {
     },
     deriveContext: (file) => deriveSystemXmlContext(file, project.modules),
     parse: parseSystemXml,
-    addToIndex: (file, r) => project.indexes.systemConfig.addFile(file, r.references),
+    replaceInIndex: (file, r) => project.indexes.systemConfig.replaceFile(file, r.references),
     removeFromIndex: (file) => project.indexes.systemConfig.removeFile(file),
   }, (fp) => fp.endsWith('/system.xml') || fp.includes('/etc/adminhtml/system/'), debouncedCacheSave);
   allPatterns.push(...systemH.patterns);
@@ -804,7 +818,7 @@ function setupFileWatchers(project: ProjectContext): void {
     ),
     deriveContext: (file) => deriveUiComponentAclContext(file, project.modules),
     parse: parseUiComponentAcl,
-    addToIndex: (file, r) => project.indexes.uiComponentAcl.addFile(file, r.references),
+    replaceInIndex: (file, r) => project.indexes.uiComponentAcl.replaceFile(file, r.references),
     removeFromIndex: (file) => project.indexes.uiComponentAcl.removeFile(file),
   }, (fp) => fp.includes('/ui_component/') && fp.endsWith('.xml'), debouncedCacheSave);
   allPatterns.push(...uiAclH.patterns);
@@ -830,7 +844,7 @@ function setupFileWatchers(project: ProjectContext): void {
     },
     deriveContext: (file) => file,
     parse: (content, filePath) => parseLayoutXml(content, filePath),
-    addToIndex: (file, r) => project.indexes.layout.addFile(file, r.references),
+    replaceInIndex: (file, r) => project.indexes.layout.replaceFile(file, r.references),
     removeFromIndex: (file) => project.indexes.layout.removeFile(file),
   }, (fp) => fp.endsWith('.xml') && (fp.includes('/layout/') || fp.includes('/page_layout/')), debouncedCacheSave);
   allPatterns.push(...layoutH.patterns);

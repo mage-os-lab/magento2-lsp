@@ -50,6 +50,7 @@ import { resolveConcreteType, CALL_RE } from '../utils/diPreference';
 import { createScopeConfigRegex } from '../utils/configPathGrep';
 import { createPhpAclRegex } from '../utils/phpAclGrep';
 import { isAreaCompatible } from '../utils/areaScope';
+import { readFileSafe } from '../utils/fsHelpers';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -693,11 +694,3 @@ function handlePhpAclResource(
   return null;
 }
 
-/** Safely read a file from disk, returning undefined on any error. */
-function readFileSafe(filePath: string): string | undefined {
-  try {
-    return fs.readFileSync(filePath, 'utf-8');
-  } catch {
-    return undefined;
-  }
-}

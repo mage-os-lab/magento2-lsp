@@ -60,6 +60,12 @@ export class EventsIndex {
     }
   }
 
+  /** Replace all data for a file in one operation (remove old + add new). */
+  replaceFile(file: string, events: EventReference[], observers: ObserverReference[]): void {
+    this.removeFile(file);
+    this.addFile(file, events, observers);
+  }
+
   removeFile(file: string): void {
     const refs = this.fileToRefs.get(file);
     if (!refs) return;

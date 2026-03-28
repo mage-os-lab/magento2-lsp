@@ -70,8 +70,8 @@ async function resolveProject(
   filePath: string,
 ): Promise<ProjectContext> {
   const project = await pm.ensureProject(filePath, {
-    onBegin(total: number) {
-      logger.log(`magento2-lsp-mcp: Indexing ${total} di.xml files...\n`);
+    onBegin() {
+      logger.log('magento2-lsp-mcp: Indexing...\n');
     },
     onProgress() {},
     onEnd() {

@@ -13,6 +13,7 @@
  */
 
 import { execFile } from 'child_process';
+import { CancellationToken } from 'vscode-languageserver';
 import { Psr4Map } from '../indexer/types';
 
 /**
@@ -48,6 +49,7 @@ export async function grepAclResourceInPhp(
   resourceId: string,
   projectRoot: string,
   psr4Map: Psr4Map,
+  token?: CancellationToken,
 ): Promise<PhpAclRef[]> {
   // Build search directories from PSR-4 map
   const searchDirs = new Set<string>();
@@ -56,9 +58,11 @@ export async function grepAclResourceInPhp(
   }
 
   const results: PhpAclRef[] = [];
+  if (token?.isCancellationRequested) return results;
 
   const promises = [...searchDirs].map((dir) =>
     new Promise<void>((resolve) => {
+      if (token?.isCancellationRequested) { resolve(); return; }
       execFile(
         'grep',
         ['-rn', '--include=*.php', '-F', '-e', resourceId, '--', dir],

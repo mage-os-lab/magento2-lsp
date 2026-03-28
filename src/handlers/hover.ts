@@ -21,7 +21,7 @@ import { ProjectContext } from '../project/projectManager';
 import { isObserverReference } from '../index/eventsIndex';
 import { realpath } from '../utils/realpath';
 import { createPhpAclRegex } from '../utils/phpAclGrep';
-import * as fs from 'fs';
+import { readFileSafe } from '../utils/fsHelpers';
 
 /** Magento's default block class when no class attribute is specified in layout XML. */
 const MAGENTO_DEFAULT_BLOCK_CLASS = 'Magento\\Framework\\View\\Element\\Template';
@@ -531,11 +531,3 @@ function handlePhpHover(
   return null;
 }
 
-/** Safely read a file from disk, returning undefined on any error. */
-function readFileSafe(filePath: string): string | undefined {
-  try {
-    return fs.readFileSync(filePath, 'utf-8');
-  } catch {
-    return undefined;
-  }
-}

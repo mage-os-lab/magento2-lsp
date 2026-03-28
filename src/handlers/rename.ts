@@ -143,7 +143,7 @@ export function handlePrepareRename(
 export async function handleRename(
   params: RenameParams,
   getProject: (uri: string) => ProjectContext | undefined,
-  _token?: CancellationToken,
+  token?: CancellationToken,
 ): Promise<WorkspaceEdit | null> {
   const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
   const project = getProject(filePath);
@@ -152,7 +152,7 @@ export async function handleRename(
   const ctx = getRenameContext(filePath, params.position.line, params.position.character, project);
   if (!ctx) return null;
 
-  const edits = await collectEdits(ctx, params.newName, project);
+  const edits = await collectEdits(ctx, params.newName, project, token);
   if (edits.length === 0) return null;
 
   return buildWorkspaceEdit(edits);
@@ -483,6 +483,7 @@ async function collectEdits(
   ctx: RenameContext,
   newName: string,
   project: ProjectContext,
+  token?: CancellationToken,
 ): Promise<RenameEdit[]> {
   switch (ctx.kind) {
     case 'fqcn':
@@ -499,9 +500,9 @@ async function collectEdits(
       return refsToEdits(filteredTemplateRefs, newName);
     }
     case 'acl-resource':
-      return refsToEdits(await collectAclRefs(ctx.currentValue, project), newName);
+      return refsToEdits(await collectAclRefs(ctx.currentValue, project, token), newName);
     case 'config-segment':
-      return collectConfigSegmentEdits(ctx, newName, project);
+      return collectConfigSegmentEdits(ctx, newName, project, token);
     case 'block-name': {
       // Filter by area: a rename in frontend only affects frontend + base files
       const allRefs = project.indexes.layout.getRefsForName(ctx.currentValue);
@@ -592,7 +593,7 @@ function collectTemplateRefs(templateId: string, project: ProjectContext): RefPo
  * Queries five XML indexes plus an async grep of PHP files for ADMIN_RESOURCE
  * constants and isAllowed() calls.
  */
-async function collectAclRefs(aclId: string, project: ProjectContext): Promise<RefPosition[]> {
+async function collectAclRefs(aclId: string, project: ProjectContext, token?: CancellationToken): Promise<RefPosition[]> {
   const xmlRefs: RefPosition[] = [
     ...project.indexes.acl.getAllResources(aclId),
     ...project.indexes.webapi.getRefsForResource(aclId),
@@ -600,7 +601,7 @@ async function collectAclRefs(aclId: string, project: ProjectContext): Promise<R
     ...project.indexes.menu.getRefsForResource(aclId),
     ...project.indexes.uiComponentAcl.getRefsForResource(aclId),
   ];
-  const phpRefs = await grepAclResourceInPhp(aclId, project.root, project.psr4Map);
+  const phpRefs = await grepAclResourceInPhp(aclId, project.root, project.psr4Map, token);
   return [...xmlRefs, ...phpRefs];
 }
 
@@ -620,6 +621,7 @@ async function collectConfigSegmentEdits(
   ctx: RenameContext,
   newSegmentName: string,
   project: ProjectContext,
+  token?: CancellationToken,
 ): Promise<RenameEdit[]> {
   const configPath = ctx.configPath!;
   const segmentKind = ctx.configSegmentKind!;
@@ -648,7 +650,7 @@ async function collectConfigSegmentEdits(
 
   if (segmentKind === 'field-id') {
     // For field rename, grep for the exact full config path
-    const phpRefs = await grepConfigPathInPhp(configPath, project.root, project.psr4Map);
+    const phpRefs = await grepConfigPathInPhp(configPath, project.root, project.psr4Map, token);
     edits.push(...phpRefs.map((ref) => ({ ...ref, newText: newConfigPath })));
   } else {
     // For section/group rename, find all descendant field paths and grep each one.
@@ -663,7 +665,7 @@ async function collectConfigSegmentEdits(
 
     // Batch grep all descendant paths with concurrency limit
     const pathList = [...descendantPaths];
-    const grepResults = await grepConfigPathsInPhp(pathList, project.root, project.psr4Map);
+    const grepResults = await grepConfigPathsInPhp(pathList, project.root, project.psr4Map, undefined, token);
 
     const segmentIndex = segments.length - 1;
     for (const [descendantPath, phpRefs] of grepResults) {

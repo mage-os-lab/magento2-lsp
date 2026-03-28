@@ -38,6 +38,12 @@ export class AclIndex {
     }
   }
 
+  /** Replace all data for a file in one operation (remove old + add new). */
+  replaceFile(file: string, resources: AclResource[]): void {
+    this.removeFile(file);
+    this.addFile(file, resources);
+  }
+
   /** Remove all resources from a single file (called before re-indexing a changed file). */
   removeFile(file: string): void {
     const resources = this.fileToResources.get(file);

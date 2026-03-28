@@ -36,3 +36,17 @@ export function isDirectory(p: string): boolean {
     return false;
   }
 }
+
+/**
+ * Safely read a file from disk, returning undefined on any error.
+ *
+ * Used as a fallback when the document is not in the editor's open-document cache
+ * (e.g., the file was opened before the LSP server started).
+ */
+export function readFileSafe(filePath: string): string | undefined {
+  try {
+    return fs.readFileSync(filePath, 'utf-8');
+  } catch {
+    return undefined;
+  }
+}

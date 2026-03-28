@@ -32,7 +32,7 @@ import { URI } from 'vscode-uri';
 import { ProjectContext } from '../project/projectManager';
 import { getXmlContextAtPosition, XmlContext } from '../utils/xmlContext';
 import { realpath } from '../utils/realpath';
-import * as fs from 'fs';
+import { readFileSafe } from '../utils/fsHelpers';
 
 // ─── File type detection ────────────────────────────────────────────────────
 
@@ -500,19 +500,3 @@ export function handleCompletion(
   );
 }
 
-/**
- * Safely read a file from disk, returning undefined on any error.
- *
- * Used as a fallback when the document is not in the editor's open-document cache
- * (e.g., the file was opened before the LSP server started).
- *
- * @param filePath - Absolute file path.
- * @returns The file content, or undefined if the file cannot be read.
- */
-function readFileSafe(filePath: string): string | undefined {
-  try {
-    return fs.readFileSync(filePath, 'utf-8');
-  } catch {
-    return undefined;
-  }
-}

@@ -36,6 +36,7 @@ import { reverseResolveTemplateId } from '../utils/templateId';
 import { createScopeConfigRegex, grepConfigPathInPhp } from '../utils/configPathGrep';
 import { createPhpAclRegex, grepAclResourceInPhp } from '../utils/phpAclGrep';
 import { isAreaCompatible } from '../utils/areaScope';
+import { readFileSafe } from '../utils/fsHelpers';
 import * as fs from 'fs';
 
 export async function handleReferences(
@@ -127,8 +128,8 @@ async function handleXmlReferences(
     // section/group/field -> XML declarations + PHP usages of this config path
     const pathRefs = project.indexes.systemConfig.getRefsForPath(sysRef.configPath)
       .filter((r) => r.kind === sysRef.kind);
-    const phpUsages = sysRef.kind === 'field-id' && !token?.isCancellationRequested
-      ? await grepConfigPathInPhp(sysRef.configPath, project.root, project.psr4Map)
+    const phpUsages = sysRef.kind === 'field-id'
+      ? await grepConfigPathInPhp(sysRef.configPath, project.root, project.psr4Map, token)
       : [];
     return refsToLocations([...pathRefs, ...phpUsages]);
   }
@@ -160,7 +161,7 @@ async function handleXmlReferences(
     const systemRefs = project.indexes.systemConfig.getRefsForAclResource(aclResource.id);
     const menuRefs = project.indexes.menu.getRefsForResource(aclResource.id);
     const uiRefs = project.indexes.uiComponentAcl.getRefsForResource(aclResource.id);
-    const phpUsages = token?.isCancellationRequested ? [] : await grepAclResourceInPhp(aclResource.id, project.root, project.psr4Map);
+    const phpUsages = await grepAclResourceInPhp(aclResource.id, project.root, project.psr4Map, token);
     return refsToLocations([...webapiRefs, ...systemRefs, ...menuRefs, ...uiRefs, ...phpUsages]);
   }
 
@@ -465,7 +466,7 @@ async function findPhpConfigPathRefs(
     if (character >= pathStart && character <= pathEnd) {
       const fieldRefs = project.indexes.systemConfig.getRefsForPath(configPath)
         .filter((r) => r.kind === 'field-id');
-      const phpUsages = token?.isCancellationRequested ? [] : await grepConfigPathInPhp(configPath, project.root, project.psr4Map);
+      const phpUsages = await grepConfigPathInPhp(configPath, project.root, project.psr4Map, token);
       return refsToLocations([...fieldRefs, ...phpUsages]);
     }
   }
@@ -502,7 +503,7 @@ async function findPhpAclRefs(
       const systemRefs = project.indexes.systemConfig.getRefsForAclResource(aclId);
       const menuRefs = project.indexes.menu.getRefsForResource(aclId);
       const uiRefs = project.indexes.uiComponentAcl.getRefsForResource(aclId);
-      const phpUsages = token?.isCancellationRequested ? [] : await grepAclResourceInPhp(aclId, project.root, project.psr4Map);
+      const phpUsages = await grepAclResourceInPhp(aclId, project.root, project.psr4Map, token);
       return refsToLocations([
         ...aclDefs, ...webapiRefs, ...systemRefs, ...menuRefs, ...uiRefs, ...phpUsages,
       ]);
@@ -618,11 +619,3 @@ function refsToLocations(refs: { file: string; line: number; column: number; end
   );
 }
 
-/** Safely read a file from disk, returning undefined on any error. */
-function readFileSafe(filePath: string): string | undefined {
-  try {
-    return fs.readFileSync(filePath, 'utf-8');
-  } catch {
-    return undefined;
-  }
-}

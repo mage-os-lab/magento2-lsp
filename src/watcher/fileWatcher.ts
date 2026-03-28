@@ -134,6 +134,9 @@ export class UnifiedFileWatcher {
       },
     });
 
+    // Only the first matching handler processes each file. Handlers are tested in
+    // registration order, so specific matchers (e.g., /di.xml$/) must be registered
+    // before broad ones (e.g., .xml in layout/). See setupFileWatchers() in server.ts.
     const dispatch = (filePath: string, event: 'change' | 'remove'): void => {
       for (const handler of this.handlers) {
         if (handler.matches(filePath)) {

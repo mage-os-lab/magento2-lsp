@@ -74,11 +74,11 @@ describe('ProjectManager', () => {
     const pm = new ProjectManager();
     const events: string[] = [];
     await pm.ensureProject(FIXTURE_ROOT, {
-      onBegin: (total) => events.push(`begin:${total}`),
+      onBegin: () => events.push('begin'),
       onProgress: (current, total) => events.push(`progress:${current}/${total}`),
       onEnd: () => events.push('end'),
     });
-    expect(events[0]).toMatch(/^begin:\d+$/);
+    expect(events[0]).toBe('begin');
     expect(events[events.length - 1]).toBe('end');
     expect(events.filter((e) => e.startsWith('progress:')).length).toBeGreaterThan(0);
   });

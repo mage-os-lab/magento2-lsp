@@ -10,6 +10,7 @@
  */
 
 import { execFile } from 'child_process';
+import { CancellationToken } from 'vscode-languageserver';
 import { Psr4Map } from '../indexer/types';
 
 /**
@@ -38,6 +39,7 @@ export async function grepConfigPathInPhp(
   configPath: string,
   projectRoot: string,
   psr4Map: Psr4Map,
+  token?: CancellationToken,
 ): Promise<PhpConfigPathRef[]> {
   // Build search directories from PSR-4 map
   const searchDirs = new Set<string>();
@@ -46,9 +48,11 @@ export async function grepConfigPathInPhp(
   }
 
   const results: PhpConfigPathRef[] = [];
+  if (token?.isCancellationRequested) return results;
 
   const promises = [...searchDirs].map((dir) =>
     new Promise<void>((resolve) => {
+      if (token?.isCancellationRequested) { resolve(); return; }
       execFile(
         'grep',
         ['-rn', '--include=*.php', '-F', '-e', configPath, '--', dir],
@@ -96,6 +100,7 @@ export async function grepConfigPathsInPhp(
   projectRoot: string,
   psr4Map: Psr4Map,
   concurrency: number = 4,
+  token?: CancellationToken,
 ): Promise<Map<string, PhpConfigPathRef[]>> {
   const searchDirs = new Set<string>();
   for (const entry of psr4Map) {
@@ -110,6 +115,7 @@ export async function grepConfigPathsInPhp(
 
   // Process in chunks of `concurrency` paths per grep call
   for (let i = 0; i < configPaths.length; i += concurrency) {
+    if (token?.isCancellationRequested) break;
     const batch = configPaths.slice(i, i + concurrency);
     const args: string[] = ['-rn', '--include=*.php', '-F'];
     for (const p of batch) {
@@ -119,6 +125,7 @@ export async function grepConfigPathsInPhp(
 
     const dirPromises = dirs.map((dir) =>
       new Promise<void>((resolve) => {
+        if (token?.isCancellationRequested) { resolve(); return; }
         execFile(
           'grep',
           [...args, dir],
