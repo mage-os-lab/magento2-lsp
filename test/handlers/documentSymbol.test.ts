@@ -199,12 +199,174 @@ describe('handleDocumentSymbol', () => {
 
   // --- UI component XML ---
 
-  describe('UI component XML', () => {
-    it('returns ACL resource symbols', () => {
-      const result = callHandler(path.join(MODULE_FOO, 'view/adminhtml/ui_component/foo_listing.xml'));
+  describe('UI component XML — listing', () => {
+    let result: ReturnType<typeof callHandler>;
+
+    beforeAll(() => {
+      result = callHandler(path.join(MODULE_FOO, 'view/adminhtml/ui_component/foo_listing.xml'));
+    });
+
+    it('returns a listing root symbol', () => {
       expect(result).not.toBeNull();
-      const aclSymbols = result!.filter((s) => s.detail === 'ACL Resource');
-      expect(aclSymbols.length).toBeGreaterThanOrEqual(1);
+      expect(result!.length).toBe(1);
+      expect(result![0].name).toBe('listing');
+      expect(result![0].kind).toBe(SymbolKind.Namespace);
+    });
+
+    it('listing contains dataSource, toolbar, and columns as children', () => {
+      const root = result![0];
+      const childNames = root.children!.map((c) => c.name);
+      expect(childNames).toContain('foo_listing_data_source');
+      expect(childNames).toContain('listing_top');
+      expect(childNames).toContain('foo_listing_columns');
+    });
+
+    it('dataSource is Object kind with aclResource and dataProvider children', () => {
+      const ds = result![0].children!.find((c) => c.name === 'foo_listing_data_source')!;
+      expect(ds.kind).toBe(SymbolKind.Object);
+      // aclResource: name is the element name, detail is the text value
+      const acl = ds.children!.find((c) => c.name === 'ACL Resource')!;
+      expect(acl.kind).toBe(SymbolKind.Key);
+      expect(acl.detail).toBe('Test_ModuleFoo::items');
+      // dataProvider is Class with short class name as detail
+      const dp = ds.children!.find((c) => c.kind === SymbolKind.Class)!;
+      expect(dp.detail).toBe('DataProvider');
+    });
+
+    it('toolbar contains bookmark, filters, massaction, paging, and export children', () => {
+      const toolbar = result![0].children!.find((c) => c.name === 'listing_top')!;
+      expect(toolbar.kind).toBe(SymbolKind.Namespace);
+      expect(toolbar.detail).toBe('toolbar');
+      const childNames = toolbar.children!.map((c) => c.name);
+      expect(childNames).toContain('bookmarks');
+      expect(childNames).toContain('listing_filters');
+      expect(childNames).toContain('fulltext');
+      expect(childNames).toContain('listing_massaction');
+      expect(childNames).toContain('listing_paging');
+      expect(childNames).toContain('export_button');
+    });
+
+    it('massaction is Enum kind and contains action children', () => {
+      const toolbar = result![0].children!.find((c) => c.name === 'listing_top')!;
+      const massaction = toolbar.children!.find((c) => c.name === 'listing_massaction')!;
+      expect(massaction.kind).toBe(SymbolKind.Enum);
+      expect(massaction.children).toHaveLength(2);
+      expect(massaction.children![0].name).toBe('delete');
+      expect(massaction.children![0].kind).toBe(SymbolKind.Function);
+      expect(massaction.children![1].name).toBe('status');
+    });
+
+    it('exportButton is Function kind', () => {
+      const toolbar = result![0].children!.find((c) => c.name === 'listing_top')!;
+      const exp = toolbar.children!.find((c) => c.name === 'export_button')!;
+      expect(exp.kind).toBe(SymbolKind.Function);
+      expect(exp.detail).toBe('export');
+    });
+
+    it('columns is Array kind with column children', () => {
+      const cols = result![0].children!.find((c) => c.name === 'foo_listing_columns')!;
+      expect(cols.kind).toBe(SymbolKind.Array);
+      expect(cols.children!.length).toBe(5);
+    });
+
+    it('column shows xsi:type as detail', () => {
+      const cols = result![0].children!.find((c) => c.name === 'foo_listing_columns')!;
+      const entityId = cols.children!.find((c) => c.name === 'entity_id')!;
+      expect(entityId.kind).toBe(SymbolKind.Field);
+      expect(entityId.detail).toBe('number');
+    });
+
+    it('selectColumn shows selectColumn as detail', () => {
+      const cols = result![0].children!.find((c) => c.name === 'foo_listing_columns')!;
+      const ids = cols.children!.find((c) => c.name === 'ids')!;
+      expect(ids.kind).toBe(SymbolKind.Field);
+      expect(ids.detail).toBe('selectColumn');
+    });
+
+    it('actionsColumn shows short class name as detail', () => {
+      const cols = result![0].children!.find((c) => c.name === 'foo_listing_columns')!;
+      const actions = cols.children!.find((c) => c.name === 'actions')!;
+      expect(actions.kind).toBe(SymbolKind.Field);
+      expect(actions.detail).toBe('Actions');
+    });
+
+    it('column settings contains label, sorting, and other text-content children', () => {
+      const cols = result![0].children!.find((c) => c.name === 'foo_listing_columns')!;
+      const entityId = cols.children!.find((c) => c.name === 'entity_id')!;
+      const settings = entityId.children!.find((c) => c.name === 'settings')!;
+      expect(settings.kind).toBe(SymbolKind.Namespace);
+      const childNames = settings.children!.map((c) => c.name);
+      expect(childNames).toContain('label');
+      expect(childNames).toContain('sorting');
+      const label = settings.children!.find((c) => c.name === 'label')!;
+      expect(label.detail).toBe('ID');
+      expect(label.kind).toBe(SymbolKind.String);
+    });
+  });
+
+  describe('UI component XML — form', () => {
+    let result: ReturnType<typeof callHandler>;
+
+    beforeAll(() => {
+      result = callHandler(path.join(MODULE_FOO, 'view/adminhtml/ui_component/foo_form.xml'));
+    });
+
+    it('returns a form root symbol', () => {
+      expect(result).not.toBeNull();
+      expect(result!.length).toBe(1);
+      expect(result![0].name).toBe('form');
+      expect(result![0].kind).toBe(SymbolKind.Namespace);
+    });
+
+    it('form contains dataSource and fieldsets as children', () => {
+      const root = result![0];
+      const childNames = root.children!.map((c) => c.name);
+      expect(childNames).toContain('foo_form_data_source');
+      expect(childNames).toContain('general');
+      expect(childNames).toContain('content');
+    });
+
+    it('fieldset contains field children with formElement as detail', () => {
+      const general = result![0].children!.find((c) => c.name === 'general')!;
+      expect(general.kind).toBe(SymbolKind.Namespace);
+      const title = general.children!.find((c) => c.name === 'title')!;
+      expect(title.kind).toBe(SymbolKind.Field);
+      expect(title.detail).toBe('input');
+      const status = general.children!.find((c) => c.name === 'status')!;
+      expect(status.detail).toBe('select');
+    });
+
+    it('container nests button children', () => {
+      const general = result![0].children!.find((c) => c.name === 'general')!;
+      const container = general.children!.find((c) => c.name === 'button_container')!;
+      expect(container.kind).toBe(SymbolKind.Namespace);
+      expect(container.children).toHaveLength(2);
+      expect(container.children![0].name).toBe('save_button');
+      expect(container.children![0].kind).toBe(SymbolKind.Function);
+    });
+
+    it('dataProvider shows short class name as detail', () => {
+      const ds = result![0].children!.find((c) => c.name === 'foo_form_data_source')!;
+      const dp = ds.children!.find((c) => c.kind === SymbolKind.Class)!;
+      expect(dp.detail).toBe('DataProvider');
+    });
+
+    it('second fieldset has settings and field children', () => {
+      const content = result![0].children!.find((c) => c.name === 'content')!;
+      const childNames = content.children!.map((c) => c.name);
+      expect(childNames).toContain('settings');
+      expect(childNames).toContain('description');
+      const desc = content.children!.find((c) => c.name === 'description')!;
+      expect(desc.detail).toBe('textarea');
+    });
+
+    it('settings contains label as String child with text value as detail', () => {
+      const content = result![0].children!.find((c) => c.name === 'content')!;
+      const settings = content.children!.find((c) => c.name === 'settings')!;
+      expect(settings.kind).toBe(SymbolKind.Namespace);
+      const label = settings.children!.find((c) => c.name === 'label')!;
+      expect(label.detail).toBe('Content');
+      expect(label.kind).toBe(SymbolKind.String);
     });
   });
 });

@@ -1,7 +1,65 @@
 <?xml version="1.0"?>
 <listing xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Ui:etc/ui_configuration.xsd">
+    <argument name="data" xsi:type="array">
+        <item name="js_config" xsi:type="array">
+            <item name="provider" xsi:type="string">foo_listing.foo_listing_data_source</item>
+        </item>
+    </argument>
     <dataSource name="foo_listing_data_source">
         <aclResource>Test_ModuleFoo::items</aclResource>
+        <dataProvider class="Magento\Framework\View\Element\UiComponent\DataProvider\DataProvider"
+                      name="foo_listing_data_source">
+            <settings>
+                <updateUrl path="mui/index/render"/>
+            </settings>
+        </dataProvider>
     </dataSource>
+    <listingToolbar name="listing_top">
+        <bookmark name="bookmarks"/>
+        <columnsControls name="columns_controls"/>
+        <filters name="listing_filters"/>
+        <search name="fulltext"/>
+        <massaction name="listing_massaction">
+            <action name="delete">
+                <settings>
+                    <url path="foo/item/massDelete"/>
+                    <type>delete</type>
+                    <label>Delete</label>
+                </settings>
+            </action>
+            <action name="status">
+                <settings>
+                    <type>status</type>
+                    <label>Change Status</label>
+                </settings>
+            </action>
+        </massaction>
+        <paging name="listing_paging"/>
+        <exportButton name="export_button"/>
+    </listingToolbar>
+    <columns name="foo_listing_columns">
+        <selectColumn name="ids"/>
+        <column name="entity_id" xsi:type="number">
+            <settings>
+                <label>ID</label>
+                <sorting>asc</sorting>
+            </settings>
+        </column>
+        <column name="title" xsi:type="text">
+            <settings>
+                <label>Title</label>
+            </settings>
+        </column>
+        <column name="created_at" xsi:type="date">
+            <settings>
+                <label>Created</label>
+            </settings>
+        </column>
+        <actionsColumn name="actions" class="Test\ModuleFoo\Ui\Component\Listing\Columns\Actions">
+            <settings>
+                <indexField>entity_id</indexField>
+            </settings>
+        </actionsColumn>
+    </columns>
 </listing>

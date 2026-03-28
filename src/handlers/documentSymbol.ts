@@ -830,22 +830,192 @@ function buildMenuSymbols(content: string, context: MenuXmlParseContext): Docume
 // --- UI component XML symbols ---
 
 /**
- * Build document symbols for a UI component XML file.
+ * Elements that form the structural tree in UI component XML files.
+ * Each entry maps a lowercased tag name to its SymbolKind and optional detail text.
  *
- * Shows ACL resource references found in <aclResource> elements.
+ * Elements NOT in this set are transparent — their children bubble up to
+ * the nearest tracked ancestor (same approach as buildLayoutSymbols).
+ *
+ * Kind rationale:
+ *   Namespace  — structural containers (listing, form, toolbar, fieldset, container)
+ *   Object     — configured data objects (dataSource)
+ *   Class      — elements that reference a PHP class (dataProvider)
+ *   Array      — ordered collections (columns)
+ *   Field      — data fields (column, selectColumn, actionsColumn, field)
+ *   Enum       — set of named choices (massaction)
+ *   Function   — callable / clickable actions (action, button, exportButton)
+ *   Constant   — simple named toolbar tools (bookmark, filters, paging, etc.)
+ *   Key        — identifiers (aclResource)
+ *   Property   — configuration leaf values (filter, dataType)
+ *   String     — display text (label)
  */
-function buildUiComponentSymbols(content: string, context: UiComponentAclParseContext): DocumentSymbol[] | null {
-  const { references } = parseUiComponentAcl(content, context);
-  const symbols: DocumentSymbol[] = [];
+const UI_COMPONENT_STRUCTURAL_TAGS: Record<string, { kind: SymbolKind; detail?: string }> = {
+  // Top-level root elements
+  listing:         { kind: SymbolKind.Namespace },
+  form:            { kind: SymbolKind.Namespace },
+  // Data layer
+  datasource:      { kind: SymbolKind.Object },
+  dataprovider:    { kind: SymbolKind.Class },
+  // Listing toolbar and its children
+  listingtoolbar:  { kind: SymbolKind.Namespace, detail: 'toolbar' },
+  bookmark:        { kind: SymbolKind.Constant, detail: 'bookmark' },
+  columnscontrols: { kind: SymbolKind.Constant, detail: 'columnsControls' },
+  filters:         { kind: SymbolKind.Constant, detail: 'filters' },
+  search:          { kind: SymbolKind.Constant, detail: 'search' },
+  massaction:      { kind: SymbolKind.Enum, detail: 'massaction' },
+  action:          { kind: SymbolKind.Function },
+  paging:          { kind: SymbolKind.Constant, detail: 'paging' },
+  exportbutton:    { kind: SymbolKind.Function, detail: 'export' },
+  // Columns and settings
+  columns:         { kind: SymbolKind.Array },
+  column:          { kind: SymbolKind.Field },
+  selectcolumn:    { kind: SymbolKind.Field, detail: 'selectColumn' },
+  actionscolumn:   { kind: SymbolKind.Field },
+  settings:        { kind: SymbolKind.Namespace },
+  options:         { kind: SymbolKind.Class },
+  // Form elements
+  fieldset:        { kind: SymbolKind.Namespace },
+  field:           { kind: SymbolKind.Field },
+  container:       { kind: SymbolKind.Namespace },
+  // Shared
+  button:          { kind: SymbolKind.Function, detail: 'button' },
+};
 
-  for (const ref of references) {
-    symbols.push(makeSymbol(
-      ref.value,
-      'ACL Resource',
-      SymbolKind.Key,
-      ref.line, ref.column, ref.endColumn,
-    ));
-  }
+/**
+ * Text-content leaf elements whose text becomes the symbol name.
+ * These work like <aclResource> — text is collected between open/close tags
+ * and emitted as a leaf symbol attached to the nearest tracked ancestor.
+ */
+const UI_COMPONENT_TEXT_TAGS: Record<string, { kind: SymbolKind; detail: string }> = {
+  aclresource: { kind: SymbolKind.Key, detail: 'ACL Resource' },
+  label:       { kind: SymbolKind.String, detail: 'label' },
+  filter:      { kind: SymbolKind.Property, detail: 'filter' },
+  datatype:    { kind: SymbolKind.Property, detail: 'dataType' },
+  datascope:   { kind: SymbolKind.Property, detail: 'dataScope' },
+  sorting:     { kind: SymbolKind.Property, detail: 'sorting' },
+};
 
-  return symbols.length > 0 ? symbols : null;
+/**
+ * Build document symbols for a UI component XML file (listing or form).
+ *
+ * Uses a SAX parser with a stack-based approach (like buildLayoutSymbols) to
+ * reconstruct the XML hierarchy. Tracked elements become tree nodes; everything
+ * else is transparent. <aclResource> is special — its text content becomes a
+ * Key symbol attached to the nearest tracked ancestor.
+ */
+function buildUiComponentSymbols(content: string, _context: UiComponentAclParseContext): DocumentSymbol[] | null {
+  const lines = content.split('\n');
+  const parser = sax.parser(true, { position: true, trim: false });
+
+  const rootChildren: DocumentSymbol[] = [];
+  const stack: DocumentSymbol[] = [];
+  // Parallel boolean stack: true when this SAX depth is a tracked structural element.
+  const isTracked: boolean[] = [];
+
+  let currentTagStartLine = 0;
+  // State for collecting text content of leaf elements (aclResource, label, filter, etc.)
+  let collectingTextTag: { kind: SymbolKind; detail: string } | null = null;
+  let collectedText = '';
+  let collectedTextLine = 0;
+
+  parser.onopentagstart = () => {
+    currentTagStartLine = parser.line ?? 0;
+  };
+
+  parser.onopentag = (tag) => {
+    const tagLine = parser.line ?? 0;
+    const tagName = tag.name.toLowerCase();
+
+    // Text-content leaf elements — collect text, don't push to structural stack
+    const textEntry = UI_COMPONENT_TEXT_TAGS[tagName];
+    if (textEntry) {
+      collectingTextTag = textEntry;
+      collectedText = '';
+      collectedTextLine = currentTagStartLine;
+      isTracked.push(false);
+      return;
+    }
+
+    const entry = UI_COMPONENT_STRUCTURAL_TAGS[tagName];
+    if (!entry) {
+      isTracked.push(false);
+      return;
+    }
+
+    // Elements without a name attribute use the tag name as the symbol name
+    const nameAttr = getAttr(tag, 'name');
+
+    // Compute detail from attributes where applicable
+    let detail = entry.detail;
+    if (tagName === 'datasource' || tagName === 'dataprovider' || tagName === 'actionscolumn' || tagName === 'options') {
+      // Show short class name (last backslash segment) for class-bearing elements
+      const classAttr = getAttr(tag, 'class');
+      if (classAttr) detail = classAttr.split('\\').pop();
+    } else if (tagName === 'column') {
+      // Show xsi:type as the column data type
+      const xsiType = tag.attributes['xsi:type'] ?? tag.attributes['XSI:TYPE'] ?? tag.attributes['xsi:Type'];
+      const typeStr = typeof xsiType === 'string' ? xsiType : xsiType?.value;
+      if (typeStr) detail = typeStr;
+    } else if (tagName === 'field') {
+      // Show formElement attribute (input, select, textarea, etc.)
+      const formElement = getAttr(tag, 'formElement');
+      if (formElement) detail = formElement;
+    } else if (tagName === 'container') {
+      // Show short component name if present
+      const component = getAttr(tag, 'component');
+      if (component) detail = component.split('/').pop();
+    }
+
+    // Build the symbol — root elements use the tag name, others use the name attribute
+    const symbolName = nameAttr ?? tagName;
+    let sym: DocumentSymbol;
+    if (nameAttr) {
+      const pos = findAttributeValuePosition(lines, tagLine, 'name', currentTagStartLine);
+      if (!pos) {
+        isTracked.push(false);
+        return;
+      }
+      sym = makeSymbol(symbolName, detail, entry.kind, pos.line, pos.column, pos.endColumn);
+    } else {
+      // No name attribute — use tag name, position at tag start
+      sym = makeSymbol(symbolName, detail, entry.kind, currentTagStartLine, 0, tagName.length);
+    }
+
+    attachToParent(stack, rootChildren, sym);
+    stack.push(sym);
+    isTracked.push(true);
+  };
+
+  parser.ontext = (text) => {
+    if (collectingTextTag) {
+      collectedText += text;
+    }
+  };
+
+  parser.onclosetag = (tagName) => {
+    // Emit collected text-content element as a leaf symbol.
+    // The element name becomes the symbol name; the text value becomes the detail.
+    if (collectingTextTag) {
+      const value = collectedText.trim();
+      if (value) {
+        const lineText = lines[collectedTextLine] ?? '';
+        const col = lineText.indexOf(value);
+        const startCol = col >= 0 ? col : 0;
+        const sym = makeSymbol(collectingTextTag.detail, value, collectingTextTag.kind, collectedTextLine, startCol, startCol + value.length);
+        attachToParent(stack, rootChildren, sym);
+      }
+      collectingTextTag = null;
+    }
+
+    const tracked = isTracked.pop();
+    if (tracked) {
+      const sym = stack.pop();
+      if (sym) expandRangeToChildren(sym);
+    }
+  };
+
+  installErrorHandler(parser);
+  parser.write(content).close();
+
+  return rootChildren.length > 0 ? rootChildren : null;
 }

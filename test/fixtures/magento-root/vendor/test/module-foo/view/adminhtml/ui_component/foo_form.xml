@@ -1,0 +1,50 @@
+<?xml version="1.0"?>
+<form xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Ui:etc/ui_configuration.xsd">
+    <argument name="data" xsi:type="array">
+        <item name="js_config" xsi:type="array">
+            <item name="provider" xsi:type="string">foo_form.foo_form_data_source</item>
+        </item>
+    </argument>
+    <dataSource name="foo_form_data_source">
+        <aclResource>Test_ModuleFoo::items</aclResource>
+        <dataProvider class="Test\ModuleFoo\Model\Foo\DataProvider"
+                      name="foo_form_data_source">
+            <settings>
+                <requestFieldName>id</requestFieldName>
+            </settings>
+        </dataProvider>
+    </dataSource>
+    <fieldset name="general">
+        <settings>
+            <label>General Information</label>
+        </settings>
+        <field name="title" formElement="input">
+            <settings>
+                <label>Title</label>
+                <dataType>text</dataType>
+            </settings>
+        </field>
+        <field name="status" formElement="select">
+            <settings>
+                <label>Status</label>
+                <dataType>select</dataType>
+            </settings>
+        </field>
+        <container name="button_container">
+            <button name="save_button"/>
+            <button name="reset_button"/>
+        </container>
+    </fieldset>
+    <fieldset name="content">
+        <settings>
+            <label>Content</label>
+        </settings>
+        <field name="description" formElement="textarea">
+            <settings>
+                <label>Description</label>
+                <dataType>text</dataType>
+            </settings>
+        </field>
+    </fieldset>
+</form>

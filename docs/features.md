@@ -173,7 +173,8 @@ Diagnostics update on every keystroke (debounced). Expensive checks (duplicate p
 - **routes.xml**: router > route (frontName) > module hierarchy, with before/after priority info
 - **db_schema.xml**: table > column, constraint (primary/foreign/unique), and index hierarchy - shows data types, FK relationships, and index types
 - **menu.xml**: menu items showing title and ACL resource
-- **UI component XML**: ACL resource references
+- **UI component XML (listing)**: hierarchical listing > dataSource (with ACL resource and dataProvider), listingToolbar (with bookmark, filters, search, massaction > actions, paging, exportButton), columns (with column, selectColumn, actionsColumn) - shows xsi:type for columns and short class name for class-bearing elements
+- **UI component XML (form)**: hierarchical form > dataSource, fieldset (with field children), container (with button children) - shows formElement attribute for fields
 
 ## Workspace Symbol Search
 
