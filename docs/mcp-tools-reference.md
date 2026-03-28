@@ -2,7 +2,7 @@
 
 Full parameter and response reference for all Magento 2 LSP MCP tools.
 
-Every tool requires a `filePath` parameter — an absolute path to any file or directory inside the Magento project. The project root is auto-detected by walking up parent directories to find `app/etc/di.xml`.
+Every tool requires a `filePath` parameter - an absolute path to any file or directory inside the Magento project. The project root is auto-detected by walking up parent directories to find `app/etc/di.xml`.
 
 ---
 

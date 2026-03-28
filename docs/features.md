@@ -68,7 +68,7 @@ Complete list of LSP features provided by magento2-lsp.
 - **Find References** from a PHP config path string: shows system.xml field declarations and PHP usages
 - **Hover** on `<section>`, `<group>`, `<field>` IDs: shows the config path, label, and module name
 - **Hover** on model FQCNs: shows the model type, parent config path, and class name
-- **Include partials** (e.g., `etc/adminhtml/system/*.xml`) are parsed and indexed — hover indicates partial paths with `…/` prefix
+- **Include partials** (e.g., `etc/adminhtml/system/*.xml`) are parsed and indexed - hover indicates partial paths with `…/` prefix
 - **Nested groups** are fully supported (config paths can have 4+ segments)
 
 ## webapi.xml Navigation
@@ -165,13 +165,13 @@ Diagnostics update on every keystroke (debounced). Expensive checks (duplicate p
 ## Document Symbols (Outline / Breadcrumbs)
 
 - **di.xml**: preferences (interface → implementation), type declarations with nested plugins, virtual types
-- **events.xml**: events with nested observers — tree view shows event_name > ObserverClass
-- **layout XML**: hierarchical tree of body, containers, blocks, referenceBlock/referenceContainer, and handle updates — nesting reflects actual XML structure
+- **events.xml**: events with nested observers - tree view shows event_name > ObserverClass
+- **layout XML**: hierarchical tree of body, containers, blocks, referenceBlock/referenceContainer, and handle updates - nesting reflects actual XML structure
 - **system.xml**: hierarchical section > group > field tree, with source/backend/frontend model and ACL resource children
-- **webapi.xml**: service classes, methods, and ACL resources — each with HTTP method and route URL context
+- **webapi.xml**: service classes, methods, and ACL resources - each with HTTP method and route URL context
 - **acl.xml**: hierarchical resource tree reconstructed from parent-child relationships
 - **routes.xml**: router > route (frontName) > module hierarchy, with before/after priority info
-- **db_schema.xml**: table > column, constraint (primary/foreign/unique), and index hierarchy — shows data types, FK relationships, and index types
+- **db_schema.xml**: table > column, constraint (primary/foreign/unique), and index hierarchy - shows data types, FK relationships, and index types
 - **menu.xml**: menu items showing title and ACL resource
 - **UI component XML**: ACL resource references
 
@@ -195,4 +195,4 @@ Supports [automatic template overrides](https://docs.hyva.io/hyva-themes/compati
 - **Rename template identifier** from a layout XML `template` attribute: renames the `Module_Name::path/to/template.phtml` string across layout XML files that reference it (module and theme layouts), scoped by area
 - **Rename ACL resource ID** from `acl.xml`, `webapi.xml`, `menu.xml`, `system.xml`, or UI component XML: renames across all `acl.xml` definitions, `webapi.xml` resource refs, `menu.xml` resource attributes, `system.xml` section resources, UI component `<aclResource>` elements, and PHP `ADMIN_RESOURCE` constants / `isAllowed()` calls
 - **Rename config section, group, or field** from `system.xml`: the rename placeholder shows just the segment name (e.g., `redirect_dashboard`, not the full path). The `id` attribute in `system.xml` is updated, and PHP `scopeConfig->getValue()` / `isSetFlag()` calls are rewritten with the full new config path. Section and group renames cascade to all descendant PHP config path references. Field renames also update `<depends><field id="...">` references that depend on the renamed field.
-- **Rename block or container name** from any layout XML file: renames `<block name="X">` / `<container name="X">` declarations and all `<referenceBlock name="X">` / `<referenceContainer name="X">` usages across module and theme layout files, scoped by area — a rename in a frontend file only affects frontend + base files, adminhtml only affects adminhtml + base, and base affects all areas. Cursor on either a declaration or a reference triggers the same rename.
+- **Rename block or container name** from any layout XML file: renames `<block name="X">` / `<container name="X">` declarations and all `<referenceBlock name="X">` / `<referenceContainer name="X">` usages across module and theme layout files, scoped by area - a rename in a frontend file only affects frontend + base files, adminhtml only affects adminhtml + base, and base affects all areas. Cursor on either a declaration or a reference triggers the same rename.
