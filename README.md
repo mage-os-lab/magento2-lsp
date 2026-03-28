@@ -15,6 +15,8 @@ Agents write the code, but you still review it - and jumping between XML and PHP
 
 Works alongside Intelephense or Phpactor - this LSP handles the Magento-specific connections that generic PHP tooling can't see.
 
+- **Auto-complete as you type.** Context-aware completions for FQCNs, event names, config paths, ACL resource IDs, template identifiers, layout handles, block/container names, and DB table/column names across XML config files and PHP.
+
 - **Navigate XML config like code.** Go-to-definition and find-references work across `di.xml`, `events.xml`, `system.xml`, and layout XML - linking them to the PHP classes, templates, and config paths they reference.
 
 - **Trace the plugin chain.** See which plugins intercept a method, jump from a `beforeSave` plugin to the method it wraps, and see plugin counts directly in your editor via code lenses.
@@ -24,6 +26,8 @@ Works alongside Intelephense or Phpactor - this LSP handles the Magento-specific
 - **Catch errors as you type.** Broken class references, missing templates, duplicate plugin names, and invalid model classes are flagged with diagnostics - no need to wait for a deploy to find out.
 
 - **Understand template overrides.** Navigate between module templates, theme overrides, and Hyvä compatibility module overrides. Code lenses show override counts and sources at a glance.
+
+- **Rename across config.** Rename a class, template, ACL resource, config path, or block/container name and have all XML references (and related PHP string literals) updated in one go. This covers the Magento-specific references that a PHP LSP can't see — actual PHP class names and files are left to Intelephense or Phpactor.
 
 - **Resolve magic methods.** When Intelephense can't follow a method call because it goes through a DI preference or `__call` magic, this LSP resolves it to the concrete implementation.
 

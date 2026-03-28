@@ -208,6 +208,8 @@ Supports [automatic template overrides](https://docs.hyva.io/hyva-themes/compati
 
 ## Rename Symbol
 
+Rename updates references inside XML config files and string literals in PHP (e.g., `scopeConfig->getValue()` paths, `ADMIN_RESOURCE` constants). It does **not** rename physical files on disk or PHP class/interface names inside `.php` files — use a PHP LSP server like Intelephense or Phpactor for that.
+
 - **Rename FQCN** from any XML file or PHP class declaration: renames the class reference across all `di.xml` (preferences, types, plugins, arguments, virtual types), `events.xml` (observer instances), layout XML (block classes, object arguments), `system.xml` (source/backend/frontend models), and `webapi.xml` (service classes). All 14 Magento auto-generated class variants (`Factory`, `\Proxy`, `\Interceptor`, `ExtensionInterface`, `Extension`, `ExtensionInterfaceFactory`, `SearchResults`, `Mapper`, `\ProxyDeferred`, etc.) are automatically updated with their suffix preserved. Cursor on any generated class resolves recursively to the base FQCN for rename.
 - **Rename template identifier** from a layout XML `template` attribute: renames the `Module_Name::path/to/template.phtml` string across layout XML files that reference it (module and theme layouts), scoped by area
 - **Rename ACL resource ID** from `acl.xml`, `webapi.xml`, `menu.xml`, `system.xml`, or UI component XML: renames across all `acl.xml` definitions, `webapi.xml` resource refs, `menu.xml` resource attributes, `system.xml` section resources, UI component `<aclResource>` elements, and PHP `ADMIN_RESOURCE` constants / `isAllowed()` calls
