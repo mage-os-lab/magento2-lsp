@@ -12,7 +12,7 @@ import {
   handleSearchSymbols,
   handleGetClassHierarchy,
   handleGetDbSchema,
-  handleReindex,
+  handleRescanProject,
 } from '../../src/mcp/tools';
 
 const FIXTURE_ROOT = path.resolve(__dirname, '../fixtures/magento-root');
@@ -714,12 +714,12 @@ describe('MCP tools', () => {
   });
 
   // -----------------------------------------------------------------------
-  // magento_reindex
+  // magento_rescan_project
   // -----------------------------------------------------------------------
 
-  describe('magento_reindex', () => {
+  describe('magento_rescan_project', () => {
     it('rebuilds the project and returns a summary', async () => {
-      const result = await handleReindex(pm, { filePath: FIXTURE_FILE }) as {
+      const result = await handleRescanProject(pm, { filePath: FIXTURE_FILE }) as {
         projectRoot: string;
         moduleCount: number;
         diXmlFiles: number;

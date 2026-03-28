@@ -18,5 +18,5 @@ export {
   handleSearchSymbols,
   handleGetClassHierarchy,
   handleGetDbSchema,
-  handleReindex,
+  handleRescanProject,
 } from './handlers';

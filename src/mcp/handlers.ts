@@ -618,7 +618,7 @@ export async function handleResolveClass(
   return result;
 }
 
-export async function handleReindex(
+export async function handleRescanProject(
   pm: ProjectManager,
   args: unknown,
 ): Promise<object> {
@@ -907,5 +907,5 @@ export const toolHandlers = new Map<string, ToolHandler>([
   ['magento_search_symbols', handleSearchSymbols],
   ['magento_get_class_hierarchy', handleGetClassHierarchy],
   ['magento_get_db_schema', handleGetDbSchema],
-  ['magento_reindex', handleReindex],
+  ['magento_rescan_project', handleRescanProject],
 ]);

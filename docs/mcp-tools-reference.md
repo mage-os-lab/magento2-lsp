@@ -419,9 +419,9 @@ Column objects may also include: `length`, `default`, `precision`, `scale`, `uns
 
 ---
 
-## magento_reindex
+## magento_rescan_project
 
-Rebuild all in-memory indexes. Call after modifying XML configuration files.
+Rescan the Magento project to rebuild the MCP server cache. Call after modifying XML configuration files.
 
 ### Parameters
 

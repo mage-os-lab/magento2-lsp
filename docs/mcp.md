@@ -100,8 +100,8 @@ Returns the merged database table schema aggregated from all `db_schema.xml` fil
 
 Use this when working on models, repositories, data patches, or SQL queries - Magento tables are often extended by multiple modules (e.g., `catalog_product_entity` has columns from Catalog, CatalogInventory, Downloadable, and more), so reading a single `db_schema.xml` is not enough.
 
-### magento_reindex
+### magento_rescan_project
 
-Rebuilds all in-memory indexes after creating or modifying modules, XML files, or theme templates. Uses disk caching for unchanged files, so incremental re-indexing is fast.
+Rescans the Magento project to rebuild the MCP server cache after creating or modifying modules, XML files, or theme templates. Uses disk caching for unchanged files, so incremental rescanning is fast.
 
 Use this after making changes to XML configuration files so the other tools return up-to-date results.

@@ -243,11 +243,11 @@ export const toolDefinitions = [
     },
   },
   {
-    name: 'magento_reindex',
+    name: 'magento_rescan_project',
     description:
-      'Re-index the Magento project. Call this after creating or modifying modules, ' +
-      'di.xml, events.xml, layout XML, or theme templates. Rebuilds all in-memory indexes, ' +
-      'using the disk cache for unchanged files so incremental re-indexing is fast.',
+      'Rescan the Magento project to rebuild the MCP server cache. Call this after creating ' +
+      'or modifying modules, di.xml, events.xml, layout XML, or theme templates. Rebuilds all ' +
+      'in-memory indexes, using the disk cache for unchanged files so incremental rescanning is fast.',
     inputSchema: {
       type: 'object' as const,
       properties: {
