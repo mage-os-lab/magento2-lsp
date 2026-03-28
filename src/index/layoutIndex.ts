@@ -133,6 +133,34 @@ export class LayoutIndex {
     return this.fileToRefs.size;
   }
 
+  /** Returns all layout handle names from indexed layout files. */
+  getAllHandles(): string[] {
+    return [...this.handleToFiles.keys()];
+  }
+
+  /** Returns all template identifiers (e.g., "Module_Name::path/file.phtml") from indexed layout files. */
+  getAllTemplateIds(): string[] {
+    return [...this.templateToRefs.keys()];
+  }
+
+  /** Returns all block names from indexed layout files (only names declared via block-name kind). */
+  getAllBlockNames(): string[] {
+    const names: string[] = [];
+    for (const [name, refs] of this.nameToRefs) {
+      if (refs.some(r => r.kind === 'block-name')) names.push(name);
+    }
+    return names;
+  }
+
+  /** Returns all container names from indexed layout files (only names declared via container-name kind). */
+  getAllContainerNames(): string[] {
+    const names: string[] = [];
+    for (const [name, refs] of this.nameToRefs) {
+      if (refs.some(r => r.kind === 'container-name')) names.push(name);
+    }
+    return names;
+  }
+
   clear(): void {
     this.fqcnToRefs.clear();
     this.templateToRefs.clear();

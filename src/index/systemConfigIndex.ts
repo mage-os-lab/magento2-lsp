@@ -114,6 +114,11 @@ export class SystemConfigIndex {
     return this.pathToRefs.keys();
   }
 
+  /** Returns all source/backend/frontend model FQCNs from indexed system.xml files. */
+  getAllModelFqcns(): IterableIterator<string> {
+    return this.fqcnToRefs.keys();
+  }
+
   /** Number of system.xml files currently indexed. */
   getFileCount(): number {
     return this.fileToRefs.size;

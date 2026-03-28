@@ -111,6 +111,11 @@ export class WebapiIndex {
     return result;
   }
 
+  /** Returns all service class FQCNs from indexed webapi.xml files. */
+  getAllServiceClasses(): string[] {
+    return [...this.fqcnToRefs.keys()];
+  }
+
   /** Number of webapi.xml files currently indexed. */
   getFileCount(): number {
     return this.fileToRefs.size;

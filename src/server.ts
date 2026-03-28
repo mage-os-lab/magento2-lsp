@@ -33,6 +33,7 @@ import { handleHover } from './handlers/hover';
 import { handleDocumentSymbol } from './handlers/documentSymbol';
 import { handleWorkspaceSymbol } from './handlers/workspaceSymbol';
 import { handlePrepareRename, handleRename } from './handlers/rename';
+import { handleCompletion } from './handlers/completion';
 import { UnifiedFileWatcher, createXmlWatcherHandler } from './watcher/fileWatcher';
 import { CacheSectionKey } from './cache/indexCache';
 import {
@@ -76,6 +77,25 @@ const connection = createConnection(ProposedFeatures.all);
 const projectManager = new ProjectManager();
 const watchers: { close(): void }[] = [];
 let xmllintEnabled = false;
+
+/**
+ * Cache of open document contents, keyed by document URI.
+ *
+ * Kept in sync with the editor via onDidOpen/onChange/onClose notifications.
+ * This allows completion (and other features) to work on unsaved edits rather
+ * than stale on-disk content.
+ */
+const documentContents = new Map<string, string>();
+
+/**
+ * Retrieve the cached content for an open document.
+ *
+ * @param uri - The document URI (as sent by the editor).
+ * @returns The latest document text, or undefined if the document is not open / not cached.
+ */
+function getDocumentText(uri: string): string | undefined {
+  return documentContents.get(uri);
+}
 
 function log(msg: string): void {
   process.stderr.write(`[magento2-lsp] ${msg}\n`);
@@ -171,6 +191,16 @@ connection.onRenameRequest(async (params, token) => {
   return handleRename(params, () => projectManager.getProjectForFile(filePath), token);
 });
 
+connection.onCompletion((params, token) => {
+  const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
+  return handleCompletion(
+    params,
+    () => projectManager.getProjectForFile(filePath),
+    getDocumentText,
+    token,
+  );
+});
+
 // --- Lazy project initialization ---
 
 /**
@@ -181,6 +211,7 @@ connection.onRenameRequest(async (params, token) => {
  * which typically shows as a progress bar or spinner in the editor's status line.
  */
 connection.onDidOpenTextDocument(async (params) => {
+  documentContents.set(params.textDocument.uri, params.textDocument.text);
   const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
   log(`onDidOpenTextDocument: ${filePath}`);
   const existing = projectManager.getProjectForFile(filePath);
@@ -304,13 +335,17 @@ function validateAndPublish(
 }
 
 connection.onDidChangeTextDocument((params) => {
+  // contentChanges with Full sync contains the entire document as a single change
+  const content = params.contentChanges[0]?.text;
+  if (content !== undefined) {
+    documentContents.set(params.textDocument.uri, content);
+  }
+
   const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
   if (!filePath.endsWith('.xml') && !filePath.endsWith('.php')) return;
   const project = projectManager.getProjectForFile(filePath);
   if (!project) return;
 
-  // contentChanges with Full sync contains the entire document as a single change
-  const content = params.contentChanges[0]?.text;
   if (content !== undefined) {
     validateAndPublish(params.textDocument.uri, content, project, 1500);
   }
@@ -332,6 +367,7 @@ connection.onDidSaveTextDocument((params) => {
 });
 
 connection.onDidCloseTextDocument((params) => {
+  documentContents.delete(params.textDocument.uri);
   // Clear diagnostics when file is closed
   connection.sendDiagnostics({ uri: params.textDocument.uri, diagnostics: [] });
   // Cancel any pending validation

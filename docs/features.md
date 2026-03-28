@@ -2,6 +2,22 @@
 
 Complete list of LSP features provided by magento2-lsp.
 
+## Completion (Auto-Complete)
+
+Context-aware auto-completion for Magento XML config files and PHP files. Completions are filtered by case-insensitive substring match on partial text, capped at 100 items per request.
+
+- **di.xml**: Complete FQCNs for `<preference for="...">` and `type="..."`, `<type name="...">`, `<plugin type="...">`, `<virtualType type="...">`, and `<argument xsi:type="object">` text content (includes virtual type names)
+- **events.xml**: Complete event names for `<event name="...">` and FQCNs for `<observer instance="...">`
+- **Layout XML**: Complete FQCNs for `<block class="...">`, template identifiers for `<block template="...">` and `<referenceBlock template="...">`, layout handles for `<update handle="...">`, block names for `<referenceBlock name="...">`, container names for `<referenceContainer name="...">`, block/container names for `<move element="...">` and `<move destination="...">`, and FQCNs for `<argument xsi:type="object">` text content
+- **webapi.xml**: Complete service class FQCNs for `<service class="...">` and ACL resource IDs for `<resource ref="...">`
+- **system.xml**: Complete FQCNs for `<source_model>`, `<backend_model>`, `<frontend_model>` text content, and ACL resource IDs for `<resource>` text content
+- **menu.xml**: Complete ACL resource IDs for `<add resource="...">`
+- **UI component XML**: Complete ACL resource IDs for `<aclResource>` text content
+- **db_schema.xml**: Complete table names for `referenceTable="..."` on foreign key constraints, and column names for `referenceColumn="..."` (scoped to the referenced table)
+- **PHP**: Complete event names in `->dispatch('...')`, config paths in `->getValue('...')`/`->isSetFlag('...')`, ACL resource IDs in `->isAllowed('...')` and `const ADMIN_RESOURCE = '...'`
+
+Trigger characters: `"`, `'`, `\`, `/`, `:`
+
 ## di.xml Navigation
 
 - **Go to Definition** from `di.xml`: jump from a class name to the PHP file, or from a virtualType reference to its `<virtualType>` declaration
