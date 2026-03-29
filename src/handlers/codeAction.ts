@@ -105,12 +105,22 @@ export function handleCodeAction(
 /**
  * Resolve a code action by applying it to disk.
  * Called when the user selects an action from the list.
+ *
+ * The data payload round-trips through the LSP client, which could tamper with
+ * paths. We validate that all target paths resolve to within the project root
+ * before performing any filesystem writes.
  */
-export function handleCodeActionResolve(action: CodeAction): CodeAction {
+export function handleCodeActionResolve(
+  action: CodeAction,
+  getProject: (uri: string) => ProjectContext | undefined,
+): CodeAction {
   const data = action.data as CreateFileActionData | AddInterfaceActionData | undefined;
   if (!data) return action;
 
+  const project = data.sourceUri ? getProject(URI.parse(data.sourceUri).fsPath) : undefined;
+
   if (data.type === 'create-file') {
+    if (!isPathInsideProject(data.targetPath, project)) return action;
     try {
       fs.mkdirSync(path.dirname(data.targetPath), { recursive: true });
       fs.writeFileSync(data.targetPath, data.content, { flag: 'wx' });
@@ -123,10 +133,18 @@ export function handleCodeActionResolve(action: CodeAction): CodeAction {
   }
 
   if (data.type === 'add-observer-interface') {
+    if (!isPathInsideProject(data.classFile, project)) return action;
     applyAddObserverInterface(data.classFile);
   }
 
   return action;
+}
+
+/** Check that a resolved path is within the project root to prevent path traversal. */
+function isPathInsideProject(filePath: string, project: ProjectContext | undefined): boolean {
+  if (!project) return false;
+  const resolved = path.resolve(filePath);
+  return resolved.startsWith(project.root + path.sep) || resolved === project.root;
 }
 
 // --- helpers ---
@@ -229,6 +247,9 @@ function buildCreateTemplateAction(
 
   const [moduleId, relativePath] = templateId.split('::', 2);
   if (!moduleId || !relativePath) return undefined;
+
+  // Reject path traversal in template IDs (e.g. Module::../../etc/env.php)
+  if (relativePath.includes('..')) return undefined;
 
   let targetPath: string;
   const themePath = detectThemePath(layoutFilePath);

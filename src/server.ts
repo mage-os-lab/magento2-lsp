@@ -231,7 +231,7 @@ connection.onCodeAction((params, token) => {
 });
 
 connection.onCodeActionResolve((action) => {
-  const resolved = handleCodeActionResolve(action);
+  const resolved = handleCodeActionResolve(action, (filePath) => projectManager.getProjectForFile(filePath));
 
   // After resolve, re-index and re-validate the source document so
   // diagnostics clear and go-to-definition works immediately.
