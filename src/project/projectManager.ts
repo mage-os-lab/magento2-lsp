@@ -52,6 +52,13 @@ import { parseDbSchemaXml } from '../indexer/dbSchemaXmlParser';
 import { ModuleInfo, Psr4Map } from '../indexer/types';
 import { fileExists } from '../utils/fsHelpers';
 import { yieldToEventLoop } from '../utils/async';
+import { SymbolIndex } from '../index/symbolIndex';
+import { SymbolMatcher } from '../matching/types';
+import { createSegmentMatcher } from '../matching/segmentMatcher';
+import { segmentizeFqcn, segmentizeTemplateId } from '../matching/segmentation';
+import { scanPhpClassesAsync } from '../indexer/phpClassScanner';
+import { scanAllTemplates } from '../indexer/templateScanner';
+import { SymbolsCache, computePsr4Hash, computeTemplateSourceHash } from '../cache/symbolsCache';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -86,6 +93,12 @@ export interface ProjectContext {
   themeResolver: ThemeResolver;
   /** Disk cache for this project's parse results. */
   cache: IndexCache;
+  /** Full PHP class and template index for completion. */
+  symbolIndex: SymbolIndex;
+  /** Matcher used for segment-boundary matching against the symbol index. */
+  symbolMatcher: SymbolMatcher;
+  /** Disk cache for the symbol index (separate from XML cache). */
+  symbolsCache: SymbolsCache;
   /** True once the initial indexing pass is complete. */
   indexingComplete: boolean;
 }
@@ -439,11 +452,65 @@ export class ProjectManager {
     // Save cache once (covers all indexed XML types)
     cache.save();
 
+    // --- Build the full PHP class and template symbol index ---
+    const symbolT0 = Date.now();
+    const symbolIndex = new SymbolIndex();
+    const symbolMatcher = createSegmentMatcher();
+    const symbolsCache = new SymbolsCache(root);
+    symbolsCache.load();
+
+    // Scan PHP classes (use cache if PSR-4 map hasn't changed)
+    const psr4Hash = computePsr4Hash(psr4Map);
+    const cachedFqcns = symbolsCache.getClasses(psr4Hash);
+    if (cachedFqcns) {
+      // Rebuild ClassEntry objects from cached FQCNs (recompute segments)
+      symbolIndex.setClasses(cachedFqcns.map(fqcn => ({
+        value: fqcn,
+        segments: segmentizeFqcn(fqcn),
+      })));
+    } else {
+      const classEntries = await scanPhpClassesAsync(psr4Map);
+      symbolIndex.setClasses(classEntries);
+      symbolsCache.setClasses(psr4Hash, classEntries.map(e => e.value));
+    }
+
+    // Scan templates (use cache if module/theme paths haven't changed)
+    const allThemes = themeResolver.getAllThemes();
+    const templateHash = computeTemplateSourceHash(
+      modules.map(m => m.path),
+      allThemes.map(t => t.path),
+    );
+    const cachedTemplates = symbolsCache.getTemplates(templateHash);
+    if (cachedTemplates) {
+      symbolIndex.setTemplates(cachedTemplates.map(t => {
+        const seg = segmentizeTemplateId(t.value);
+        return {
+          ...t,
+          moduleSegments: seg.moduleSegments,
+          pathSegments: seg.pathSegments,
+        };
+      }));
+    } else {
+      const templateEntries = scanAllTemplates(modules, allThemes);
+      symbolIndex.setTemplates(templateEntries);
+      symbolsCache.setTemplates(templateHash, templateEntries.map(e => ({
+        value: e.value,
+        area: e.area,
+        filePath: e.filePath,
+      })));
+    }
+
+    symbolsCache.save();
+
     const totalFiles = diXmlFiles.length + eventsFiles.length + systemFiles.length
       + webapiFiles.length + aclFiles.length + menuFiles.length
       + uiFiles.length + routesFiles.length + dbSchemaFiles.length
       + layoutFiles.length;
-    process.stderr.write(`[magento2-lsp] Indexed ${modules.length} modules, ${totalFiles} XML files in ${Date.now() - t0}ms\n`);
+    process.stderr.write(
+      `[magento2-lsp] Indexed ${modules.length} modules, ${totalFiles} XML files, `
+      + `${symbolIndex.getClassCount()} PHP classes, ${symbolIndex.getTemplateCount()} templates `
+      + `in ${Date.now() - t0}ms (symbols: ${Date.now() - symbolT0}ms)\n`,
+    );
 
     progress?.onEnd();
 
@@ -468,6 +535,9 @@ export class ProjectManager {
       },
       themeResolver,
       cache,
+      symbolIndex,
+      symbolMatcher,
+      symbolsCache,
       indexingComplete: true,
     };
   }

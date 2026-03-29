@@ -4,7 +4,7 @@ Complete list of LSP features provided by magento2-lsp.
 
 ## Completion (Auto-Complete)
 
-Context-aware auto-completion for Magento XML config files and PHP files. Completions are filtered by case-insensitive substring match on partial text, capped at 100 items per request.
+Context-aware auto-completion for Magento XML config files and PHP files. PHP class and template completions use a [segment-boundary matcher](segment-matching.md) that supports CamelCase abbreviations and namespace prefix matching against all classes and templates in the project. Other completions (events, ACL, handles, etc.) are filtered by case-insensitive substring match. All results are capped at 100 items per request.
 
 - **di.xml**: Complete FQCNs for `<preference for="...">` and `type="..."`, `<type name="...">`, `<plugin type="...">`, `<virtualType type="...">`, and `<argument xsi:type="object">` text content (includes virtual type names)
 - **events.xml**: Complete event names for `<event name="...">` and FQCNs for `<observer instance="...">`

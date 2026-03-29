@@ -77,12 +77,24 @@ function detectXmlFileType(filePath: string): MagentoXmlFileType | undefined {
 /**
  * Result of resolving completion candidates: the list of possible values and the
  * CompletionItemKind to tag each item with.
+ *
+ * For FQCN and template completions, the `source` field is set to 'symbolIndex'
+ * to route through the segment-boundary matcher instead of the substring filter.
  */
 interface CompletionCandidates {
   /** Iterable of candidate strings (FQCNs, event names, table names, etc.). */
   candidates: Iterable<string>;
   /** LSP CompletionItemKind for all candidates in this set. */
   kind: CompletionItemKind;
+  /** When set, use the symbol index matcher instead of substring filtering. */
+  source?: 'symbolIndex';
+  /** Symbol type for symbol index routing: 'class' or 'template'. */
+  symbolType?: 'class' | 'template';
+  /**
+   * Extra candidates to merge in (e.g. virtual type names alongside class matches).
+   * These are still filtered with substring matching.
+   */
+  extraCandidates?: Iterable<string>;
 }
 
 /**
@@ -125,26 +137,29 @@ function getCompletionCandidates(
       if (isAttr) {
         // <preference for="..." type="...">
         if (elementName === 'preference' && (attributeName === 'for' || attributeName === 'type')) {
-          return { candidates: project.indexes.di.getAllFqcns(), kind: CompletionItemKind.Class };
+          return { candidates: [], kind: CompletionItemKind.Class, source: 'symbolIndex', symbolType: 'class' };
         }
         // <type name="...">
         if (elementName === 'type' && attributeName === 'name') {
-          return { candidates: project.indexes.di.getAllFqcns(), kind: CompletionItemKind.Class };
+          return { candidates: [], kind: CompletionItemKind.Class, source: 'symbolIndex', symbolType: 'class' };
         }
         // <plugin type="...">
         if (elementName === 'plugin' && attributeName === 'type') {
-          return { candidates: project.indexes.di.getAllFqcns(), kind: CompletionItemKind.Class };
+          return { candidates: [], kind: CompletionItemKind.Class, source: 'symbolIndex', symbolType: 'class' };
         }
         // <virtualType type="...">
         if (elementName === 'virtualType' && attributeName === 'type') {
-          return { candidates: project.indexes.di.getAllFqcns(), kind: CompletionItemKind.Class };
+          return { candidates: [], kind: CompletionItemKind.Class, source: 'symbolIndex', symbolType: 'class' };
         }
       }
       // <argument xsi:type="object">FQCN</argument>
       if (isText && elementName === 'argument' && xsiType === 'object') {
         return {
-          candidates: chain(project.indexes.di.getAllFqcns(), project.indexes.di.getAllVirtualTypeNames()),
+          candidates: [],
           kind: CompletionItemKind.Class,
+          source: 'symbolIndex',
+          symbolType: 'class',
+          extraCandidates: project.indexes.di.getAllVirtualTypeNames(),
         };
       }
       return undefined;
@@ -159,7 +174,7 @@ function getCompletionCandidates(
         }
         // <observer instance="...">
         if (elementName === 'observer' && attributeName === 'instance') {
-          return { candidates: project.indexes.di.getAllFqcns(), kind: CompletionItemKind.Class };
+          return { candidates: [], kind: CompletionItemKind.Class, source: 'symbolIndex', symbolType: 'class' };
         }
       }
       return undefined;
@@ -170,11 +185,11 @@ function getCompletionCandidates(
       if (isAttr) {
         // <block class="...">
         if (elementName === 'block' && attributeName === 'class') {
-          return { candidates: project.indexes.di.getAllFqcns(), kind: CompletionItemKind.Class };
+          return { candidates: [], kind: CompletionItemKind.Class, source: 'symbolIndex', symbolType: 'class' };
         }
         // <block template="..."> or <referenceBlock template="...">
         if ((elementName === 'block' || elementName === 'referenceBlock') && attributeName === 'template') {
-          return { candidates: project.indexes.layout.getAllTemplateIds(), kind: CompletionItemKind.File };
+          return { candidates: [], kind: CompletionItemKind.File, source: 'symbolIndex', symbolType: 'template' };
         }
         // <update handle="...">
         if (elementName === 'update' && attributeName === 'handle') {
@@ -203,8 +218,11 @@ function getCompletionCandidates(
       // <argument xsi:type="object">FQCN</argument> in layout XML
       if (isText && elementName === 'argument' && xsiType === 'object') {
         return {
-          candidates: chain(project.indexes.di.getAllFqcns(), project.indexes.di.getAllVirtualTypeNames()),
+          candidates: [],
           kind: CompletionItemKind.Class,
+          source: 'symbolIndex',
+          symbolType: 'class',
+          extraCandidates: project.indexes.di.getAllVirtualTypeNames(),
         };
       }
       return undefined;
@@ -215,7 +233,7 @@ function getCompletionCandidates(
       if (isAttr) {
         // <service class="...">
         if (elementName === 'service' && attributeName === 'class') {
-          return { candidates: project.indexes.webapi.getAllServiceClasses(), kind: CompletionItemKind.Class };
+          return { candidates: [], kind: CompletionItemKind.Class, source: 'symbolIndex', symbolType: 'class' };
         }
         // <resource ref="...">
         if (elementName === 'resource' && attributeName === 'ref') {
@@ -228,12 +246,12 @@ function getCompletionCandidates(
     // ── system.xml ──────────────────────────────────────────────────────
     case 'system': {
       // <source_model>FQCN</source_model>, <backend_model>FQCN</backend_model>, <frontend_model>FQCN</frontend_model>
-      // Chain di.xml FQCNs with system.xml model FQCNs so that classes only referenced
-      // as models (not in di.xml) still appear in completions.
       if (isText && (elementName === 'source_model' || elementName === 'backend_model' || elementName === 'frontend_model')) {
         return {
-          candidates: chain(project.indexes.di.getAllFqcns(), project.indexes.systemConfig.getAllModelFqcns()),
+          candidates: [],
           kind: CompletionItemKind.Class,
+          source: 'symbolIndex',
+          symbolType: 'class',
         };
       }
       // <resource>ACL_ID</resource>
@@ -442,6 +460,83 @@ function handlePhpCompletion(
   return null;
 }
 
+// ─── Symbol index completion builder ────────────────────────────────────
+
+/**
+ * Build a CompletionList using the symbol index's segment-boundary matcher.
+ *
+ * Instead of iterating all candidates with substring matching, this delegates
+ * to the SymbolIndex which uses the pre-segmented matcher for fast, ranked results.
+ *
+ * For class contexts with `extraCandidates` (e.g. virtual types alongside real classes),
+ * the extra candidates are filtered with the old substring approach and merged in.
+ *
+ * @param project - The project context.
+ * @param filePath - The file being edited (for area detection in template completions).
+ * @param result - The completion candidates result with source='symbolIndex'.
+ * @param partial - The partial text already typed.
+ * @param valueRange - The range of the current value to replace.
+ * @returns A CompletionList with matched and ranked results.
+ */
+function buildSymbolCompletionList(
+  project: ProjectContext,
+  filePath: string,
+  result: CompletionCandidates,
+  partial: string,
+  valueRange: { line: number; startCol: number; endCol: number },
+): CompletionList {
+  const range = Range.create(
+    valueRange.line, valueRange.startCol,
+    valueRange.line, valueRange.endCol,
+  );
+
+  let matches: string[];
+
+  if (result.symbolType === 'template') {
+    // Determine area from file path for scoped template completions
+    const area = project.themeResolver.getAreaForFile(filePath) ?? 'frontend';
+    matches = project.symbolIndex.matchTemplates(
+      partial, area, project.symbolMatcher, MAX_COMPLETION_ITEMS,
+    );
+  } else {
+    matches = project.symbolIndex.matchClasses(
+      partial, project.symbolMatcher, MAX_COMPLETION_ITEMS,
+    );
+  }
+
+  const items: CompletionItem[] = matches.map((value, idx) => ({
+    label: value,
+    kind: result.kind,
+    textEdit: TextEdit.replace(range, value),
+    filterText: value,
+    // Use index as sortText to preserve score-based ordering from the matcher
+    sortText: String(idx).padStart(5, '0'),
+  }));
+
+  // Merge in extra candidates (e.g. virtual type names) using substring matching
+  if (result.extraCandidates && items.length < MAX_COMPLETION_ITEMS) {
+    const lowerPartial = partial.toLowerCase();
+    const existingLabels = new Set(matches);
+    let extraIdx = items.length;
+
+    for (const candidate of result.extraCandidates) {
+      if (items.length >= MAX_COMPLETION_ITEMS) break;
+      if (existingLabels.has(candidate)) continue;
+      if (lowerPartial.length > 0 && !candidate.toLowerCase().includes(lowerPartial)) continue;
+
+      items.push({
+        label: candidate,
+        kind: result.kind,
+        textEdit: TextEdit.replace(range, candidate),
+        filterText: candidate,
+        sortText: String(extraIdx++).padStart(5, '0'),
+      });
+    }
+  }
+
+  return { isIncomplete: true, items };
+}
+
 // ─── Main handler ───────────────────────────────────────────────────────────
 
 /**
@@ -491,6 +586,17 @@ export function handleCompletion(
 
   const result = getCompletionCandidates(project, fileType, context, text);
   if (!result) return null;
+
+  // Route symbol index completions through the segment-boundary matcher
+  if (result.source === 'symbolIndex') {
+    return buildSymbolCompletionList(
+      project,
+      filePath,
+      result,
+      context.partialValue,
+      context.valueRange,
+    );
+  }
 
   return buildCompletionList(
     result.candidates,

@@ -187,17 +187,26 @@ export const toolDefinitions = [
   {
     name: 'magento_search_symbols',
     description:
-      'Search for Magento symbols by name substring: PHP classes/interfaces configured in DI, ' +
-      'virtual types, event names, database table names, system config paths, ACL resource IDs, ' +
-      'and route frontNames. Returns up to 100 matches with their type and declaration file. ' +
-      'Use this to discover any Magento symbol when you only know part of the name.',
+      'Search for Magento symbols by name: ALL PHP classes/interfaces (not just DI-configured ones), ' +
+      '.phtml templates, virtual types, event names, database table names, system config paths, ' +
+      'ACL resource IDs, and route frontNames. Returns up to 100 matches with their type and file. ' +
+      'PHP class queries support segment-boundary matching (e.g. "CatModProd" matches ' +
+      '"Magento\\Catalog\\Model\\Product"). Template queries support module::path matching ' +
+      '(e.g. "Cat::pro/view" matches "Magento_Catalog::product/view.phtml").',
     inputSchema: {
       type: 'object' as const,
       properties: {
         filePath: filePathProperty,
         query: {
           type: 'string',
-          description: 'Search string (minimum 2 characters). Matches case-insensitively against symbol names.',
+          description:
+            'Search string (minimum 2 characters). For PHP classes, supports segment-boundary matching ' +
+            '(CamelCase abbreviations, namespace prefixes). For templates, supports Module::path matching.',
+        },
+        area: {
+          type: 'string',
+          description:
+            'Area scope for template results: "frontend", "adminhtml", or "base". Defaults to "frontend".',
         },
       },
       required: ['filePath', 'query'],

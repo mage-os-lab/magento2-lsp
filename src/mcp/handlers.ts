@@ -761,26 +761,39 @@ export async function handleSearchSymbols(
 
   const project = await resolveProject(pm, params.filePath);
   const root = project.root;
+  const area = typeof params.area === 'string' ? params.area : 'frontend';
 
   // Search each category independently with a per-category cap, then merge.
   // This ensures every category gets representation for broad queries.
 
-  // DI-configured FQCNs
-  const classes: SymbolResult[] = [];
-  for (const fqcn of project.indexes.di.getAllFqcns()) {
-    if (classes.length >= MAX_PER_CATEGORY) break;
-    if (!fqcn.toLowerCase().includes(query)) continue;
-    const refs = project.indexes.di.getReferencesForFqcn(fqcn);
-    if (refs.length > 0) {
-      const resolved = resolveClassFile(fqcn, project.psr4Map);
-      classes.push({
-        name: fqcn,
-        kind: 'class',
-        file: relPath(refs[0].file, root),
-        ...(resolved ? { classFile: relPath(resolved, root) } : {}),
-      });
+  // PHP classes (from the full symbol index, not just DI-configured ones).
+  // Use segment-boundary matching first, then supplement with substring matching
+  // to handle plain lowercase queries like "foointerface".
+  const classMatches = project.symbolIndex.matchClasses(
+    params.query as string, project.symbolMatcher, MAX_PER_CATEGORY,
+  );
+  const classMatchSet = new Set(classMatches);
+
+  // Supplement with substring matching for broad queries
+  if (classMatches.length < MAX_PER_CATEGORY) {
+    for (const fqcn of project.symbolIndex.getAllClassFqcns()) {
+      if (classMatchSet.size >= MAX_PER_CATEGORY) break;
+      if (classMatchSet.has(fqcn)) continue;
+      if (fqcn.toLowerCase().includes(query)) {
+        classMatchSet.add(fqcn);
+      }
     }
   }
+
+  const classes: SymbolResult[] = [...classMatchSet].map(fqcn => {
+    const resolved = resolveClassFile(fqcn, project.psr4Map);
+    return {
+      name: fqcn,
+      kind: 'class',
+      file: resolved ? relPath(resolved, root) : '',
+      ...(resolved ? { classFile: relPath(resolved, root) } : {}),
+    };
+  });
 
   // Virtual types
   const virtualTypes: SymbolResult[] = [];
@@ -848,10 +861,20 @@ export async function handleSearchSymbols(
     }
   }
 
+  // Templates (from the full symbol index)
+  const templateMatches = project.symbolIndex.matchTemplates(
+    params.query as string, area, project.symbolMatcher, MAX_PER_CATEGORY,
+  );
+  const templates: SymbolResult[] = templateMatches.map(id => ({
+    name: id,
+    kind: 'template',
+    file: '',
+  }));
+
   // Merge all categories, capped at the global maximum
   const results = [
     ...classes, ...virtualTypes, ...events,
-    ...tables, ...configPaths, ...aclResources, ...routes,
+    ...tables, ...configPaths, ...aclResources, ...routes, ...templates,
   ].slice(0, MAX_SEARCH_RESULTS);
 
   return { query: params.query as string, resultCount: results.length, results };

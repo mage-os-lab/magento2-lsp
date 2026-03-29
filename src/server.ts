@@ -70,6 +70,8 @@ import { parseRoutesXml } from './indexer/routesXmlParser';
 import { parseDbSchemaXml } from './indexer/dbSchemaXmlParser';
 import { parseUiComponentAcl } from './indexer/uiComponentAclParser';
 import { resolveFileToFqcn } from './indexer/phpClassLocator';
+import { deriveClassEntry } from './indexer/phpClassScanner';
+import { deriveTemplateEntry } from './indexer/templateScanner';
 import { ModuleInfo } from './indexer/types';
 import { realpath } from './utils/realpath';
 import { validateXmlFile, isXmllintAvailable, invalidateCatalogCache } from './validation/xsdValidator';
@@ -859,6 +861,31 @@ function setupFileWatchers(project: ProjectContext): void {
   allPatterns.push(...layoutH.patterns);
   unified.addHandler(layoutH.handler);
 
+  // --- .phtml template handler ---
+  // Watch module template directories
+  for (const mod of project.modules) {
+    for (const area of ['frontend', 'adminhtml', 'base']) {
+      allPatterns.push(path.join(mod.path, 'view', area, 'templates', '**', '*.phtml'));
+    }
+  }
+  // Watch theme template directories
+  for (const theme of project.themeResolver.getAllThemes()) {
+    allPatterns.push(path.join(theme.path, '*', 'templates', '**', '*.phtml'));
+  }
+  unified.addHandler({
+    matches: (fp) => fp.endsWith('.phtml'),
+    onFileChange(filePath) {
+      const entry = deriveTemplateEntry(filePath, project.modules, project.themeResolver);
+      if (entry) {
+        project.symbolIndex.removeTemplate(filePath);
+        project.symbolIndex.addTemplate(entry);
+      }
+    },
+    onFileRemove(filePath) {
+      project.symbolIndex.removeTemplate(filePath);
+    },
+  });
+
   // --- PHP handler ---
   function invalidatePhpClass(filePath: string): void {
     const fqcn = resolveFileToFqcn(filePath, project.psr4Map);
@@ -872,8 +899,18 @@ function setupFileWatchers(project: ProjectContext): void {
   }
   unified.addHandler({
     matches: (fp) => fp.endsWith('.php'),
-    onFileChange: invalidatePhpClass,
-    onFileRemove: invalidatePhpClass,
+    onFileChange(filePath) {
+      invalidatePhpClass(filePath);
+      // Update symbol index with new/changed class
+      const entry = deriveClassEntry(filePath, project.psr4Map);
+      if (entry) {
+        project.symbolIndex.addClass(entry, filePath);
+      }
+    },
+    onFileRemove(filePath) {
+      invalidatePhpClass(filePath);
+      project.symbolIndex.removeClass(filePath);
+    },
   });
 
   // Start the single unified watcher
