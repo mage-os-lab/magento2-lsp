@@ -68,7 +68,8 @@ export function reverseResolveModuleTemplateId(
   modules: ModuleInfo[],
 ): string | undefined {
   for (const mod of modules) {
-    if (filePath.startsWith(mod.path)) {
+    // Use mod.path + '/' to avoid prefix collisions (e.g. Catalog vs CatalogRule)
+    if (filePath.startsWith(mod.path + '/')) {
       const relToModule = filePath.substring(mod.path.length + 1);
       // relToModule: "view/frontend/templates/path/to/file.phtml"
       const templatesIdx = relToModule.indexOf('/templates/');

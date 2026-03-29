@@ -499,7 +499,7 @@ function handlePhpHover(
   while ((match = re.exec(line)) !== null) {
     const fullMatch = match[0];
     const aclId = match[1];
-    const idStart = match.index + fullMatch.indexOf(aclId);
+    const idStart = match.index + fullMatch.lastIndexOf(aclId);
     const idEnd = idStart + aclId.length;
 
     // Use <= to give a slightly generous hit area (one char past the token)

@@ -195,7 +195,15 @@ export class SymbolIndex {
 
     scored.sort((a, b) => b.score - a.score || a.value.localeCompare(b.value));
 
-    return scored.slice(0, limit).map(s => s.value);
+    // Deduplicate: a template ID can appear multiple times (module + theme overrides)
+    const seen = new Set<string>();
+    const unique = scored.filter(s => {
+      if (seen.has(s.value)) return false;
+      seen.add(s.value);
+      return true;
+    });
+
+    return unique.slice(0, limit).map(s => s.value);
   }
 
   // ─── Iteration ─────────────────────────────────────────────────────────

@@ -86,8 +86,9 @@ export function createXmlWatcher<TContext, TResult>(
         config.onParsed(filePath, stat.mtimeMs, result);
         config.saveCache();
         config.afterChange?.(filePath);
-      } catch {
-        // File might be temporarily unreadable during write
+      } catch (err) {
+        // readFileSync/statSync can fail if file is mid-write; log anything else
+        process.stderr.write(`[magento2-lsp] Watcher error for ${filePath}: ${err}\n`);
       }
     },
     onFileRemove(filePath) {
@@ -118,10 +119,16 @@ export interface WatcherHandler {
 export class UnifiedFileWatcher {
   private watcher: chokidar.FSWatcher | undefined;
   private handlers: WatcherHandler[] = [];
+  private closeCallbacks: (() => void)[] = [];
 
   /** Register a handler. Must be called before watch(). */
   addHandler(handler: WatcherHandler): void {
     this.handlers.push(handler);
+  }
+
+  /** Register a callback to run when close() is called (e.g., clearing timers). */
+  onClose(callback: () => void): void {
+    this.closeCallbacks.push(callback);
   }
 
   /** Start watching all patterns with a single chokidar instance. */
@@ -162,6 +169,8 @@ export class UnifiedFileWatcher {
 
   /** Stop watching and release resources. */
   close(): void {
+    for (const cb of this.closeCallbacks) cb();
+    this.closeCallbacks = [];
     this.watcher?.close();
   }
 }
@@ -186,8 +195,9 @@ export function createXmlWatcherHandler<TContext, TResult>(
         config.onParsed(filePath, stat.mtimeMs, result);
         config.saveCache();
         config.afterChange?.(filePath);
-      } catch {
-        // File might be temporarily unreadable during write
+      } catch (err) {
+        // readFileSync/statSync can fail if file is mid-write; log anything else
+        process.stderr.write(`[magento2-lsp] Watcher error for ${filePath}: ${err}\n`);
       }
     },
     onFileRemove(filePath) {

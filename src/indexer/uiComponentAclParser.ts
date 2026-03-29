@@ -70,6 +70,12 @@ export function parseUiComponentAcl(
     }
   };
 
+  parser.oncdata = (cdata) => {
+    if (collectingAclResource) {
+      collectedText += cdata;
+    }
+  };
+
   parser.onclosetag = (tagName) => {
     if (collectingAclResource && (tagName === 'aclResource' || tagName === 'aclresource')) {
       const trimmed = collectedText.trim();

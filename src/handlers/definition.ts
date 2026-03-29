@@ -640,7 +640,7 @@ function handlePhpConfigPath(
     // Find where the config path string starts (inside the quotes)
     const fullMatch = match[0];
     const configPath = match[1];
-    const pathStart = match.index + fullMatch.indexOf(configPath);
+    const pathStart = match.index + fullMatch.lastIndexOf(configPath);
     const pathEnd = pathStart + configPath.length;
 
     // Use <= to give a slightly generous hit area (one char past the token)
@@ -678,7 +678,7 @@ function handlePhpAclResource(
   while ((match = re.exec(line)) !== null) {
     const fullMatch = match[0];
     const aclId = match[1];
-    const idStart = match.index + fullMatch.indexOf(aclId);
+    const idStart = match.index + fullMatch.lastIndexOf(aclId);
     const idEnd = idStart + aclId.length;
 
     if (character >= idStart && character <= idEnd) {

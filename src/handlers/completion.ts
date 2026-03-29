@@ -444,7 +444,7 @@ function handlePhpCompletion(
     const quoteCol = col - partial.length;
     // Find the closing quote (if present) to determine end of value range
     const closingQuoteIdx = cursorLine.indexOf(
-      cursorLine[quoteCol - 1] === '"' ? '"' : "'",
+      quoteCol > 0 && cursorLine[quoteCol - 1] === '"' ? '"' : "'",
       col,
     );
     const endCol = closingQuoteIdx !== -1 ? closingQuoteIdx : col;

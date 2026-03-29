@@ -390,8 +390,8 @@ function validateAndPublish(
       const semanticDiags = validateSemantics(filePath, content, project, includeExpensiveChecks);
 
       connection.sendDiagnostics({ uri, diagnostics: [...xsdDiags, ...semanticDiags] });
-    } catch {
-      // Don't let validation errors break the LSP
+    } catch (err) {
+      log(`Validation error for ${uri}: ${err}`);
     }
   }, delayMs));
 }
@@ -546,8 +546,8 @@ function indexSingleXmlFile(filePath: string, content: string, project: ProjectC
       project.cache.save();
       return;
     }
-  } catch {
-    // Don't let indexing errors break the save handler
+  } catch (err) {
+    log(`Indexing error for ${filePath}: ${err}`);
   }
 }
 
@@ -911,6 +911,13 @@ function setupFileWatchers(project: ProjectContext): void {
       invalidatePhpClass(filePath);
       project.symbolIndex.removeClass(filePath);
     },
+  });
+
+  // Clear debounce timers when the watcher is closed during shutdown,
+  // preventing callbacks from firing on a dead project context.
+  unified.onClose(() => {
+    if (cacheSaveTimer) { clearTimeout(cacheSaveTimer); cacheSaveTimer = undefined; }
+    if (pluginRebuildTimer) { clearTimeout(pluginRebuildTimer); pluginRebuildTimer = undefined; }
   });
 
   // Start the single unified watcher

@@ -183,8 +183,15 @@ describe('handleCompletion', () => {
       expect(result!.items.length).toBeGreaterThan(0);
       // All items should be Class kind (FQCNs)
       expect(result!.items[0].kind).toBe(CompletionItemKind.Class);
-      // Each item should have a textEdit for proper insertion
-      expect(result!.items[0].textEdit).toBeDefined();
+      // Each item should have a textEdit that replaces the full attribute value
+      const textEdit = result!.items[0].textEdit!;
+      expect(textEdit).toBeDefined();
+      expect('range' in textEdit).toBe(true);
+      if ('range' in textEdit) {
+        expect(textEdit.range.start.line).toBe(2);
+        expect(textEdit.range.end.line).toBe(2);
+        expect(textEdit.newText).toBe(result!.items[0].label);
+      }
     });
 
     it('completes FQCNs for preference type= attribute', () => {
@@ -903,7 +910,8 @@ class MyClass {
       expect(result).not.toBeNull();
       const firstItem = result!.items[0];
       expect(firstItem.textEdit).toBeDefined();
-      // The textEdit should be a replace edit
+      // The textEdit should be a replace edit with the item's label as newText
+      expect('range' in firstItem.textEdit!).toBe(true);
       if ('range' in firstItem.textEdit!) {
         const range = firstItem.textEdit!.range;
         // Range should start at the opening quote+1 and end at closing quote

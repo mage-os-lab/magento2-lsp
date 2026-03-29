@@ -292,7 +292,10 @@ export function deriveSystemXmlContext(
   if (!isMainSystemXml && !isIncludePartial) return undefined;
 
   for (const mod of modules) {
-    if (filePath.startsWith(mod.path)) {
+    // Use mod.path + '/' to avoid prefix collisions (e.g. Catalog vs CatalogRule).
+    // Other derive* functions are safe because they validate path.relative() structure,
+    // but this one returns immediately on match.
+    if (filePath.startsWith(mod.path + '/')) {
       return { file: filePath, module: mod.name };
     }
   }
@@ -478,7 +481,8 @@ export function deriveUiComponentAclContext(
   if (!filePath.includes('/view/adminhtml/ui_component/')) return undefined;
 
   for (const mod of modules) {
-    if (filePath.startsWith(mod.path)) {
+    // Use mod.path + '/' to avoid prefix collisions (e.g. Catalog vs CatalogRule)
+    if (filePath.startsWith(mod.path + '/')) {
       return { file: filePath, module: mod.name };
     }
   }

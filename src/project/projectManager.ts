@@ -496,8 +496,8 @@ export class ProjectManager {
 
     // Scan PHP classes and templates in the background so XML-based
     // features are available immediately while the symbol index populates.
-    this.buildSymbolIndexAsync(project).catch(() => {
-      // Symbol indexing is best-effort — errors are non-fatal
+    this.buildSymbolIndexAsync(project).catch((err) => {
+      process.stderr.write(`[magento2-lsp] Symbol indexing error: ${err}\n`);
     });
 
     return project;

@@ -70,6 +70,8 @@ interface QueryChunk {
   text: string;
   /** If true, the entry segment must be fully consumed (explicit \ or / after this chunk). */
   terminated: boolean;
+  /** If true, advance to the next outer segment without requiring full consumption. */
+  advance?: boolean;
 }
 
 // ─── Query parsing ─────────────────────────────────────────────────────────
@@ -189,7 +191,8 @@ function parseModuleQuery(query: string): QueryChunk[] {
 
       chunks.push({
         text,
-        terminated: !isLastPart && j === camelParts.length - 1,
+        terminated: false,
+        advance: !isLastPart && j === camelParts.length - 1,
       });
     }
   }
@@ -293,6 +296,11 @@ function matchNestedSegments(chunks: QueryChunk[], segments: string[][]): number
             return 0; // "View\" can't match "ViewModel" (inner has "model" left)
           }
           break; // Advance to next outer segment
+        }
+
+        // If advance, move to next outer segment without requiring full consumption
+        if (chunk.advance) {
+          break;
         }
       } else {
         // No match at current position — advance to next inner segment

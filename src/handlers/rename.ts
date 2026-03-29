@@ -427,7 +427,7 @@ function matchConfigPath(
   let match;
   while ((match = re.exec(lineText)) !== null) {
     const configPath = match[1];
-    const pathStart = match.index + match[0].indexOf(configPath);
+    const pathStart = match.index + match[0].lastIndexOf(configPath);
     const pathEnd = pathStart + configPath.length;
     if (character >= pathStart && character <= pathEnd) {
       // In PHP, show the full config path as placeholder — the user replaces
@@ -458,7 +458,7 @@ function matchAclResource(
   let match;
   while ((match = re.exec(lineText)) !== null) {
     const aclId = match[1];
-    const idStart = match.index + match[0].indexOf(aclId);
+    const idStart = match.index + match[0].lastIndexOf(aclId);
     const idEnd = idStart + aclId.length;
     if (character >= idStart && character <= idEnd) {
       return {

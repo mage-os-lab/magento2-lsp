@@ -588,7 +588,7 @@ function validatePhpAcl(
     let match;
     while ((match = re.exec(line)) !== null) {
       const aclId = match[1];
-      const idStart = match.index + match[0].indexOf(aclId);
+      const idStart = match.index + match[0].lastIndexOf(aclId);
 
       if (project.indexes.acl.getAllResources(aclId).length === 0) {
         diagnostics.push(makeDiagnostic(

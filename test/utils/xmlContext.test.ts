@@ -39,7 +39,6 @@ describe('getXmlContextAtPosition', () => {
 
     it('detects cursor at end of partial attribute value', () => {
       const ctx = contextAt('<preference for="Test|"/>');
-      expect(ctx).toBeDefined();
       expect(ctx!.kind).toBe('attribute-value');
       expect(ctx!.elementName).toBe('preference');
       expect(ctx!.attributeName).toBe('for');
@@ -48,7 +47,6 @@ describe('getXmlContextAtPosition', () => {
 
     it('detects cursor in empty attribute value', () => {
       const ctx = contextAt('<preference for="|"/>');
-      expect(ctx).toBeDefined();
       expect(ctx!.kind).toBe('attribute-value');
       expect(ctx!.elementName).toBe('preference');
       expect(ctx!.attributeName).toBe('for');
@@ -57,7 +55,6 @@ describe('getXmlContextAtPosition', () => {
 
     it('detects cursor with full FQCN partial', () => {
       const ctx = contextAt('<preference for="Test\\Foo\\Bar|"/>');
-      expect(ctx).toBeDefined();
       expect(ctx!.kind).toBe('attribute-value');
       expect(ctx!.attributeName).toBe('for');
       expect(ctx!.partialValue).toBe('Test\\Foo\\Bar');
@@ -65,7 +62,6 @@ describe('getXmlContextAtPosition', () => {
 
     it('detects correct attribute when multiple attributes present', () => {
       const ctx = contextAt('<block class="My\\Block" template="Module::path|.phtml"/>');
-      expect(ctx).toBeDefined();
       expect(ctx!.kind).toBe('attribute-value');
       expect(ctx!.elementName).toBe('block');
       expect(ctx!.attributeName).toBe('template');
@@ -74,7 +70,6 @@ describe('getXmlContextAtPosition', () => {
 
     it('detects attribute in self-closing tag', () => {
       const ctx = contextAt('<preference for="Test" type="Impl|"/>');
-      expect(ctx).toBeDefined();
       expect(ctx!.kind).toBe('attribute-value');
       expect(ctx!.elementName).toBe('preference');
       expect(ctx!.attributeName).toBe('type');
@@ -83,14 +78,12 @@ describe('getXmlContextAtPosition', () => {
 
     it('detects cursor at start of non-empty value', () => {
       const ctx = contextAt('<preference for="|Test\\Foo"/>');
-      expect(ctx).toBeDefined();
       expect(ctx!.kind).toBe('attribute-value');
       expect(ctx!.partialValue).toBe('');
     });
 
     it('handles single-quoted attribute values', () => {
       const ctx = contextAt("<preference for='Test|'/>");
-      expect(ctx).toBeDefined();
       expect(ctx!.kind).toBe('attribute-value');
       expect(ctx!.attributeName).toBe('for');
       expect(ctx!.partialValue).toBe('Test');
@@ -99,7 +92,6 @@ describe('getXmlContextAtPosition', () => {
     it('provides correct valueRange for attribute value', () => {
       //                   0123456789012345678901
       const ctx = contextAt('<preference for="Test|"/>');
-      expect(ctx).toBeDefined();
       expect(ctx!.valueRange.line).toBe(0);
       expect(ctx!.valueRange.startCol).toBe(17); // after the opening "
       expect(ctx!.valueRange.endCol).toBe(21);   // before the closing "
@@ -107,14 +99,12 @@ describe('getXmlContextAtPosition', () => {
 
     it('provides correct valueRange for empty attribute value', () => {
       const ctx = contextAt('<preference for="|"/>');
-      expect(ctx).toBeDefined();
       expect(ctx!.valueRange.startCol).toBe(17);
       expect(ctx!.valueRange.endCol).toBe(17);
     });
 
     it('detects xsi:type on the same element', () => {
       const ctx = contextAt('<argument xsi:type="object" name="|test"/>');
-      expect(ctx).toBeDefined();
       expect(ctx!.xsiType).toBe('object');
     });
   });
@@ -131,7 +121,6 @@ describe('getXmlContextAtPosition', () => {
         '/>',
       ].join('\n');
       const ctx = contextAt(xml);
-      expect(ctx).toBeDefined();
       expect(ctx!.kind).toBe('attribute-value');
       expect(ctx!.elementName).toBe('preference');
       expect(ctx!.attributeName).toBe('for');
@@ -146,7 +135,6 @@ describe('getXmlContextAtPosition', () => {
         '/>',
       ].join('\n');
       const ctx = contextAt(xml);
-      expect(ctx).toBeDefined();
       expect(ctx!.elementName).toBe('block');
       expect(ctx!.attributeName).toBe('template');
     });
@@ -159,7 +147,6 @@ describe('getXmlContextAtPosition', () => {
 
     it('detects cursor in text content with xsi:type="object"', () => {
       const ctx = contextAt('<argument xsi:type="object">Some\\Class|</argument>');
-      expect(ctx).toBeDefined();
       expect(ctx!.kind).toBe('text-content');
       expect(ctx!.elementName).toBe('argument');
       expect(ctx!.xsiType).toBe('object');
@@ -168,7 +155,6 @@ describe('getXmlContextAtPosition', () => {
 
     it('detects cursor in source_model text content', () => {
       const ctx = contextAt('<source_model>Some\\Model|</source_model>');
-      expect(ctx).toBeDefined();
       expect(ctx!.kind).toBe('text-content');
       expect(ctx!.elementName).toBe('source_model');
       expect(ctx!.partialValue).toBe('Some\\Model');
@@ -176,7 +162,6 @@ describe('getXmlContextAtPosition', () => {
 
     it('detects cursor in aclResource text content', () => {
       const ctx = contextAt('<aclResource>Vendor_Module::resource|</aclResource>');
-      expect(ctx).toBeDefined();
       expect(ctx!.kind).toBe('text-content');
       expect(ctx!.elementName).toBe('aclResource');
       expect(ctx!.partialValue).toBe('Vendor_Module::resource');
@@ -184,7 +169,6 @@ describe('getXmlContextAtPosition', () => {
 
     it('detects empty text content', () => {
       const ctx = contextAt('<argument xsi:type="object">|</argument>');
-      expect(ctx).toBeDefined();
       expect(ctx!.kind).toBe('text-content');
       expect(ctx!.elementName).toBe('argument');
       expect(ctx!.partialValue).toBe('');
@@ -197,7 +181,6 @@ describe('getXmlContextAtPosition', () => {
         '</argument>',
       ].join('\n');
       const ctx = contextAt(xml);
-      expect(ctx).toBeDefined();
       expect(ctx!.kind).toBe('text-content');
       expect(ctx!.elementName).toBe('argument');
       expect(ctx!.xsiType).toBe('object');
@@ -219,7 +202,6 @@ describe('getXmlContextAtPosition', () => {
         '</type>',
       ].join('\n');
       const ctx = contextAt(xml);
-      expect(ctx).toBeDefined();
       expect(ctx!.elementName).toBe('argument');
       expect(ctx!.parentElementName).toBe('arguments');
     });
@@ -231,7 +213,6 @@ describe('getXmlContextAtPosition', () => {
         '</type>',
       ].join('\n');
       const ctx = contextAt(xml);
-      expect(ctx).toBeDefined();
       expect(ctx!.kind).toBe('attribute-value');
       expect(ctx!.elementName).toBe('plugin');
       expect(ctx!.parentElementName).toBe('type');
@@ -239,7 +220,6 @@ describe('getXmlContextAtPosition', () => {
 
     it('returns undefined parent for root-level element', () => {
       const ctx = contextAt('<preference for="Test|"/>');
-      expect(ctx).toBeDefined();
       expect(ctx!.parentElementName).toBeUndefined();
     });
   });
@@ -296,14 +276,12 @@ describe('getXmlContextAtPosition', () => {
 
     it('handles tag with namespace prefix', () => {
       const ctx = contextAt('<xsi:argument type="obj|ect"/>');
-      expect(ctx).toBeDefined();
       expect(ctx!.elementName).toBe('xsi:argument');
     });
 
     it('handles attribute value with closing tag on same line', () => {
       const xml = '<argument xsi:type="object">Test|</argument>';
       const ctx = contextAt(xml);
-      expect(ctx).toBeDefined();
       expect(ctx!.kind).toBe('text-content');
       expect(ctx!.partialValue).toBe('Test');
     });
@@ -324,7 +302,6 @@ describe('getXmlContextAtPosition', () => {
         '</type>',
       ].join('\n');
       const ctx = contextAt(xml);
-      expect(ctx).toBeDefined();
       expect(ctx!.kind).toBe('text-content');
       expect(ctx!.elementName).toBe('argument');
       expect(ctx!.xsiType).toBe('object');
@@ -338,7 +315,6 @@ describe('getXmlContextAtPosition', () => {
         '</type>',
       ].join('\n');
       const ctx = contextAt(xml);
-      expect(ctx).toBeDefined();
       expect(ctx!.elementName).toBe('plugin');
       expect(ctx!.parentElementName).toBe('type');
     });

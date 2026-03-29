@@ -459,7 +459,7 @@ async function findPhpConfigPathRefs(
   let match;
   while ((match = re.exec(line)) !== null) {
     const configPath = match[1];
-    const pathStart = match.index + match[0].indexOf(configPath);
+    const pathStart = match.index + match[0].lastIndexOf(configPath);
     const pathEnd = pathStart + configPath.length;
 
     // Use <= to give a slightly generous hit area (one char past the token)
@@ -492,7 +492,7 @@ async function findPhpAclRefs(
   let match;
   while ((match = re.exec(line)) !== null) {
     const aclId = match[1];
-    const idStart = match.index + match[0].indexOf(aclId);
+    const idStart = match.index + match[0].lastIndexOf(aclId);
     const idEnd = idStart + aclId.length;
 
     // Use <= to give a slightly generous hit area (one char past the token)

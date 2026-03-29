@@ -178,4 +178,12 @@ describe('segmentMatcher.matchTemplate', () => {
     const underscoreTemplate = templateEntry('Magento_Catalog::product/list_item.phtml');
     expect(matcher.matchTemplate('list_item', underscoreTemplate)).toBeGreaterThan(0);
   });
+
+  it('matches module with underscore separator: Ma_Ca:: → Magento_Catalog::...', () => {
+    expect(matcher.matchTemplate('Ma_Ca::', productView)).toBeGreaterThan(0);
+  });
+
+  it('matches module with underscore and path: Ma_Ca::product/view → Magento_Catalog::product/view.phtml', () => {
+    expect(matcher.matchTemplate('Ma_Ca::product/view', productView)).toBeGreaterThan(0);
+  });
 });

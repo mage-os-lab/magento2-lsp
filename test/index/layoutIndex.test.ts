@@ -13,7 +13,7 @@ describe('LayoutIndex', () => {
   });
 
   it('indexes layout XML files', () => {
-    expect(project.indexes.layout.getFileCount()).toBeGreaterThanOrEqual(1);
+    expect(project.indexes.layout.getFileCount()).toBe(5);
   });
 
   it('finds block class references', () => {
@@ -40,7 +40,6 @@ describe('LayoutIndex', () => {
     const refs = project.indexes.layout.getReferencesForFqcn('Test\\Foo\\Block\\FooList');
     const ref = refs[0];
     const found = project.indexes.layout.getReferenceAtPosition(ref.file, ref.line, ref.column);
-    expect(found).toBeDefined();
     expect(found!.value).toBe('Test\\Foo\\Block\\FooList');
   });
 

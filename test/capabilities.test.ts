@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { CodeActionKind } from 'vscode-languageserver';
 import { buildCapabilities } from '../src/capabilities';
 
 describe('buildCapabilities', () => {
@@ -22,9 +23,15 @@ describe('buildCapabilities', () => {
       expect(caps.hoverProvider).toBe(true);
       expect(caps.documentSymbolProvider).toBe(true);
       expect(caps.workspaceSymbolProvider).toBe(true);
-      expect(caps.codeActionProvider).toBeDefined();
-      expect(caps.renameProvider).toBeDefined();
-      expect(caps.completionProvider).toBeDefined();
+      expect(caps.codeActionProvider).toEqual({
+        codeActionKinds: [CodeActionKind.QuickFix],
+        resolveProvider: true,
+      });
+      expect(caps.renameProvider).toEqual({ prepareProvider: true });
+      expect(caps.completionProvider).toEqual({
+        triggerCharacters: ['"', "'", '\\', '/', ':'],
+        resolveProvider: false,
+      });
     }
   });
 });
