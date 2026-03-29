@@ -1,6 +1,6 @@
 # Segment Matching
 
-The LSP uses a segment-boundary matching engine for PHP class and template auto-completion. This engine provides fast, intuitive matching without requiring you to type the full identifier.
+An alternative to the default fuzzy matcher, the segment-boundary matcher is faster but stricter — query characters must be prefixes of segments rather than arbitrary subsequences. To enable it, set `completionMatcher` to `"segment"` (see [features.md](features.md#completion-auto-complete) for configuration details).
 
 ## PHP Class Matching
 
@@ -74,4 +74,4 @@ The index is updated live as files are created, modified, or deleted.
 
 ## Matcher Interface
 
-The segment-boundary matcher is behind a swappable `SymbolMatcher` interface. Alternative matching strategies (e.g., full fuzzy matching) can be plugged in without changing the index or completion infrastructure.
+The segment-boundary matcher is behind a swappable `SymbolMatcher` interface. The default fuzzy matcher uses the same interface, so switching between them requires no changes to the index or completion infrastructure.

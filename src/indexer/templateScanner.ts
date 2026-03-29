@@ -22,7 +22,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ModuleInfo } from './types';
 import { ThemeInfo, ThemeResolver } from '../project/themeResolver';
-import { segmentizeTemplateId } from '../matching/segmentation';
+import { computeCharMask, segmentizeTemplateId } from '../matching/segmentation';
 import { TemplateEntry } from '../matching/types';
 
 /** The areas that modules can have templates in. */
@@ -69,6 +69,7 @@ function buildTemplateEntry(
     filePath,
     moduleSegments: seg.moduleSegments,
     pathSegments: seg.pathSegments,
+    charMask: computeCharMask(templateId),
   };
 }
 

@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { createSegmentMatcher } from '../../src/matching/segmentMatcher';
-import { segmentizeFqcn, segmentizeTemplateId } from '../../src/matching/segmentation';
+import { computeCharMask, segmentizeFqcn, segmentizeTemplateId } from '../../src/matching/segmentation';
 import { ClassEntry, TemplateEntry } from '../../src/matching/types';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 /** Create a ClassEntry from an FQCN string. */
 function classEntry(fqcn: string): ClassEntry {
-  return { value: fqcn, segments: segmentizeFqcn(fqcn) };
+  return { value: fqcn, segments: segmentizeFqcn(fqcn), charMask: computeCharMask(fqcn) };
 }
 
 /** Create a TemplateEntry from a template ID string. */
@@ -19,6 +19,7 @@ function templateEntry(templateId: string, area = 'frontend'): TemplateEntry {
     filePath: `/fake/path/${templateId.replace('::', '/')}`,
     moduleSegments: seg.moduleSegments,
     pathSegments: seg.pathSegments,
+    charMask: computeCharMask(templateId),
   };
 }
 

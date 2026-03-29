@@ -10,6 +10,9 @@
 /** How display-only indicators (plugin counts, observer targets, etc.) are delivered. */
 export type HintMode = 'codeLens' | 'inlayHint';
 
+/** Which matching strategy to use for symbol completion. */
+export type CompletionMatcherType = 'segment' | 'fuzzy';
+
 export interface Magento2LspSettings {
   /** Absolute or project-relative path to custom code action templates. */
   templateDir?: string;
@@ -28,9 +31,25 @@ export interface Magento2LspSettings {
    *   3. Editor-specific default: `'inlayHint'` for Zed, `'codeLens'` for all others
    */
   hintMode?: HintMode;
+
+  /**
+   * Which matching strategy to use for symbol (class/template) completion.
+   *
+   * - `'segment'` (default): segment-boundary matching — treats the query as a series
+   *   of segment prefixes. Fast and precise.
+   * - `'fuzzy'`: hybrid fuzzy matching — subsequence matching with contiguity and
+   *   boundary bonuses. More forgiving but slightly slower.
+   *
+   * Resolution order:
+   *   1. `initializationOptions.completionMatcher`
+   *   2. `MAGENTO_LSP_COMPLETION_MATCHER` environment variable
+   *   3. Default: `'fuzzy'`
+   */
+  completionMatcher?: CompletionMatcherType;
 }
 
 const VALID_HINT_MODES: readonly string[] = ['codeLens', 'inlayHint'];
+const VALID_COMPLETION_MATCHERS: readonly string[] = ['segment', 'fuzzy'];
 
 let currentSettings: Magento2LspSettings = {};
 
@@ -48,6 +67,9 @@ export function updateSettings(settings: unknown): void {
       templateDir: typeof s.templateDir === 'string' ? s.templateDir : undefined,
       hintMode: typeof s.hintMode === 'string' && VALID_HINT_MODES.includes(s.hintMode)
         ? (s.hintMode as HintMode)
+        : undefined,
+      completionMatcher: typeof s.completionMatcher === 'string' && VALID_COMPLETION_MATCHERS.includes(s.completionMatcher)
+        ? (s.completionMatcher as CompletionMatcherType)
         : undefined,
     };
   }
@@ -78,4 +100,17 @@ export function getEffectiveHintMode(): HintMode {
 
   // Zed doesn't support textDocument/codeLens, so default to inlayHint for it.
   return clientName?.toLowerCase() === 'zed' ? 'inlayHint' : 'codeLens';
+}
+
+/**
+ * Returns the effective completion matcher, resolving the three-tier fallback:
+ *   initializationOptions.completionMatcher > MAGENTO_LSP_COMPLETION_MATCHER env var > 'segment'
+ */
+export function getEffectiveCompletionMatcher(): CompletionMatcherType {
+  if (currentSettings.completionMatcher) return currentSettings.completionMatcher;
+
+  const envValue = process.env.MAGENTO_LSP_COMPLETION_MATCHER;
+  if (envValue && VALID_COMPLETION_MATCHERS.includes(envValue)) return envValue as CompletionMatcherType;
+
+  return 'fuzzy';
 }

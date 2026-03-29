@@ -14,6 +14,40 @@
  */
 
 /**
+ * Compute a bitmask of characters present in a string.
+ *
+ * Maps a-z to bits 0-25 and 0-9 to bits 26-35. Characters outside
+ * these ranges are ignored. The input is lowercased before processing.
+ *
+ * Used for cheap pre-filtering in the fuzzy matcher: if the entry's
+ * mask doesn't contain all bits from the query's mask, the entry
+ * can't possibly match.
+ *
+ * @param str - Any string (FQCN, template ID, etc.).
+ * @returns A 32-bit integer bitmask. Uses only bits 0-35, but since JS
+ *   bitwise ops work on 32-bit signed ints, we use bitwise OR which
+ *   wraps correctly for bits 0-31. Digits 6-9 (bits 32-35) overflow
+ *   but this only reduces selectivity slightly — acceptable tradeoff.
+ */
+export function computeCharMask(str: string): number {
+  let mask = 0;
+  for (let i = 0; i < str.length; i++) {
+    const code = str.charCodeAt(i);
+    if (code >= 97 && code <= 122) {
+      // a-z → bits 0-25
+      mask |= 1 << (code - 97);
+    } else if (code >= 65 && code <= 90) {
+      // A-Z → bits 0-25 (same as lowercase)
+      mask |= 1 << (code - 65);
+    } else if (code >= 48 && code <= 57) {
+      // 0-9 → bits 26-35 (bits 32+ overflow in 32-bit int, acceptable)
+      mask |= 1 << (code - 48 + 26);
+    }
+  }
+  return mask;
+}
+
+/**
  * Split a string at camelCase boundaries into lowercase parts.
  *
  * Rules:

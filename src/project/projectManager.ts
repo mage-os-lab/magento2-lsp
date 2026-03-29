@@ -55,7 +55,9 @@ import { yieldToEventLoop } from '../utils/async';
 import { SymbolIndex } from '../index/symbolIndex';
 import { SymbolMatcher } from '../matching/types';
 import { createSegmentMatcher } from '../matching/segmentMatcher';
-import { segmentizeFqcn, segmentizeTemplateId } from '../matching/segmentation';
+import { createFuzzyMatcher } from '../matching/fuzzyMatcher';
+import { getEffectiveCompletionMatcher } from '../settings';
+import { computeCharMask, segmentizeFqcn, segmentizeTemplateId } from '../matching/segmentation';
 import { scanPhpClassesAsync } from '../indexer/phpClassScanner';
 import { scanAllTemplates } from '../indexer/templateScanner';
 import { SymbolsCache, computePsr4Hash, computeTemplateSourceHash } from '../cache/symbolsCache';
@@ -464,7 +466,9 @@ export class ProjectManager {
 
     // Create the symbol index (empty for now — populated in the background)
     const symbolIndex = new SymbolIndex();
-    const symbolMatcher = createSegmentMatcher();
+    const symbolMatcher = getEffectiveCompletionMatcher() === 'fuzzy'
+      ? createFuzzyMatcher()
+      : createSegmentMatcher();
     const symbolsCache = new SymbolsCache(root);
 
     const project: ProjectContext = {
@@ -538,6 +542,7 @@ export class ProjectManager {
       project.symbolIndex.setClasses(cachedFqcns.map(fqcn => ({
         value: fqcn,
         segments: segmentizeFqcn(fqcn),
+        charMask: computeCharMask(fqcn),
       })));
     } else {
       const classEntries = await scanPhpClassesAsync(project.psr4Map);
@@ -559,6 +564,7 @@ export class ProjectManager {
           ...t,
           moduleSegments: seg.moduleSegments,
           pathSegments: seg.pathSegments,
+          charMask: computeCharMask(t.value),
         };
       }));
     } else {

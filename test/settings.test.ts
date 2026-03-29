@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { updateSettings, getSettings, getEffectiveHintMode, setClientName } from '../src/settings';
+import { updateSettings, getSettings, getEffectiveHintMode, getEffectiveCompletionMatcher, setClientName } from '../src/settings';
 
 describe('settings', () => {
   // Reset settings and client name before each test to avoid cross-contamination.
@@ -37,6 +37,26 @@ describe('settings', () => {
     it('ignores non-string hintMode', () => {
       updateSettings({ hintMode: true });
       expect(getSettings().hintMode).toBeUndefined();
+    });
+
+    it('parses completionMatcher "segment"', () => {
+      updateSettings({ completionMatcher: 'segment' });
+      expect(getSettings().completionMatcher).toBe('segment');
+    });
+
+    it('parses completionMatcher "fuzzy"', () => {
+      updateSettings({ completionMatcher: 'fuzzy' });
+      expect(getSettings().completionMatcher).toBe('fuzzy');
+    });
+
+    it('ignores invalid completionMatcher values', () => {
+      updateSettings({ completionMatcher: 'somethingElse' });
+      expect(getSettings().completionMatcher).toBeUndefined();
+    });
+
+    it('ignores non-string completionMatcher', () => {
+      updateSettings({ completionMatcher: 42 });
+      expect(getSettings().completionMatcher).toBeUndefined();
     });
 
     it('ignores non-object settings', () => {
@@ -116,6 +136,50 @@ describe('settings', () => {
     it('ignores invalid env var values', () => {
       process.env[ENV_KEY] = 'invalid';
       expect(getEffectiveHintMode()).toBe('codeLens');
+    });
+  });
+
+  describe('getEffectiveCompletionMatcher', () => {
+    const ENV_KEY = 'MAGENTO_LSP_COMPLETION_MATCHER';
+    let savedEnv: string | undefined;
+
+    beforeEach(() => {
+      savedEnv = process.env[ENV_KEY];
+      delete process.env[ENV_KEY];
+      updateSettings({});
+    });
+
+    afterEach(() => {
+      if (savedEnv !== undefined) {
+        process.env[ENV_KEY] = savedEnv;
+      } else {
+        delete process.env[ENV_KEY];
+      }
+    });
+
+    it('defaults to "fuzzy"', () => {
+      expect(getEffectiveCompletionMatcher()).toBe('fuzzy');
+    });
+
+    it('uses initializationOptions.completionMatcher when set', () => {
+      updateSettings({ completionMatcher: 'fuzzy' });
+      expect(getEffectiveCompletionMatcher()).toBe('fuzzy');
+    });
+
+    it('falls back to MAGENTO_LSP_COMPLETION_MATCHER env var', () => {
+      process.env[ENV_KEY] = 'fuzzy';
+      expect(getEffectiveCompletionMatcher()).toBe('fuzzy');
+    });
+
+    it('initializationOptions takes priority over env var', () => {
+      updateSettings({ completionMatcher: 'segment' });
+      process.env[ENV_KEY] = 'fuzzy';
+      expect(getEffectiveCompletionMatcher()).toBe('segment');
+    });
+
+    it('ignores invalid env var values', () => {
+      process.env[ENV_KEY] = 'invalid';
+      expect(getEffectiveCompletionMatcher()).toBe('fuzzy');
     });
   });
 });

@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SymbolIndex } from '../../src/index/symbolIndex';
 import { createSegmentMatcher } from '../../src/matching/segmentMatcher';
-import { segmentizeFqcn, segmentizeTemplateId } from '../../src/matching/segmentation';
+import { computeCharMask, segmentizeFqcn, segmentizeTemplateId } from '../../src/matching/segmentation';
 import { ClassEntry, TemplateEntry } from '../../src/matching/types';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 function classEntry(fqcn: string): ClassEntry {
-  return { value: fqcn, segments: segmentizeFqcn(fqcn) };
+  return { value: fqcn, segments: segmentizeFqcn(fqcn), charMask: computeCharMask(fqcn) };
 }
 
 function templateEntry(templateId: string, area: string, filePath?: string): TemplateEntry {
@@ -18,6 +18,7 @@ function templateEntry(templateId: string, area: string, filePath?: string): Tem
     filePath: filePath ?? `/fake/${area}/${templateId.replace('::', '/')}`,
     moduleSegments: seg.moduleSegments,
     pathSegments: seg.pathSegments,
+    charMask: computeCharMask(templateId),
   };
 }
 

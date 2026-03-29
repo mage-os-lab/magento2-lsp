@@ -16,7 +16,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Psr4Map } from './types';
 import { resolveFileToFqcn } from './phpClassLocator';
-import { segmentizeFqcn } from '../matching/segmentation';
+import { computeCharMask, segmentizeFqcn } from '../matching/segmentation';
 import { ClassEntry } from '../matching/types';
 import { yieldToEventLoop } from '../utils/async';
 
@@ -97,6 +97,7 @@ export function scanPhpClasses(psr4Map: Psr4Map): ClassEntry[] {
         entries.push({
           value: fqcn,
           segments: segmentizeFqcn(fqcn),
+          charMask: computeCharMask(fqcn),
         });
       }
     }
@@ -134,6 +135,7 @@ export async function scanPhpClassesAsync(psr4Map: Psr4Map): Promise<ClassEntry[
         entries.push({
           value: fqcn,
           segments: segmentizeFqcn(fqcn),
+          charMask: computeCharMask(fqcn),
         });
       }
 
@@ -167,5 +169,6 @@ export function deriveClassEntry(filePath: string, psr4Map: Psr4Map): ClassEntry
   return {
     value: fqcn,
     segments: segmentizeFqcn(fqcn),
+    charMask: computeCharMask(fqcn),
   };
 }
