@@ -452,69 +452,22 @@ export class ProjectManager {
     // Save cache once (covers all indexed XML types)
     cache.save();
 
-    // --- Build the full PHP class and template symbol index ---
-    const symbolT0 = Date.now();
-    const symbolIndex = new SymbolIndex();
-    const symbolMatcher = createSegmentMatcher();
-    const symbolsCache = new SymbolsCache(root);
-    symbolsCache.load();
-
-    // Scan PHP classes (use cache if PSR-4 map hasn't changed)
-    const psr4Hash = computePsr4Hash(psr4Map);
-    const cachedFqcns = symbolsCache.getClasses(psr4Hash);
-    if (cachedFqcns) {
-      // Rebuild ClassEntry objects from cached FQCNs (recompute segments)
-      symbolIndex.setClasses(cachedFqcns.map(fqcn => ({
-        value: fqcn,
-        segments: segmentizeFqcn(fqcn),
-      })));
-    } else {
-      const classEntries = await scanPhpClassesAsync(psr4Map);
-      symbolIndex.setClasses(classEntries);
-      symbolsCache.setClasses(psr4Hash, classEntries.map(e => e.value));
-    }
-
-    // Scan templates (use cache if module/theme paths haven't changed)
-    const allThemes = themeResolver.getAllThemes();
-    const templateHash = computeTemplateSourceHash(
-      modules.map(m => m.path),
-      allThemes.map(t => t.path),
-    );
-    const cachedTemplates = symbolsCache.getTemplates(templateHash);
-    if (cachedTemplates) {
-      symbolIndex.setTemplates(cachedTemplates.map(t => {
-        const seg = segmentizeTemplateId(t.value);
-        return {
-          ...t,
-          moduleSegments: seg.moduleSegments,
-          pathSegments: seg.pathSegments,
-        };
-      }));
-    } else {
-      const templateEntries = scanAllTemplates(modules, allThemes);
-      symbolIndex.setTemplates(templateEntries);
-      symbolsCache.setTemplates(templateHash, templateEntries.map(e => ({
-        value: e.value,
-        area: e.area,
-        filePath: e.filePath,
-      })));
-    }
-
-    symbolsCache.save();
-
     const totalFiles = diXmlFiles.length + eventsFiles.length + systemFiles.length
       + webapiFiles.length + aclFiles.length + menuFiles.length
       + uiFiles.length + routesFiles.length + dbSchemaFiles.length
       + layoutFiles.length;
     process.stderr.write(
-      `[magento2-lsp] Indexed ${modules.length} modules, ${totalFiles} XML files, `
-      + `${symbolIndex.getClassCount()} PHP classes, ${symbolIndex.getTemplateCount()} templates `
-      + `in ${Date.now() - t0}ms (symbols: ${Date.now() - symbolT0}ms)\n`,
+      `[magento2-lsp] Indexed ${modules.length} modules, ${totalFiles} XML files in ${Date.now() - t0}ms\n`,
     );
 
     progress?.onEnd();
 
-    return {
+    // Create the symbol index (empty for now — populated in the background)
+    const symbolIndex = new SymbolIndex();
+    const symbolMatcher = createSegmentMatcher();
+    const symbolsCache = new SymbolsCache(root);
+
+    const project: ProjectContext = {
       root,
       modules,
       psr4Map,
@@ -540,6 +493,14 @@ export class ProjectManager {
       symbolsCache,
       indexingComplete: true,
     };
+
+    // Scan PHP classes and templates in the background so XML-based
+    // features are available immediately while the symbol index populates.
+    this.buildSymbolIndexAsync(project).catch(() => {
+      // Symbol indexing is best-effort — errors are non-fatal
+    });
+
+    return project;
   }
 
   getProject(root: string): ProjectContext | undefined {
@@ -557,6 +518,65 @@ export class ProjectManager {
         this.rootCache.delete(dir);
       }
     }
+  }
+
+  /**
+   * Build the PHP class and template symbol index in the background.
+   *
+   * This runs after initializeProject() returns so that XML-based features
+   * (definition, references, hover, XML completions) are available immediately.
+   * Class/template completions will return empty results until this finishes.
+   */
+  private async buildSymbolIndexAsync(project: ProjectContext): Promise<void> {
+    const t0 = Date.now();
+    project.symbolsCache.load();
+
+    // Scan PHP classes (use cache if PSR-4 map hasn't changed)
+    const psr4Hash = computePsr4Hash(project.psr4Map);
+    const cachedFqcns = project.symbolsCache.getClasses(psr4Hash);
+    if (cachedFqcns) {
+      project.symbolIndex.setClasses(cachedFqcns.map(fqcn => ({
+        value: fqcn,
+        segments: segmentizeFqcn(fqcn),
+      })));
+    } else {
+      const classEntries = await scanPhpClassesAsync(project.psr4Map);
+      project.symbolIndex.setClasses(classEntries);
+      project.symbolsCache.setClasses(psr4Hash, classEntries.map(e => e.value));
+    }
+
+    // Scan templates (use cache if module/theme paths haven't changed)
+    const allThemes = project.themeResolver.getAllThemes();
+    const templateHash = computeTemplateSourceHash(
+      project.modules.map(m => m.path),
+      allThemes.map(t => t.path),
+    );
+    const cachedTemplates = project.symbolsCache.getTemplates(templateHash);
+    if (cachedTemplates) {
+      project.symbolIndex.setTemplates(cachedTemplates.map(t => {
+        const seg = segmentizeTemplateId(t.value);
+        return {
+          ...t,
+          moduleSegments: seg.moduleSegments,
+          pathSegments: seg.pathSegments,
+        };
+      }));
+    } else {
+      const templateEntries = scanAllTemplates(project.modules, allThemes);
+      project.symbolIndex.setTemplates(templateEntries);
+      project.symbolsCache.setTemplates(templateHash, templateEntries.map(e => ({
+        value: e.value,
+        area: e.area,
+        filePath: e.filePath,
+      })));
+    }
+
+    project.symbolsCache.save();
+
+    process.stderr.write(
+      `[magento2-lsp] Symbol index: ${project.symbolIndex.getClassCount()} PHP classes, `
+      + `${project.symbolIndex.getTemplateCount()} templates in ${Date.now() - t0}ms\n`,
+    );
   }
 }
 
