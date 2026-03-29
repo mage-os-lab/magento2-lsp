@@ -60,10 +60,9 @@ describe('fuzzyMatcher — class matching', () => {
     });
 
     it('returns 0 when chars are present but not in order', () => {
-      const entry = classEntry('Magento\\Catalog\\Model\\Product');
-      // "tca" — t appears before c in "Catalog", but we need c before a before t
-      // Actually let's use a clearer example
-      expect(matcher.matchClass('zzz', entry)).toBe(0);
+      // "dc" — both chars exist in "Catalog\Data" but d comes after c
+      const entry = classEntry('Magento\\Catalog\\Data');
+      expect(matcher.matchClass('dc', entry)).toBe(0);
     });
 
     it('returns 0 when query is longer than target', () => {
@@ -87,6 +86,15 @@ describe('fuzzyMatcher — class matching', () => {
       const boundaryScore = matcher.matchClass('CP', entry);
       const midWordScore = matcher.matchClass('at', entry);
       expect(boundaryScore).toBeGreaterThan(midWordScore);
+    });
+
+    it('prefers boundary match over earlier mid-word match', () => {
+      // "p" should match at the boundary "P" in Product, not the "p" in "cap"
+      const entry = classEntry('Magento\\Recap\\Product');
+      const score = matcher.matchClass('p', entry);
+      // A single boundary match scores: MATCH (1) + BOUNDARY (7) = 8
+      // A single mid-word match scores: MATCH (1) = 1
+      expect(score).toBeGreaterThan(1);
     });
 
     it('exact prefix match scores highest', () => {

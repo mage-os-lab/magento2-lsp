@@ -104,7 +104,7 @@ export function getEffectiveHintMode(): HintMode {
 
 /**
  * Returns the effective completion matcher, resolving the three-tier fallback:
- *   initializationOptions.completionMatcher > MAGENTO_LSP_COMPLETION_MATCHER env var > 'segment'
+ *   initializationOptions.completionMatcher > MAGENTO_LSP_COMPLETION_MATCHER env var > 'fuzzy'
  */
 export function getEffectiveCompletionMatcher(): CompletionMatcherType {
   if (currentSettings.completionMatcher) return currentSettings.completionMatcher;

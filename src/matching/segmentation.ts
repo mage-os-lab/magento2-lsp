@@ -27,7 +27,10 @@
  * @returns A 32-bit integer bitmask. Uses only bits 0-35, but since JS
  *   bitwise ops work on 32-bit signed ints, we use bitwise OR which
  *   wraps correctly for bits 0-31. Digits 6-9 (bits 32-35) overflow
- *   but this only reduces selectivity slightly — acceptable tradeoff.
+ *   and alias with letters a-d (e.g. `1 << 32 === 1 << 0`), so
+ *   queries containing those digits won't be rejected by the bitmask
+ *   pre-filter even when they should be. Acceptable because digits
+ *   are very rare in PHP class names and template IDs.
  */
 export function computeCharMask(str: string): number {
   let mask = 0;
