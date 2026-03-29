@@ -197,26 +197,36 @@ function fuzzyScore(query: string, target: string): number {
  * @returns A SymbolMatcher instance using fuzzy matching.
  */
 export function createFuzzyMatcher(): SymbolMatcher {
+  // Cache the last query's derived values to avoid recomputing per entry.
+  let cachedRaw = '';
+  let cachedLower = '';
+  let cachedMask = 0;
+
+  function prepare(query: string): void {
+    if (query === cachedRaw) return;
+    cachedRaw = query;
+    cachedLower = query.toLowerCase();
+    cachedMask = computeCharMask(cachedLower);
+  }
+
   return {
     matchClass(query: string, entry: ClassEntry): number {
       const q = query.startsWith('\\') ? query.slice(1) : query;
       if (q.length === 0) return 1;
 
-      const qLower = q.toLowerCase();
-      const queryMask = computeCharMask(qLower);
-      if ((entry.charMask & queryMask) !== queryMask) return 0;
+      prepare(q);
+      if ((entry.charMask & cachedMask) !== cachedMask) return 0;
 
-      return fuzzyScore(qLower, entry.value);
+      return fuzzyScore(cachedLower, entry.value);
     },
 
     matchTemplate(query: string, entry: TemplateEntry): number {
       if (query.length === 0) return 1;
 
-      const qLower = query.toLowerCase();
-      const queryMask = computeCharMask(qLower);
-      if ((entry.charMask & queryMask) !== queryMask) return 0;
+      prepare(query);
+      if ((entry.charMask & cachedMask) !== cachedMask) return 0;
 
-      return fuzzyScore(qLower, entry.value);
+      return fuzzyScore(cachedLower, entry.value);
     },
   };
 }

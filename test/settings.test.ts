@@ -162,13 +162,13 @@ describe('settings', () => {
     });
 
     it('uses initializationOptions.completionMatcher when set', () => {
-      updateSettings({ completionMatcher: 'fuzzy' });
-      expect(getEffectiveCompletionMatcher()).toBe('fuzzy');
+      updateSettings({ completionMatcher: 'segment' });
+      expect(getEffectiveCompletionMatcher()).toBe('segment');
     });
 
     it('falls back to MAGENTO_LSP_COMPLETION_MATCHER env var', () => {
-      process.env[ENV_KEY] = 'fuzzy';
-      expect(getEffectiveCompletionMatcher()).toBe('fuzzy');
+      process.env[ENV_KEY] = 'segment';
+      expect(getEffectiveCompletionMatcher()).toBe('segment');
     });
 
     it('initializationOptions takes priority over env var', () => {

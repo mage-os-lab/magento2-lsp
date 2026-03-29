@@ -27,7 +27,7 @@ export interface ClassEntry {
    * Bitmask of characters present in the lowercase FQCN.
    * Used by the fuzzy matcher for cheap pre-filtering:
    * if (entryMask & queryMask) !== queryMask, the entry can't match.
-   * Bits 0-25 = a-z, bits 26-35 = 0-9.
+   * Bits 0-25 = a-z.
    */
   charMask: number;
 }
@@ -58,7 +58,7 @@ export interface TemplateEntry {
   /**
    * Bitmask of characters present in the lowercase template ID.
    * Used by the fuzzy matcher for cheap pre-filtering.
-   * Bits 0-25 = a-z, bits 26-35 = 0-9.
+   * Bits 0-25 = a-z.
    */
   charMask: number;
 }
