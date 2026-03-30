@@ -49,6 +49,23 @@ The `"..."` keeps any other default servers enabled.
 
 Go-to-definition, find-references, hover, and workspace symbol search all work out of the box. Plugin/observer/webapi indicators are delivered as **inlay hints** by default, which Zed supports natively.
 
+## Inlay Hints
+
+Zed does not enable [inlay hints](https://zed.dev/docs/reference/all-settings#inlay-hints) by default.
+
+This can be configured globally or per language.
+Per-language configuration is recommended so other languages are not affected:
+
+```json
+"languages": {
+  "PHP": {
+    "inlay_hints": {
+      "enabled": true
+    }
+  }
+}
+```
+
 ## Settings
 
 To configure server settings (e.g., custom code action templates), add `initialization_options` to the LSP config:
