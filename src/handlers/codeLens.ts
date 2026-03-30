@@ -109,7 +109,7 @@ function handlePhtmlCodeLens(
       if (original) {
         lenses.push({
           range: Range.create(0, 0, 0, 0),
-          command: Command.create(`overrides ${templateId}`, NO_COMMAND),
+          command: Command.create(`Overrides ${templateId}`, NO_COMMAND),
         });
       }
     }
@@ -133,7 +133,7 @@ function handlePhtmlCodeLens(
         const count = themeOverrides.length;
         lenses.push({
           range: Range.create(0, 0, 0, 0),
-          command: Command.create(`overridden in ${count} theme${count === 1 ? '' : 's'}`, NO_COMMAND),
+          command: Command.create(`Overridden in ${count} theme${count === 1 ? '' : 's'}`, NO_COMMAND),
         });
       }
     }
@@ -149,7 +149,7 @@ function handlePhtmlCodeLens(
       if (override.filePath === filePath) continue;
       lenses.push({
         range: Range.create(0, 0, 0, 0),
-        command: Command.create(`overridden in Hyvä compat module ${override.compatModule}`, NO_COMMAND),
+        command: Command.create(`Overridden in Hyvä compat module ${override.compatModule}`, NO_COMMAND),
       });
     }
   }

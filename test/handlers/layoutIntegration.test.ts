@@ -150,7 +150,7 @@ describe('layout XML integration', () => {
       expect(result).not.toBeNull();
       // Both parent and child themes override this template, plus the compat module
       const titles = result!.map((l) => l.command?.title);
-      expect(titles).toContain('overridden in 2 themes');
+      expect(titles).toContain('Overridden in 2 themes');
       expect(result![0].range.start.line).toBe(0);
     });
 
@@ -161,7 +161,7 @@ describe('layout XML integration', () => {
       );
       expect(result).not.toBeNull();
       const titles = result!.map((l) => l.command?.title);
-      expect(titles).toContain('overrides Test_Foo::product/list.phtml');
+      expect(titles).toContain('Overrides Test_Foo::product/list.phtml');
     });
 
     it('shows compat module override lens on a theme override template', async () => {
@@ -173,7 +173,7 @@ describe('layout XML integration', () => {
       );
       expect(result).not.toBeNull();
       const titles = result!.map((l) => l.command?.title);
-      expect(titles).toContain('overridden in Hyvä compat module Test_HyvaCompat');
+      expect(titles).toContain('Overridden in Hyvä compat module Test_HyvaCompat');
     });
 
     it('returns null for a module template with no overrides', async () => {
@@ -294,7 +294,7 @@ describe('layout XML integration', () => {
       );
       expect(result).not.toBeNull();
       const titles = result!.map((l) => l.command?.title);
-      expect(titles).toContain('overridden in Hyvä compat module Test_HyvaCompat');
+      expect(titles).toContain('Overridden in Hyvä compat module Test_HyvaCompat');
     });
 
     it('shows "Hyvä compat override: ..." on a compat module override template', async () => {
