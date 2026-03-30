@@ -58,10 +58,11 @@ describe('handleWorkspaceSymbol', () => {
   });
 
   it('returns matching virtual types', () => {
-    const result = handleWorkspaceSymbol({ query: 'Virtual' }, getProjects);
-    if (!result) return; // Fixture may not have virtual types matching "Virtual"
-    const vtResults = result.filter((r) => r.name.toLowerCase().includes('virtual'));
-    // If any results, they should be valid symbols
+    // Fixture has CustomBarVirtual in app/code/Custom/Bar/etc/di.xml
+    const result = handleWorkspaceSymbol({ query: 'CustomBarVirtual' }, getProjects);
+    expect(result).not.toBeNull();
+    const vtResults = result!.filter((r) => r.name.toLowerCase().includes('virtual'));
+    expect(vtResults.length).toBeGreaterThan(0);
     for (const sym of vtResults) {
       expect(sym.location).toBeDefined();
     }

@@ -96,16 +96,11 @@ describe('handleHover', () => {
 
   it('shows observer info on observer instance reference', () => {
     const eventsXml = path.join(FIXTURE_ROOT, 'vendor/test/module-foo/etc/events.xml');
-    const ref = project.indexes.events.getReferenceAtPosition(eventsXml, 3, 60);
-    // Verify the fixture has the expected observer reference
-    if (!ref) {
-      // Fall back: find any observer reference in this file
-      const allRefs = project.indexes.events.getObserversForEvent('test_foo_save_after');
-      expect(allRefs.length).toBeGreaterThan(0);
-      return;
-    }
+    const observers = project.indexes.events.getObserversForEvent('test_foo_save_after');
+    const ref = observers.find((o) => o.file === eventsXml);
+    expect(ref).toBeDefined();
 
-    const result = handleHover(makeParams(eventsXml, ref.line, ref.column), getProject, noDocText);
+    const result = handleHover(makeParams(eventsXml, ref!.line, ref!.column), getProject, noDocText);
     expect(result).not.toBeNull();
     const content = result!.contents;
     expect('value' in content && content.value).toContain('Observer');

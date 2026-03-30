@@ -37,12 +37,6 @@ describe('handleDocumentSymbol', () => {
   // --- di.xml ---
 
   describe('di.xml', () => {
-    it('returns symbols for preferences, types, and arguments', () => {
-      const result = callHandler(path.join(MODULE_FOO, 'etc/di.xml'));
-      expect(result).not.toBeNull();
-      expect(result!.length).toBeGreaterThan(0);
-    });
-
     it('includes preference symbols with interface → implementation name', () => {
       const result = callHandler(path.join(MODULE_FOO, 'etc/di.xml'))!;
       const prefs = result.filter((s) => s.kind === SymbolKind.Interface);

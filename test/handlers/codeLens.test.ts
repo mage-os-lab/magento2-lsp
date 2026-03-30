@@ -30,7 +30,7 @@ describe('handleCodeLens', () => {
     expect(result).toBeNull();
   });
 
-  it('returns null for classes without plugins', () => {
+  it('returns null for classes that are neither targets nor plugins nor have magic calls', () => {
     const phpFile = path.join(FIXTURE_ROOT, 'app/code/Custom/Bar/Model/Bar.php');
     const result = handleCodeLens(makeParams(phpFile), getProject);
     expect(result).toBeNull();
@@ -85,12 +85,6 @@ describe('handleCodeLens', () => {
     expect(titles).toContain('→ Test\\Foo\\Api\\FooInterface::save');
     expect(titles).toContain('→ Test\\Foo\\Api\\FooInterface::getName');
     expect(titles).toContain('→ Test\\Foo\\Api\\FooInterface::load');
-  });
-
-  it('returns null for classes that are neither targets nor plugins nor have magic calls', () => {
-    const phpFile = path.join(FIXTURE_ROOT, 'app/code/Custom/Bar/Model/Bar.php');
-    const result = handleCodeLens(makeParams(phpFile), getProject);
-    expect(result).toBeNull();
   });
 
   // --- Magic method code lenses ---
