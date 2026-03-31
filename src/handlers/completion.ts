@@ -274,6 +274,10 @@ function getCompletionCandidates(
 
     // ── UI component XML ────────────────────────────────────────────────
     case 'ui_component': {
+      // <dataProvider class="...">, <actionsColumn class="...">, etc.
+      if (isAttr && attributeName === 'class') {
+        return { candidates: [], kind: CompletionItemKind.Class, source: 'symbolIndex', symbolType: 'class' };
+      }
       // <aclResource>ACL_ID</aclResource>
       if (isText && elementName === 'aclResource') {
         return { candidates: project.indexes.acl.getAllResourceIds(), kind: CompletionItemKind.Constant };

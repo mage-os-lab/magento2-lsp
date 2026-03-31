@@ -20,7 +20,7 @@ For better performance on very large codebases, you can switch to a [segment-bou
 - **webapi.xml**: Complete service class FQCNs for `<service class="...">` and ACL resource IDs for `<resource ref="...">`
 - **system.xml**: Complete FQCNs for `<source_model>`, `<backend_model>`, `<frontend_model>` text content, and ACL resource IDs for `<resource>` text content
 - **menu.xml**: Complete ACL resource IDs for `<add resource="...">`
-- **UI component XML**: Complete ACL resource IDs for `<aclResource>` text content
+- **UI component XML**: Complete FQCNs for `class` attributes (e.g., `<dataProvider class="...">`, `<actionsColumn class="...">`), and ACL resource IDs for `<aclResource>` text content
 - **db_schema.xml**: Complete table names for `referenceTable="..."` on foreign key constraints, and column names for `referenceColumn="..."` (scoped to the referenced table)
 - **PHP**: Complete event names in `->dispatch('...')`, config paths in `->getValue('...')`/`->isSetFlag('...')`, ACL resource IDs in `->isAllowed('...')` and `const ADMIN_RESOURCE = '...'`
 

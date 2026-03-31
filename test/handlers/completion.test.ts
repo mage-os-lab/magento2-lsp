@@ -739,6 +739,57 @@ describe('handleCompletion', () => {
       expect(labels).toContain('Magento_Backend::admin');
     });
 
+    it('completes FQCNs for dataProvider class= attribute', () => {
+      const xml = `<?xml version="1.0"?>
+<listing>
+    <dataSource name="my_data_source">
+        <dataProvider class="" name="my_data_source"/>
+    </dataSource>
+</listing>`;
+      const line3 = '        <dataProvider class="" name="my_data_source"/>';
+      const col = colOf(line3, 'class="') + 7;
+      const result = completionAt(uiCompPath, xml, 3, col);
+
+      expect(result).not.toBeNull();
+      expect(result!.items.length).toBeGreaterThan(0);
+      expect(result!.items[0].kind).toBe(CompletionItemKind.Class);
+    });
+
+    it('completes FQCNs for actionsColumn class= attribute', () => {
+      const xml = `<?xml version="1.0"?>
+<listing>
+    <columns name="my_columns">
+        <actionsColumn name="actions" class=""/>
+    </columns>
+</listing>`;
+      const line3 = '        <actionsColumn name="actions" class=""/>';
+      const col = colOf(line3, 'class="') + 7;
+      const result = completionAt(uiCompPath, xml, 3, col);
+
+      expect(result).not.toBeNull();
+      expect(result!.items.length).toBeGreaterThan(0);
+      expect(result!.items[0].kind).toBe(CompletionItemKind.Class);
+    });
+
+    it('filters class= completions by partial text', () => {
+      const xml = `<?xml version="1.0"?>
+<listing>
+    <dataSource name="my_data_source">
+        <dataProvider class="Test\\Foo\\Model" name="my_data_source"/>
+    </dataSource>
+</listing>`;
+      const line3 = '        <dataProvider class="Test\\Foo\\Model" name="my_data_source"/>';
+      const col = colOf(line3, '" name');
+      const result = completionAt(uiCompPath, xml, 3, col);
+
+      expect(result).not.toBeNull();
+      expect(result!.items.length).toBeGreaterThan(0);
+      // Segment-boundary matching narrows results to the Test\Foo\Model namespace
+      for (const item of result!.items) {
+        expect(item.label).toMatch(/^Test\\Foo\\Model/);
+      }
+    });
+
     it('filters ACL resource IDs by partial text', () => {
       const xml = `<?xml version="1.0"?>
 <listing>
