@@ -1,0 +1,98 @@
+name: Publish
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+
+  publish-npm:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+      - run: npm ci
+      - run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-vscode-marketplace:
+    needs: test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: editors/vscode
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: npx vsce publish -p ${{ secrets.VSCE_PAT }}
+
+  publish-open-vsx:
+    needs: test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: editors/vscode
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: npx ovsx publish -p ${{ secrets.OVSX_PAT }}
+
+  update-zed-registry:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Zed extensions fork
+        uses: actions/checkout@v4
+        with:
+          repository: mage-os-lab/zed-editor-extensions
+          token: ${{ secrets.GH_PAT }}
+          submodules: true
+
+      - name: Update submodule to new release
+        run: |
+          cd extensions/magento2-lsp
+          git fetch origin
+          git checkout ${{ github.event.release.tag_name }}
+
+      - name: Update version in extensions.toml
+        run: |
+          VERSION=$(grep '^version' extensions/magento2-lsp/editors/zed/extension.toml | sed 's/.*"\(.*\)"/\1/')
+          sed -i "/\[magento2-lsp\]/,/^$/s/version = .*/version = \"$VERSION\"/" extensions.toml
+
+      - name: Create PR
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          BRANCH="update-magento2-lsp-${{ github.event.release.tag_name }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add extensions/magento2-lsp extensions.toml
+          git commit -m "Update magento2-lsp to ${{ github.event.release.tag_name }}"
+          git push origin "$BRANCH"
+          gh pr create \
+            --repo zed-industries/extensions \
+            --head "mage-os-lab:$BRANCH" \
+            --title "Update magento2-lsp to ${{ github.event.release.tag_name }}" \
+            --body "Automated update of magento2-lsp extension."
