@@ -47,6 +47,9 @@ export const BASE_CSP_TAG = '<?php if (isset($hyvaCsp)) $hyvaCsp->registerInline
  */
 const hyvaModulePathsCache = new Map<string, Set<string>>();
 
+/** Cache of isHyvaTheme results keyed by theme path, to avoid repeated fs.existsSync calls. */
+const hyvaThemeCache = new Map<string, boolean>();
+
 /**
  * Validate a .phtml template for missing Hyvä CSP registration calls.
  *
@@ -68,7 +71,8 @@ export function validatePhtml(
   if (!cspArea) return [];
 
   const diagnostics = findMissingCspRegistrations(content, cspArea);
-  diagnostics.push(...findMissingCspTypeHints(content, cspArea));
+  const lines = content.split('\n');
+  diagnostics.push(...findMissingCspTypeHints(content, lines, cspArea));
   return diagnostics;
 }
 
@@ -140,8 +144,12 @@ export function determineCspArea(
  * distinctive marker of Hyvä-based themes.
  */
 function isHyvaTheme(theme: ThemeInfo): boolean {
+  const cached = hyvaThemeCache.get(theme.path);
+  if (cached !== undefined) return cached;
   const tailwindDir = path.join(theme.path, 'web', 'tailwind');
-  return fs.existsSync(tailwindDir);
+  const result = fs.existsSync(tailwindDir);
+  hyvaThemeCache.set(theme.path, result);
+  return result;
 }
 
 /**
@@ -237,23 +245,41 @@ function findMissingCspRegistrations(
   const closeScriptRe = /<\/script\s*>/gi;
   let match;
 
+  // Track line/column incrementally across matches (matches are in document order)
+  let trackedLine = 0;
+  let trackedLastNewline = -1;
+  let trackedOffset = 0;
+
   while ((match = closeScriptRe.exec(content)) !== null) {
     const tagStart = match.index;
     const tagEnd = tagStart + match[0].length;
 
-    // Check what follows the </script> tag after skipping whitespace
-    const afterTag = content.substring(tagEnd);
-    const stripped = afterTag.replace(/^[\s]*/, '');
+    // Skip whitespace after </script> without allocating a substring
+    let pos = tagEnd;
+    while (pos < content.length && (content[pos] === ' ' || content[pos] === '\t' || content[pos] === '\n' || content[pos] === '\r')) {
+      pos++;
+    }
 
-    if (!stripped.startsWith(expectedTag)) {
-      // Calculate the line and column of the </script> tag for the diagnostic
-      const { line, column } = offsetToLineColumn(content, tagStart);
+    // Check if the expected tag starts at this position (zero-allocation comparison)
+    const found = content.startsWith(expectedTag, pos);
+
+    if (!found) {
+      // Advance line/column tracker from last tracked position to tagStart
+      for (let i = trackedOffset; i < tagStart; i++) {
+        if (content[i] === '\n') {
+          trackedLine++;
+          trackedLastNewline = i;
+        }
+      }
+      trackedOffset = tagStart;
+
+      const column = tagStart - trackedLastNewline - 1;
       const endColumn = column + match[0].length;
 
       diagnostics.push({
         range: {
-          start: { line, character: column },
-          end: { line, character: endColumn },
+          start: { line: trackedLine, character: column },
+          end: { line: trackedLine, character: endColumn },
         },
         severity: DiagnosticSeverity.Warning,
         source: 'magento2-lsp',
@@ -278,13 +304,13 @@ function findMissingCspRegistrations(
  */
 function findMissingCspTypeHints(
   content: string,
+  lines: string[],
   cspArea: CspArea,
 ): Diagnostic[] {
   // Only check files that already have the CSP registration call
   if (!content.includes('$hyvaCsp->registerInlineScript()')) return [];
 
   const diagnostics: Diagnostic[] = [];
-  const lines = content.split('\n');
 
   const hasUse = lines.some((l) => l.includes('Hyva\\Theme\\ViewModel\\HyvaCsp'));
   const hasVarDoc = lines.some((l) => l.includes('$hyvaCsp') && l.includes('@var'));
@@ -318,27 +344,6 @@ function findMissingCspTypeHints(
 }
 
 /**
- * Convert a 0-based character offset in a string to a line number and column.
- * Both line and column are 0-based (as required by the LSP Diagnostic range).
- */
-function offsetToLineColumn(
-  content: string,
-  offset: number,
-): { line: number; column: number } {
-  let line = 0;
-  let lastNewline = -1;
-
-  for (let i = 0; i < offset; i++) {
-    if (content[i] === '\n') {
-      line++;
-      lastNewline = i;
-    }
-  }
-
-  return { line, column: offset - lastNewline - 1 };
-}
-
-/**
  * Clear the cached Hyvä module paths for a project.
  * Called when the project is re-indexed or when installed.json changes.
  */
@@ -348,4 +353,6 @@ export function clearHyvaModulePathsCache(magentoRoot?: string): void {
   } else {
     hyvaModulePathsCache.clear();
   }
+  // Theme cache is not keyed by root, so always clear entirely
+  hyvaThemeCache.clear();
 }
