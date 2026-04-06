@@ -29,6 +29,7 @@ import {
   DIAG_DUPLICATE_PLUGIN_NAME,
   DIAG_ACL_RESOURCE_NOT_FOUND,
   DIAG_MISSING_CSP_REGISTRATION,
+  DIAG_MISSING_CSP_TYPE_HINT,
 } from '../../src/validation/diagnosticCodes';
 
 // Mock resolveExpectedClassPath to return predictable paths
@@ -654,6 +655,43 @@ describe('handleCodeAction', () => {
       const actions = handleCodeAction(params, () => project, () => undefined);
 
       expect(actions).toBeNull();
+    });
+
+    it('adds use and phpdoc when only type hint diagnostic is present (no missing registration)', () => {
+      const project = makeHyvaProject();
+      const filePath = `${HYVA_THEME_PATH}/Vendor_Module/templates/page.phtml`;
+      const fileUri = URI.file(filePath).toString();
+      const content = [
+        '<?php',
+        '?>',
+        '<script>init();</script>',
+        FRONTEND_CSP_TAG,
+      ].join('\n');
+
+      // Only a type-hint diagnostic, no missing-registration diagnostic
+      const diag: Diagnostic = {
+        range: { start: { line: 3, character: 6 }, end: { line: 3, character: 42 } },
+        severity: DiagnosticSeverity.Warning,
+        source: 'magento2-lsp',
+        message: 'Incomplete CSP type hint: add use Hyva\\Theme\\ViewModel\\HyvaCsp and /** @var HyvaCsp $hyvaCsp */',
+        code: DIAG_MISSING_CSP_TYPE_HINT,
+        data: { cspArea: 'frontend' },
+      };
+      const params = makeParams(filePath, [diag]);
+      const getDocText = (uri: string) => uri === fileUri ? content : undefined;
+      const actions = handleCodeAction(params, () => project, getDocText);
+
+      expect(actions).not.toBeNull();
+      expect(actions).toHaveLength(1);
+      expect(actions![0].title).toBe('Add Hyvä CSP type hint');
+
+      const edits = (actions![0].data as any).edit.changes[fileUri];
+      // use statement + phpdoc, no CSP tag insertion
+      expect(edits).toHaveLength(2);
+      expect(edits.some((e: any) => e.newText.includes('use Hyva'))).toBe(true);
+      expect(edits.some((e: any) => e.newText.includes('@var'))).toBe(true);
+      // No registerInlineScript insertion
+      expect(edits.some((e: any) => e.newText.includes('registerInlineScript'))).toBe(false);
     });
   });
 });

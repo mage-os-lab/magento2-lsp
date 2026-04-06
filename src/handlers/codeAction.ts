@@ -39,6 +39,7 @@ import {
   DIAG_TEMPLATE_NOT_FOUND,
   DIAG_OBSERVER_MISSING_INTERFACE,
   DIAG_MISSING_CSP_REGISTRATION,
+  DIAG_MISSING_CSP_TYPE_HINT,
 } from '../validation/diagnosticCodes';
 import {
   FRONTEND_CSP_TAG,
@@ -89,14 +90,14 @@ export function handleCodeAction(
   for (const diag of params.context.diagnostics) {
     if (diag.source !== 'magento2-lsp') continue;
 
-    if (diag.code === DIAG_MISSING_CSP_REGISTRATION) {
+    if (diag.code === DIAG_MISSING_CSP_REGISTRATION || diag.code === DIAG_MISSING_CSP_TYPE_HINT) {
       if (!cspActionAdded && getDocumentText) {
         const cspDiags = params.context.diagnostics.filter(
           (d) => d.source === 'magento2-lsp' && d.code === DIAG_MISSING_CSP_REGISTRATION,
         );
         const docText = getDocumentText(params.textDocument.uri);
         const cspArea = (diag.data as { cspArea?: CspArea } | undefined)?.cspArea;
-        if (docText && cspArea && cspDiags.length > 0) {
+        if (docText && cspArea) {
           const action = buildCspRegistrationAction(docText, cspArea, cspDiags, sourceUri);
           if (action) actions.push(action);
         }
@@ -492,9 +493,14 @@ function buildCspRegistrationAction(
   if (edits.length === 0) return undefined;
 
   const edit: WorkspaceEdit = { changes: { [sourceUri]: edits } };
-  const title = cspDiags.length === 1
-    ? 'Add Hyvä CSP inline script registration'
-    : `Add Hyvä CSP inline script registration (${cspDiags.length} scripts)`;
+  let title: string;
+  if (cspDiags.length === 0) {
+    title = 'Add Hyvä CSP type hint';
+  } else if (cspDiags.length === 1) {
+    title = 'Add Hyvä CSP inline script registration';
+  } else {
+    title = `Add Hyvä CSP inline script registration (${cspDiags.length} scripts)`;
+  }
 
   // Store the edit in data (not directly on the action) so it's applied during
   // codeAction/resolve. This is required because the server declares

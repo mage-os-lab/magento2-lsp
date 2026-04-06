@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DiagnosticSeverity } from 'vscode-languageserver/node';
-import { DIAG_MISSING_CSP_REGISTRATION } from '../../src/validation/diagnosticCodes';
+import { DIAG_MISSING_CSP_REGISTRATION, DIAG_MISSING_CSP_TYPE_HINT } from '../../src/validation/diagnosticCodes';
 import { validatePhtml, clearHyvaModulePathsCache } from '../../src/validation/phtmlValidator';
 import { ThemeResolver } from '../../src/project/themeResolver';
 import { CompatModuleIndex } from '../../src/index/compatModuleIndex';
@@ -146,7 +146,7 @@ describe('phtmlValidator', () => {
       expect(diags[0].source).toBe('magento2-lsp');
     });
 
-    it('does not warn when </script> is followed by correct CSP registration', () => {
+    it('does not warn about missing registration when CSP tag is present', () => {
       hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
       const project = makeProject({ themes: [makeHyvaTheme()] });
       const filePath = `${HYVA_THEME_PATH}/Magento_Catalog/templates/product/view.phtml`;
@@ -154,7 +154,7 @@ describe('phtmlValidator', () => {
 
       const diags = validatePhtml(filePath, content, project);
 
-      expect(diags).toHaveLength(0);
+      expect(diags.filter((d) => d.code === DIAG_MISSING_CSP_REGISTRATION)).toHaveLength(0);
     });
 
     it('accepts whitespace and newlines between </script> and CSP tag', () => {
@@ -165,7 +165,7 @@ describe('phtmlValidator', () => {
 
       const diags = validatePhtml(filePath, content, project);
 
-      expect(diags).toHaveLength(0);
+      expect(diags.filter((d) => d.code === DIAG_MISSING_CSP_REGISTRATION)).toHaveLength(0);
     });
   });
 
@@ -205,7 +205,7 @@ describe('phtmlValidator', () => {
       expect(diags[0].message).toContain(FRONTEND_CSP);
     });
 
-    it('does not warn in compat module when CSP is present', () => {
+    it('does not warn about missing registration in compat module when CSP is present', () => {
       const compatPath = '/project/vendor/hyva/compat-catalog';
       const project = makeProject({
         compatMappings: [{
@@ -219,7 +219,7 @@ describe('phtmlValidator', () => {
 
       const diags = validatePhtml(filePath, content, project);
 
-      expect(diags).toHaveLength(0);
+      expect(diags.filter((d) => d.code === DIAG_MISSING_CSP_REGISTRATION)).toHaveLength(0);
     });
   });
 
@@ -308,7 +308,7 @@ describe('phtmlValidator', () => {
       expect(diags[0].message).toContain(BASE_CSP);
     });
 
-    it('does not warn for base area template when CSP with isset is present', () => {
+    it('does not warn about missing registration when CSP with isset is present', () => {
       hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
       const project = makeProject({ themes: [makeHyvaTheme()] });
       const filePath = `${MODULE_PATH}/view/base/templates/widget/list.phtml`;
@@ -316,7 +316,7 @@ describe('phtmlValidator', () => {
 
       const diags = validatePhtml(filePath, content, project);
 
-      expect(diags).toHaveLength(0);
+      expect(diags.filter((d) => d.code === DIAG_MISSING_CSP_REGISTRATION)).toHaveLength(0);
     });
 
     it('does not warn for base area template when project has no Hyvä theme', () => {
@@ -350,8 +350,9 @@ describe('phtmlValidator', () => {
       const diags = validatePhtml(filePath, content, project);
 
       // Only the second </script> is missing its CSP tag
-      expect(diags).toHaveLength(1);
-      expect(diags[0].range.start.line).toBe(2); // 0-indexed, line of "second" script
+      const regDiags = diags.filter((d) => d.code === DIAG_MISSING_CSP_REGISTRATION);
+      expect(regDiags).toHaveLength(1);
+      expect(regDiags[0].range.start.line).toBe(2); // 0-indexed, line of "second" script
     });
   });
 
@@ -440,6 +441,130 @@ describe('phtmlValidator', () => {
 
       expect(diags).toHaveLength(1);
       expect(diags[0].message).toContain(BASE_CSP);
+    });
+  });
+
+  // ----- Missing CSP type hints -----
+
+  describe('missing CSP type hints', () => {
+    it('warns when use statement is missing but registerInlineScript is present', () => {
+      hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
+      const project = makeProject({ themes: [makeHyvaTheme()] });
+      const filePath = `${HYVA_THEME_PATH}/Magento_Catalog/templates/product/view.phtml`;
+      const content = [
+        '<script>init();</script>',
+        FRONTEND_CSP,
+      ].join('\n');
+
+      const diags = validatePhtml(filePath, content, project);
+      const hintDiags = diags.filter((d) => d.code === DIAG_MISSING_CSP_TYPE_HINT);
+
+      expect(hintDiags).toHaveLength(1);
+      expect(hintDiags[0].message).toContain('use Hyva\\Theme\\ViewModel\\HyvaCsp');
+      expect(hintDiags[0].message).toContain('/** @var HyvaCsp $hyvaCsp */');
+    });
+
+    it('warns when only @var is missing', () => {
+      hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
+      const project = makeProject({ themes: [makeHyvaTheme()] });
+      const filePath = `${HYVA_THEME_PATH}/Magento_Catalog/templates/product/view.phtml`;
+      const content = [
+        '<?php',
+        'use Hyva\\Theme\\ViewModel\\HyvaCsp;',
+        '?>',
+        '<script>init();</script>',
+        FRONTEND_CSP,
+      ].join('\n');
+
+      const diags = validatePhtml(filePath, content, project);
+      const hintDiags = diags.filter((d) => d.code === DIAG_MISSING_CSP_TYPE_HINT);
+
+      expect(hintDiags).toHaveLength(1);
+      expect(hintDiags[0].message).not.toContain('use Hyva');
+      expect(hintDiags[0].message).toContain('/** @var HyvaCsp $hyvaCsp */');
+    });
+
+    it('warns when only use statement is missing', () => {
+      hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
+      const project = makeProject({ themes: [makeHyvaTheme()] });
+      const filePath = `${HYVA_THEME_PATH}/Magento_Catalog/templates/product/view.phtml`;
+      const content = [
+        '<?php',
+        '/** @var HyvaCsp $hyvaCsp */',
+        '?>',
+        '<script>init();</script>',
+        FRONTEND_CSP,
+      ].join('\n');
+
+      const diags = validatePhtml(filePath, content, project);
+      const hintDiags = diags.filter((d) => d.code === DIAG_MISSING_CSP_TYPE_HINT);
+
+      expect(hintDiags).toHaveLength(1);
+      expect(hintDiags[0].message).toContain('use Hyva\\Theme\\ViewModel\\HyvaCsp');
+      expect(hintDiags[0].message).not.toContain('@var');
+    });
+
+    it('does not warn when both use and @var are present', () => {
+      hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
+      const project = makeProject({ themes: [makeHyvaTheme()] });
+      const filePath = `${HYVA_THEME_PATH}/Magento_Catalog/templates/product/view.phtml`;
+      const content = [
+        '<?php',
+        'use Hyva\\Theme\\ViewModel\\HyvaCsp;',
+        '/** @var HyvaCsp $hyvaCsp */',
+        '?>',
+        '<script>init();</script>',
+        FRONTEND_CSP,
+      ].join('\n');
+
+      const diags = validatePhtml(filePath, content, project);
+
+      expect(diags).toHaveLength(0);
+    });
+
+    it('does not warn when file has no registerInlineScript call', () => {
+      hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
+      const project = makeProject({ themes: [makeHyvaTheme()] });
+      const filePath = `${HYVA_THEME_PATH}/Magento_Catalog/templates/product/view.phtml`;
+      const content = '<div><?php echo $block->getHtml(); ?></div>';
+
+      const diags = validatePhtml(filePath, content, project);
+      const hintDiags = diags.filter((d) => d.code === DIAG_MISSING_CSP_TYPE_HINT);
+
+      expect(hintDiags).toHaveLength(0);
+    });
+
+    it('places diagnostic on the registerInlineScript call', () => {
+      hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
+      const project = makeProject({ themes: [makeHyvaTheme()] });
+      const filePath = `${HYVA_THEME_PATH}/Magento_Catalog/templates/product/view.phtml`;
+      const content = [
+        '<script>init();</script>',
+        FRONTEND_CSP,
+      ].join('\n');
+
+      const diags = validatePhtml(filePath, content, project);
+      const hintDiags = diags.filter((d) => d.code === DIAG_MISSING_CSP_TYPE_HINT);
+
+      expect(hintDiags).toHaveLength(1);
+      // The diagnostic should be on line 1 (the CSP tag line)
+      expect(hintDiags[0].range.start.line).toBe(1);
+    });
+
+    it('carries cspArea in data for the code action handler', () => {
+      hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
+      const project = makeProject({ themes: [makeHyvaTheme()] });
+      const filePath = `${HYVA_THEME_PATH}/Magento_Catalog/templates/product/view.phtml`;
+      const content = [
+        '<script>init();</script>',
+        FRONTEND_CSP,
+      ].join('\n');
+
+      const diags = validatePhtml(filePath, content, project);
+      const hintDiags = diags.filter((d) => d.code === DIAG_MISSING_CSP_TYPE_HINT);
+
+      expect(hintDiags).toHaveLength(1);
+      expect((hintDiags[0].data as any).cspArea).toBe('frontend');
     });
   });
 });

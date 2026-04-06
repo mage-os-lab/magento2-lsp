@@ -26,7 +26,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Diagnostic, DiagnosticSeverity } from 'vscode-languageserver/node';
-import { DIAG_MISSING_CSP_REGISTRATION } from './diagnosticCodes';
+import { DIAG_MISSING_CSP_REGISTRATION, DIAG_MISSING_CSP_TYPE_HINT } from './diagnosticCodes';
 import { readComposerPackages } from '../utils/composerPackages';
 import type { ThemeInfo } from '../project/themeResolver';
 import type { ProjectContext } from '../project/projectManager';
@@ -67,7 +67,9 @@ export function validatePhtml(
   const cspArea = determineCspArea(filePath, project);
   if (!cspArea) return [];
 
-  return findMissingCspRegistrations(content, cspArea);
+  const diagnostics = findMissingCspRegistrations(content, cspArea);
+  diagnostics.push(...findMissingCspTypeHints(content, cspArea));
+  return diagnostics;
 }
 
 // --- Area detection ---
@@ -259,6 +261,56 @@ function findMissingCspRegistrations(
         code: DIAG_MISSING_CSP_REGISTRATION,
         data: { cspArea },
       });
+    }
+  }
+
+  return diagnostics;
+}
+
+/**
+ * Check whether the file uses $hyvaCsp but is missing the `use` statement or
+ * `@var` PHPDoc type hint. These are needed for IDE autocompletion and type
+ * checking — the CSP registration works at runtime without them, but Hyvä
+ * convention is to include both.
+ *
+ * Only emits a diagnostic when the file actually contains a registerInlineScript
+ * call, so templates that don't use CSP at all are not affected.
+ */
+function findMissingCspTypeHints(
+  content: string,
+  cspArea: CspArea,
+): Diagnostic[] {
+  // Only check files that already have the CSP registration call
+  if (!content.includes('$hyvaCsp->registerInlineScript()')) return [];
+
+  const diagnostics: Diagnostic[] = [];
+  const lines = content.split('\n');
+
+  const hasUse = lines.some((l) => l.includes('Hyva\\Theme\\ViewModel\\HyvaCsp'));
+  const hasVarDoc = lines.some((l) => l.includes('$hyvaCsp') && l.includes('@var'));
+
+  if (!hasUse || !hasVarDoc) {
+    // Place the diagnostic on the first registerInlineScript() occurrence
+    const callRe = /\$hyvaCsp->registerInlineScript\(\)/;
+    for (let i = 0; i < lines.length; i++) {
+      const match = callRe.exec(lines[i]);
+      if (match) {
+        const parts: string[] = [];
+        if (!hasUse) parts.push('use Hyva\\Theme\\ViewModel\\HyvaCsp');
+        if (!hasVarDoc) parts.push('/** @var HyvaCsp $hyvaCsp */');
+        diagnostics.push({
+          range: {
+            start: { line: i, character: match.index },
+            end: { line: i, character: match.index + match[0].length },
+          },
+          severity: DiagnosticSeverity.Warning,
+          source: 'magento2-lsp',
+          message: `Incomplete CSP type hint: add ${parts.join(' and ')}`,
+          code: DIAG_MISSING_CSP_TYPE_HINT,
+          data: { cspArea },
+        });
+        break; // One diagnostic is enough — the code action fixes all at once
+      }
     }
   }
 
