@@ -58,6 +58,7 @@ import {
   DIAG_FK_TABLE_NOT_FOUND,
   DIAG_FK_COLUMN_NOT_FOUND,
 } from './diagnosticCodes';
+import { validatePhtml } from './phtmlValidator';
 
 /**
  * Run semantic validation on a single XML file by parsing the current buffer content.
@@ -126,6 +127,11 @@ export function validateSemantics(
   // PHP files: validate ACL resource references in ADMIN_RESOURCE and isAllowed() patterns
   if (filePath.endsWith('.php')) {
     return validatePhpAcl(content, project);
+  }
+
+  // .phtml templates: validate Hyvä CSP registration after </script> tags
+  if (filePath.endsWith('.phtml')) {
+    return validatePhtml(filePath, content, project);
   }
 
   return [];

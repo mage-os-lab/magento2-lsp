@@ -34,7 +34,7 @@ import { handleDocumentSymbol } from './handlers/documentSymbol';
 import { handleWorkspaceSymbol } from './handlers/workspaceSymbol';
 import { handlePrepareRename, handleRename } from './handlers/rename';
 import { handleCompletion } from './handlers/completion';
-import { handleCodeAction, handleCodeActionResolve, type CreateFileActionData, type AddInterfaceActionData } from './handlers/codeAction';
+import { handleCodeAction, handleCodeActionResolve, type CreateFileActionData, type AddInterfaceActionData, type CspRegistrationActionData } from './handlers/codeAction';
 import { handleInlayHint } from './handlers/inlayHint';
 import { updateSettings, setClientName, getEffectiveHintMode } from './settings';
 import { UnifiedFileWatcher, createXmlWatcherHandler } from './watcher/fileWatcher';
@@ -235,7 +235,7 @@ connection.onCodeActionResolve((action) => {
 
   // After resolve, re-index and re-validate the source document so
   // diagnostics clear and go-to-definition works immediately.
-  const data = resolved.data as CreateFileActionData | AddInterfaceActionData | undefined;
+  const data = resolved.data as CreateFileActionData | AddInterfaceActionData | CspRegistrationActionData | undefined;
   const sourceUri = data?.sourceUri;
   if (sourceUri) {
     const sourceFilePath = realpath(URI.parse(sourceUri).fsPath);
@@ -279,8 +279,8 @@ connection.onDidOpenTextDocument(async (params) => {
   const existing = projectManager.getProjectForFile(filePath);
   if (existing) {
     log(`  project already initialized: ${existing.root} (${existing.indexes.di.getFileCount()} files)`);
-    // Validate on open if it's an XML file
-    if (filePath.endsWith('.xml')) {
+    // Validate on open if it's an XML or .phtml file
+    if (filePath.endsWith('.xml') || filePath.endsWith('.phtml')) {
       validateAndPublish(params.textDocument.uri, params.textDocument.text, existing, 300, true);
     }
     return;
@@ -347,8 +347,8 @@ connection.onDidOpenTextDocument(async (params) => {
   if (project) {
     setupFileWatchers(project);
 
-    // Validate on initial open if it's an XML file
-    if (filePath.endsWith('.xml')) {
+    // Validate on initial open if it's an XML or .phtml file
+    if (filePath.endsWith('.xml') || filePath.endsWith('.phtml')) {
       validateAndPublish(params.textDocument.uri, params.textDocument.text, project, 300, true);
     }
   }
@@ -404,7 +404,7 @@ connection.onDidChangeTextDocument((params) => {
   }
 
   const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
-  if (!filePath.endsWith('.xml') && !filePath.endsWith('.php')) return;
+  if (!filePath.endsWith('.xml') && !filePath.endsWith('.php') && !filePath.endsWith('.phtml')) return;
   const project = projectManager.getProjectForFile(filePath);
   if (!project) return;
 
@@ -415,7 +415,7 @@ connection.onDidChangeTextDocument((params) => {
 
 connection.onDidSaveTextDocument((params) => {
   const filePath = realpath(URI.parse(params.textDocument.uri).fsPath);
-  if (!filePath.endsWith('.xml') && !filePath.endsWith('.php')) return;
+  if (!filePath.endsWith('.xml') && !filePath.endsWith('.php') && !filePath.endsWith('.phtml')) return;
   const project = projectManager.getProjectForFile(filePath);
   if (!project) return;
 

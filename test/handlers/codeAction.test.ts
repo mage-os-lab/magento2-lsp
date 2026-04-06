@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   CodeActionKind,
   DiagnosticSeverity,
@@ -16,6 +16,7 @@ import { MagicMethodIndex } from '../../src/index/magicMethodIndex';
 import { ThemeResolver } from '../../src/project/themeResolver';
 import { CompatModuleIndex } from '../../src/index/compatModuleIndex';
 import { IndexCache } from '../../src/cache/indexCache';
+import { clearHyvaModulePathsCache, FRONTEND_CSP_TAG, BASE_CSP_TAG } from '../../src/validation/phtmlValidator';
 import type { Psr4Map, ModuleInfo } from '../../src/indexer/types';
 import type { ProjectContext } from '../../src/project/projectManager';
 import {
@@ -27,6 +28,7 @@ import {
   DIAG_OBSERVER_MISSING_INTERFACE,
   DIAG_DUPLICATE_PLUGIN_NAME,
   DIAG_ACL_RESOURCE_NOT_FOUND,
+  DIAG_MISSING_CSP_REGISTRATION,
 } from '../../src/validation/diagnosticCodes';
 
 // Mock resolveExpectedClassPath to return predictable paths
@@ -45,11 +47,26 @@ vi.mock('../../src/utils/fsHelpers', () => ({
   fileExists: () => false,
 }));
 
-// Mock fs for the observer interface action
+/** Paths that existsSync should return true for (used by isHyvaTheme detection). */
+const existingSyncPaths = new Set<string>();
+
+/** Mock composer packages for Hyvä dependency detection. */
+const mockComposerPackages: Array<{
+  absPath: string;
+  type: string | undefined;
+  raw: Record<string, unknown>;
+}> = [];
+
+vi.mock('../../src/utils/composerPackages', () => ({
+  readComposerPackages: () => mockComposerPackages,
+}));
+
+// Mock fs for the observer interface action and Hyvä theme detection
 vi.mock('fs', async () => {
   const actual = await vi.importActual('fs');
   return {
     ...actual,
+    existsSync: (p: string) => existingSyncPaths.has(p),
     readFileSync: (filePath: string, encoding: string) => {
       if (filePath === '/project/vendor/test/module/src/Observer/TestObserver.php') {
         return `<?php
@@ -94,6 +111,13 @@ class AlreadyImplements implements RequestInterface
 });
 
 const MODULE_PATH = '/project/vendor/test/module';
+const HYVA_THEME_PATH = '/project/vendor/hyva/default';
+
+beforeEach(() => {
+  existingSyncPaths.clear();
+  mockComposerPackages.length = 0;
+  clearHyvaModulePathsCache();
+});
 
 function makeProject(): ProjectContext {
   return {
@@ -434,6 +458,207 @@ describe('handleCodeAction', () => {
       expect(actions).toHaveLength(2);
       expect(actions![0].title).toBe('Create class Foo');
       expect(actions![1].title).toBe('Create class Bar');
+    });
+  });
+
+  describe('CSP registration code action', () => {
+    /** Create a CSP diagnostic matching what phtmlValidator produces (no data field). */
+    function makeCspDiag(line: number, startCol: number, endCol: number): Diagnostic {
+      return {
+        range: { start: { line, character: startCol }, end: { line, character: endCol } },
+        severity: DiagnosticSeverity.Warning,
+        source: 'magento2-lsp',
+        message: `Missing CSP registration: </script> must be followed by ${FRONTEND_CSP_TAG}`,
+        code: DIAG_MISSING_CSP_REGISTRATION,
+      };
+    }
+
+    function makeHyvaProject(): ProjectContext {
+      const p = makeProject();
+      // Register a Hyvä theme
+      const theme = {
+        code: 'frontend/Custom/theme',
+        shortCode: 'Custom/theme',
+        area: 'frontend',
+        path: HYVA_THEME_PATH,
+      };
+      (p.themeResolver as any).themes.set(theme.code, theme);
+      (p.themeResolver as any).pathToTheme.set(theme.path, theme);
+      // Mark it as a Hyvä theme (web/tailwind exists)
+      existingSyncPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
+      return p;
+    }
+
+    it('adds CSP tag after </script> and use + phpdoc at top of file', () => {
+      const project = makeHyvaProject();
+      const filePath = `${HYVA_THEME_PATH}/Vendor_Module/templates/page.phtml`;
+      const fileUri = URI.file(filePath).toString();
+      const content = [
+        '<?php',
+        '',
+        'use Magento\\Framework\\Escaper;',
+        '',
+        '/** @var Escaper $escaper */',
+        '',
+        '?>',
+        '<div>',
+        '<script>init();</script>',
+        '</div>',
+      ].join('\n');
+
+      const diag = makeCspDiag(8, 24, 33);
+      const params = makeParams(filePath, [diag]);
+      const getDocText = (uri: string) => uri === fileUri ? content : undefined;
+      const actions = handleCodeAction(params, () => project, getDocText);
+
+      expect(actions).not.toBeNull();
+      expect(actions).toHaveLength(1);
+
+      const action = actions![0];
+      expect(action.title).toBe('Add Hyvä CSP inline script registration');
+      expect(action.kind).toBe(CodeActionKind.QuickFix);
+      expect(action.isPreferred).toBe(true);
+      // Edit is stored in data (applied during resolve, not directly on the action)
+      const actionData = action.data as { type: string; edit: any };
+      expect(actionData.type).toBe('add-csp-registration');
+      expect(actionData.edit).toBeDefined();
+
+      // Should have 3 edits: CSP tag, use statement, and PHPDoc
+      const edits = actionData.edit.changes[fileUri];
+      expect(edits).toHaveLength(3);
+
+      // CSP tag inserted after the script line
+      const cspEdit = edits.find((e) => e.newText.includes('registerInlineScript'));
+      expect(cspEdit).toBeDefined();
+      expect(cspEdit!.newText).toContain(FRONTEND_CSP_TAG);
+
+      // Use statement inserted
+      const useEdit = edits.find((e) => e.newText.includes('use Hyva'));
+      expect(useEdit).toBeDefined();
+      expect(useEdit!.newText).toContain('use Hyva\\Theme\\ViewModel\\HyvaCsp;');
+
+      // PHPDoc inserted
+      const docEdit = edits.find((e) => e.newText.includes('@var'));
+      expect(docEdit).toBeDefined();
+      expect(docEdit!.newText).toContain('/** @var HyvaCsp $hyvaCsp */');
+    });
+
+    it('does not add use/phpdoc when already present', () => {
+      const project = makeHyvaProject();
+      const filePath = `${HYVA_THEME_PATH}/Vendor_Module/templates/page.phtml`;
+      const fileUri = URI.file(filePath).toString();
+      const content = [
+        '<?php',
+        '',
+        'use Hyva\\Theme\\ViewModel\\HyvaCsp;',
+        '',
+        '/** @var HyvaCsp $hyvaCsp */',
+        '',
+        '?>',
+        '<script>init();</script>',
+      ].join('\n');
+
+      const diag = makeCspDiag(7, 24, 33);
+      const params = makeParams(filePath, [diag]);
+      const getDocText = (uri: string) => uri === fileUri ? content : undefined;
+      const actions = handleCodeAction(params, () => project, getDocText);
+
+      expect(actions).not.toBeNull();
+      const edits = (actions![0].data as any).edit.changes[fileUri];
+      // Only the CSP tag insertion, no use/phpdoc
+      expect(edits).toHaveLength(1);
+      expect(edits[0].newText).toContain(FRONTEND_CSP_TAG);
+    });
+
+    it('fixes multiple </script> tags at once', () => {
+      const project = makeHyvaProject();
+      const filePath = `${HYVA_THEME_PATH}/Vendor_Module/templates/page.phtml`;
+      const fileUri = URI.file(filePath).toString();
+      const content = [
+        '<?php',
+        '?>',
+        '<script>one();</script>',
+        '<script>two();</script>',
+      ].join('\n');
+
+      const diag1 = makeCspDiag(2, 22, 31);
+      const diag2 = makeCspDiag(3, 22, 31);
+      const params = makeParams(filePath, [diag1, diag2]);
+      const getDocText = (uri: string) => uri === fileUri ? content : undefined;
+      const actions = handleCodeAction(params, () => project, getDocText);
+
+      expect(actions).not.toBeNull();
+      expect(actions).toHaveLength(1);
+      expect(actions![0].title).toContain('2 scripts');
+
+      const edits = (actions![0].data as any).edit.changes[fileUri];
+      // 2 CSP insertions + use statement + phpdoc = 4
+      const cspEdits = edits.filter((e: any) => e.newText.includes('registerInlineScript'));
+      expect(cspEdits).toHaveLength(2);
+    });
+
+    it('uses isset variant for base-area templates', () => {
+      // Set up a project with a Hyvä theme so base-area templates get validated
+      const project = makeHyvaProject();
+      const filePath = `${MODULE_PATH}/view/base/templates/widget/list.phtml`;
+      const fileUri = URI.file(filePath).toString();
+      const content = [
+        '<?php',
+        '?>',
+        '<script>run();</script>',
+      ].join('\n');
+
+      const diag: Diagnostic = {
+        range: { start: { line: 2, character: 22 }, end: { line: 2, character: 31 } },
+        severity: DiagnosticSeverity.Warning,
+        source: 'magento2-lsp',
+        message: `Missing CSP registration: </script> must be followed by ${BASE_CSP_TAG}`,
+        code: DIAG_MISSING_CSP_REGISTRATION,
+        data: {},
+      };
+      const params = makeParams(filePath, [diag]);
+      const getDocText = (uri: string) => uri === fileUri ? content : undefined;
+      const actions = handleCodeAction(params, () => project, getDocText);
+
+      expect(actions).not.toBeNull();
+      const cspEdit = (actions![0].data as any).edit.changes[fileUri].find(
+        (e: any) => e.newText.includes('registerInlineScript'),
+      );
+      expect(cspEdit!.newText).toContain(BASE_CSP_TAG);
+    });
+
+    it('resolve step applies the edit to the action', () => {
+      const project = makeHyvaProject();
+      const filePath = `${HYVA_THEME_PATH}/Vendor_Module/templates/page.phtml`;
+      const fileUri = URI.file(filePath).toString();
+      const content = '<?php\n?>\n<script>x();</script>';
+
+      const diag = makeCspDiag(2, 22, 31);
+      const params = makeParams(filePath, [diag]);
+      const getDocText = (uri: string) => uri === fileUri ? content : undefined;
+      const actions = handleCodeAction(params, () => project, getDocText);
+
+      expect(actions).not.toBeNull();
+      const action = actions![0];
+      // Before resolve: no edit on the action itself
+      expect(action.edit).toBeUndefined();
+
+      // After resolve: edit is placed on the action
+      const resolved = handleCodeActionResolve(action, () => project);
+      expect(resolved.edit).toBeDefined();
+      expect(resolved.edit!.changes![fileUri]).toBeDefined();
+      expect(resolved.edit!.changes![fileUri].length).toBeGreaterThan(0);
+    });
+
+    it('returns null when no document text is available', () => {
+      const project = makeHyvaProject();
+      const filePath = `${HYVA_THEME_PATH}/Vendor_Module/templates/page.phtml`;
+      const diag = makeCspDiag(2, 0, 9);
+      const params = makeParams(filePath, [diag]);
+      // getDocumentText returns undefined
+      const actions = handleCodeAction(params, () => project, () => undefined);
+
+      expect(actions).toBeNull();
     });
   });
 });

@@ -21,6 +21,8 @@ import {
   CodeActionKind,
   CodeActionParams,
   CancellationToken,
+  TextEdit,
+  WorkspaceEdit,
 } from 'vscode-languageserver/node';
 import { URI } from 'vscode-uri';
 import { ProjectContext } from '../project/projectManager';
@@ -36,7 +38,14 @@ import {
   DIAG_MODEL_CLASS_NOT_FOUND,
   DIAG_TEMPLATE_NOT_FOUND,
   DIAG_OBSERVER_MISSING_INTERFACE,
+  DIAG_MISSING_CSP_REGISTRATION,
 } from '../validation/diagnosticCodes';
+import {
+  determineCspArea,
+  FRONTEND_CSP_TAG,
+  BASE_CSP_TAG,
+  type CspArea,
+} from '../validation/phtmlValidator';
 
 /** Data payload attached to file-creation code actions, consumed by resolve. */
 export interface CreateFileActionData {
@@ -44,6 +53,14 @@ export interface CreateFileActionData {
   targetPath: string;
   content: string;
   /** URI of the document where the code action was invoked (for re-validation). */
+  sourceUri: string;
+}
+
+/** Data payload for the "Add CSP registration" action, consumed by resolve. */
+export interface CspRegistrationActionData {
+  type: 'add-csp-registration';
+  /** The WorkspaceEdit to apply — computed at action time, applied at resolve time. */
+  edit: WorkspaceEdit;
   sourceUri: string;
 }
 
@@ -67,9 +84,30 @@ export function handleCodeAction(
   const actions: CodeAction[] = [];
   const templateDir = resolveTemplateDir(project.root);
   const sourceUri = params.textDocument.uri;
+  // Track whether we've already built a CSP action (one action fixes all occurrences)
+  let cspActionAdded = false;
 
   for (const diag of params.context.diagnostics) {
     if (diag.source !== 'magento2-lsp') continue;
+
+    // CSP diagnostics don't carry data — handle them before the data check
+    if (diag.code === DIAG_MISSING_CSP_REGISTRATION) {
+      const getDocumentText = _getDocumentText;
+      if (!cspActionAdded && getDocumentText) {
+        const cspDiags = params.context.diagnostics.filter(
+          (d) => d.source === 'magento2-lsp' && d.code === DIAG_MISSING_CSP_REGISTRATION,
+        );
+        const docText = getDocumentText(params.textDocument.uri);
+        if (docText && cspDiags.length > 0) {
+          const action = buildCspRegistrationAction(filePath, docText, cspDiags, sourceUri, project);
+          if (action) actions.push(action);
+        }
+        cspActionAdded = true;
+      }
+      continue;
+    }
+
+    // Other diagnostics carry data (fqcn, templateId, etc.) needed by their actions
     const data = diag.data as Record<string, string> | undefined;
     if (!data) continue;
 
@@ -114,7 +152,7 @@ export function handleCodeActionResolve(
   action: CodeAction,
   getProject: (uri: string) => ProjectContext | undefined,
 ): CodeAction {
-  const data = action.data as CreateFileActionData | AddInterfaceActionData | undefined;
+  const data = action.data as CreateFileActionData | AddInterfaceActionData | CspRegistrationActionData | undefined;
   if (!data) return action;
 
   const project = data.sourceUri ? getProject(URI.parse(data.sourceUri).fsPath) : undefined;
@@ -135,6 +173,12 @@ export function handleCodeActionResolve(
   if (data.type === 'add-observer-interface') {
     if (!isPathInsideProject(data.classFile, project)) return action;
     applyAddObserverInterface(data.classFile);
+  }
+
+  // CSP registration: return the pre-computed WorkspaceEdit so the editor
+  // applies the text edits to the buffer (not written to disk).
+  if (data.type === 'add-csp-registration') {
+    action.edit = data.edit;
   }
 
   return action;
@@ -369,4 +413,200 @@ function applyAddObserverInterface(classFile: string): void {
   } catch {
     // File not writable
   }
+}
+
+// --- "Add Hyvä CSP registration" ---
+
+/**
+ * FQCN and short name for the HyvaCsp ViewModel.
+ * Used in the `use` statement and PHPDoc type hint that the code action inserts.
+ */
+const HYVA_CSP_FQCN = 'Hyva\\Theme\\ViewModel\\HyvaCsp';
+const HYVA_CSP_SHORT = 'HyvaCsp';
+
+/**
+ * The use statement to add at the top of the template.
+ */
+const HYVA_CSP_USE = `use ${HYVA_CSP_FQCN};`;
+
+/**
+ * The PHPDoc type hint to add after the use statements.
+ */
+const HYVA_CSP_PHPDOC = `/** @var ${HYVA_CSP_SHORT} $hyvaCsp */`;
+
+/**
+ * Build a code action that adds CSP registration after every </script> tag,
+ * plus the use statement and PHPDoc type hint if they're missing.
+ *
+ * A single action fixes all CSP diagnostics in the file at once, so the user
+ * can apply the fix once and resolve every violation.
+ *
+ * Hyvä .phtml template conventions (top-to-bottom):
+ *   1. License comment block
+ *   2. Use statements (e.g., `use Hyva\Theme\ViewModel\HyvaCsp;`)
+ *   3. PHPDoc type hints (e.g., `/** @var HyvaCsp $hyvaCsp *​/`)
+ *   4. Variable declarations and template content
+ *
+ * The code action inserts the use statement after the last existing `use` line,
+ * and the PHPDoc after the last existing `/** @var` line, respecting this order.
+ */
+function buildCspRegistrationAction(
+  filePath: string,
+  content: string,
+  cspDiags: import('vscode-languageserver/node').Diagnostic[],
+  sourceUri: string,
+  project: ProjectContext,
+): CodeAction | undefined {
+  const cspArea = determineCspArea(filePath, project);
+  if (!cspArea) return undefined;
+
+  const cspTag = cspArea === 'frontend' ? FRONTEND_CSP_TAG : BASE_CSP_TAG;
+  const edits: TextEdit[] = [];
+  const lines = content.split('\n');
+
+  // 1. Add CSP registration tag after each </script> that is missing it.
+  //    Insert on the line immediately after the </script> tag.
+  for (const diag of cspDiags) {
+    const scriptLine = diag.range.end.line;
+    // Insert the CSP tag at the beginning of the next line.
+    // If </script> is on the last line, append after it.
+    const insertLine = scriptLine + 1;
+    edits.push(TextEdit.insert(
+      { line: insertLine, character: 0 },
+      cspTag + '\n',
+    ));
+  }
+
+  // 2. Add `use Hyva\Theme\ViewModel\HyvaCsp;` if not already present.
+  const hasUseStatement = lines.some((l) => l.includes(HYVA_CSP_FQCN));
+  if (!hasUseStatement) {
+    const useInsertPos = findUseStatementInsertPosition(lines);
+    if (useInsertPos) {
+      edits.push(TextEdit.insert(useInsertPos, HYVA_CSP_USE + '\n'));
+    }
+  }
+
+  // 3. Add PHPDoc type hint if not already present.
+  const hasPhpDoc = lines.some((l) => l.includes('$hyvaCsp') && l.includes('@var'));
+  if (!hasPhpDoc) {
+    const phpDocInsertPos = findPhpDocInsertPosition(lines);
+    if (phpDocInsertPos) {
+      edits.push(TextEdit.insert(phpDocInsertPos, HYVA_CSP_PHPDOC + '\n'));
+    }
+  }
+
+  if (edits.length === 0) return undefined;
+
+  const edit: WorkspaceEdit = { changes: { [sourceUri]: edits } };
+  const title = cspDiags.length === 1
+    ? 'Add Hyvä CSP inline script registration'
+    : `Add Hyvä CSP inline script registration (${cspDiags.length} scripts)`;
+
+  // Store the edit in data (not directly on the action) so it's applied during
+  // codeAction/resolve. This is required because the server declares
+  // resolveProvider: true — editors like Neovim only apply edits from resolve.
+  return {
+    title,
+    kind: CodeActionKind.QuickFix,
+    isPreferred: true,
+    data: { type: 'add-csp-registration', edit, sourceUri } satisfies CspRegistrationActionData,
+  };
+}
+
+/**
+ * Find where to insert a new `use` statement.
+ *
+ * Strategy: insert after the last existing `use ...;` line. If there are no
+ * use statements, insert after the first `<?php` opening tag (which by Hyvä
+ * convention appears at the top of the file, before use statements).
+ *
+ * Returns a Position at the start of the line after the insertion point,
+ * or undefined if no suitable location is found.
+ */
+function findUseStatementInsertPosition(
+  lines: string[],
+): { line: number; character: number } | undefined {
+  // Find the last `use` statement line
+  let lastUseLine = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s*use\s+[\w\\]+/.test(lines[i])) {
+      lastUseLine = i;
+    }
+  }
+  if (lastUseLine >= 0) {
+    return { line: lastUseLine + 1, character: 0 };
+  }
+
+  // No use statements — insert after the first `<?php` tag.
+  // If the `<?php` line has only the opening tag (possibly with whitespace),
+  // insert on the line after it. Otherwise insert on the next line.
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes('<?php')) {
+      // Check if this is a standalone `<?php` line (convention: first line)
+      if (/^\s*<\?php\s*$/.test(lines[i])) {
+        // Insert after a blank line (convention: <?php, blank line, use stmts)
+        // If the next line is blank, insert after it; otherwise insert right after <?php
+        const nextLine = i + 1 < lines.length ? lines[i + 1] : '';
+        if (nextLine.trim() === '') {
+          return { line: i + 2, character: 0 };
+        }
+        return { line: i + 1, character: 0 };
+      }
+      // Inline <?php — insert on the next line
+      return { line: i + 1, character: 0 };
+    }
+  }
+
+  // No <?php found (unusual for .phtml) — insert at top
+  return { line: 0, character: 0 };
+}
+
+/**
+ * Find where to insert a PHPDoc type hint (`/** @var ... *​/`).
+ *
+ * Strategy: insert after the last existing `/** @var` line. If there are no
+ * PHPDoc type hints, insert after the last `use` statement (with a blank line
+ * separator per convention). If there are neither, insert after the first `<?php`.
+ *
+ * Returns a Position at the start of the line after the insertion point.
+ */
+function findPhpDocInsertPosition(
+  lines: string[],
+): { line: number; character: number } | undefined {
+  // Find the last `/** @var` line
+  let lastVarLine = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s*\/\*\*\s*@var\b/.test(lines[i])) {
+      lastVarLine = i;
+    }
+  }
+  if (lastVarLine >= 0) {
+    return { line: lastVarLine + 1, character: 0 };
+  }
+
+  // No @var lines — insert after the last `use` statement, with a blank line
+  let lastUseLine = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s*use\s+[\w\\]+/.test(lines[i])) {
+      lastUseLine = i;
+    }
+  }
+  if (lastUseLine >= 0) {
+    // If there's already a blank line after the last use, insert after it
+    const nextLine = lastUseLine + 1 < lines.length ? lines[lastUseLine + 1] : '';
+    if (nextLine.trim() === '') {
+      return { line: lastUseLine + 2, character: 0 };
+    }
+    // Insert a blank line + the phpdoc
+    return { line: lastUseLine + 1, character: 0 };
+  }
+
+  // No use statements either — insert after first <?php line
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes('<?php')) {
+      return { line: i + 1, character: 0 };
+    }
+  }
+
+  return { line: 0, character: 0 };
 }
