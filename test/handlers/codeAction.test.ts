@@ -462,14 +462,16 @@ describe('handleCodeAction', () => {
   });
 
   describe('CSP registration code action', () => {
-    /** Create a CSP diagnostic matching what phtmlValidator produces (no data field). */
-    function makeCspDiag(line: number, startCol: number, endCol: number): Diagnostic {
+    /** Create a CSP diagnostic matching what phtmlValidator produces. */
+    function makeCspDiag(line: number, startCol: number, endCol: number, area: 'frontend' | 'base' = 'frontend'): Diagnostic {
+      const cspTag = area === 'frontend' ? FRONTEND_CSP_TAG : BASE_CSP_TAG;
       return {
         range: { start: { line, character: startCol }, end: { line, character: endCol } },
         severity: DiagnosticSeverity.Warning,
         source: 'magento2-lsp',
-        message: `Missing CSP registration: </script> must be followed by ${FRONTEND_CSP_TAG}`,
+        message: `Missing CSP registration: </script> must be followed by ${cspTag}`,
         code: DIAG_MISSING_CSP_REGISTRATION,
+        data: { cspArea: area },
       };
     }
 
@@ -608,14 +610,7 @@ describe('handleCodeAction', () => {
         '<script>run();</script>',
       ].join('\n');
 
-      const diag: Diagnostic = {
-        range: { start: { line: 2, character: 22 }, end: { line: 2, character: 31 } },
-        severity: DiagnosticSeverity.Warning,
-        source: 'magento2-lsp',
-        message: `Missing CSP registration: </script> must be followed by ${BASE_CSP_TAG}`,
-        code: DIAG_MISSING_CSP_REGISTRATION,
-        data: {},
-      };
+      const diag = makeCspDiag(2, 22, 31, 'base');
       const params = makeParams(filePath, [diag]);
       const getDocText = (uri: string) => uri === fileUri ? content : undefined;
       const actions = handleCodeAction(params, () => project, getDocText);

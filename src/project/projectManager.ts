@@ -51,6 +51,7 @@ import { parseRoutesXml } from '../indexer/routesXmlParser';
 import { parseDbSchemaXml } from '../indexer/dbSchemaXmlParser';
 import { ModuleInfo, Psr4Map } from '../indexer/types';
 import { fileExists } from '../utils/fsHelpers';
+import { clearHyvaModulePathsCache } from '../validation/phtmlValidator';
 import { yieldToEventLoop } from '../utils/async';
 import { SymbolIndex } from '../index/symbolIndex';
 import { SymbolMatcher } from '../matching/types';
@@ -517,6 +518,7 @@ export class ProjectManager {
 
   removeProject(root: string): void {
     this.projects.delete(root);
+    clearHyvaModulePathsCache(root);
     for (const [dir, cachedRoot] of this.rootCache) {
       if (cachedRoot === root) {
         this.rootCache.delete(dir);

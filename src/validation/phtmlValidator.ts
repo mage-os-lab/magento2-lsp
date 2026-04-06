@@ -189,7 +189,7 @@ function getHyvaPackagePaths(magentoRoot: string): Set<string> {
  */
 function isInsideAnyPath(childPath: string, parentPaths: Set<string>): boolean {
   for (const parentPath of parentPaths) {
-    if (childPath.startsWith(parentPath + '/') || childPath.startsWith(parentPath + path.sep) || childPath === parentPath) {
+    if (childPath === parentPath || childPath.startsWith(parentPath + '/')) {
       return true;
     }
   }
@@ -207,7 +207,7 @@ function findOwningModulePath(
   modules: { path: string }[],
 ): string | undefined {
   for (const mod of modules) {
-    if (filePath.startsWith(mod.path + '/') || filePath.startsWith(mod.path + path.sep)) {
+    if (filePath.startsWith(mod.path + '/')) {
       return mod.path;
     }
   }
@@ -257,6 +257,7 @@ function findMissingCspRegistrations(
         source: 'magento2-lsp',
         message: `Missing CSP registration: </script> must be followed by ${expectedTag}`,
         code: DIAG_MISSING_CSP_REGISTRATION,
+        data: { cspArea },
       });
     }
   }

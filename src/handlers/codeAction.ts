@@ -41,7 +41,6 @@ import {
   DIAG_MISSING_CSP_REGISTRATION,
 } from '../validation/diagnosticCodes';
 import {
-  determineCspArea,
   FRONTEND_CSP_TAG,
   BASE_CSP_TAG,
   type CspArea,
@@ -74,7 +73,7 @@ export interface AddInterfaceActionData {
 export function handleCodeAction(
   params: CodeActionParams,
   getProject: (uri: string) => ProjectContext | undefined,
-  _getDocumentText?: (uri: string) => string | undefined,
+  getDocumentText?: (uri: string) => string | undefined,
   _token?: CancellationToken,
 ): CodeAction[] | null {
   const filePath = URI.parse(params.textDocument.uri).fsPath;
@@ -90,16 +89,15 @@ export function handleCodeAction(
   for (const diag of params.context.diagnostics) {
     if (diag.source !== 'magento2-lsp') continue;
 
-    // CSP diagnostics don't carry data — handle them before the data check
     if (diag.code === DIAG_MISSING_CSP_REGISTRATION) {
-      const getDocumentText = _getDocumentText;
       if (!cspActionAdded && getDocumentText) {
         const cspDiags = params.context.diagnostics.filter(
           (d) => d.source === 'magento2-lsp' && d.code === DIAG_MISSING_CSP_REGISTRATION,
         );
         const docText = getDocumentText(params.textDocument.uri);
-        if (docText && cspDiags.length > 0) {
-          const action = buildCspRegistrationAction(filePath, docText, cspDiags, sourceUri, project);
+        const cspArea = (diag.data as { cspArea?: CspArea } | undefined)?.cspArea;
+        if (docText && cspArea && cspDiags.length > 0) {
+          const action = buildCspRegistrationAction(docText, cspArea, cspDiags, sourceUri);
           if (action) actions.push(action);
         }
         cspActionAdded = true;
@@ -451,15 +449,11 @@ const HYVA_CSP_PHPDOC = `/** @var ${HYVA_CSP_SHORT} $hyvaCsp */`;
  * and the PHPDoc after the last existing `/** @var` line, respecting this order.
  */
 function buildCspRegistrationAction(
-  filePath: string,
   content: string,
+  cspArea: CspArea,
   cspDiags: import('vscode-languageserver/node').Diagnostic[],
   sourceUri: string,
-  project: ProjectContext,
 ): CodeAction | undefined {
-  const cspArea = determineCspArea(filePath, project);
-  if (!cspArea) return undefined;
-
   const cspTag = cspArea === 'frontend' ? FRONTEND_CSP_TAG : BASE_CSP_TAG;
   const edits: TextEdit[] = [];
   const lines = content.split('\n');
@@ -489,9 +483,9 @@ function buildCspRegistrationAction(
   // 3. Add PHPDoc type hint if not already present.
   const hasPhpDoc = lines.some((l) => l.includes('$hyvaCsp') && l.includes('@var'));
   if (!hasPhpDoc) {
-    const phpDocInsertPos = findPhpDocInsertPosition(lines);
-    if (phpDocInsertPos) {
-      edits.push(TextEdit.insert(phpDocInsertPos, HYVA_CSP_PHPDOC + '\n'));
+    const phpDocInsert = findPhpDocInsertPosition(lines);
+    if (phpDocInsert) {
+      edits.push(TextEdit.insert(phpDocInsert.pos, phpDocInsert.prefix + HYVA_CSP_PHPDOC + '\n'));
     }
   }
 
@@ -568,11 +562,12 @@ function findUseStatementInsertPosition(
  * PHPDoc type hints, insert after the last `use` statement (with a blank line
  * separator per convention). If there are neither, insert after the first `<?php`.
  *
- * Returns a Position at the start of the line after the insertion point.
+ * Returns a Position at the start of the line after the insertion point,
+ * plus a prefix string (empty or `\n`) to ensure a blank line separator.
  */
 function findPhpDocInsertPosition(
   lines: string[],
-): { line: number; character: number } | undefined {
+): { pos: { line: number; character: number }; prefix: string } | undefined {
   // Find the last `/** @var` line
   let lastVarLine = -1;
   for (let i = 0; i < lines.length; i++) {
@@ -581,7 +576,7 @@ function findPhpDocInsertPosition(
     }
   }
   if (lastVarLine >= 0) {
-    return { line: lastVarLine + 1, character: 0 };
+    return { pos: { line: lastVarLine + 1, character: 0 }, prefix: '' };
   }
 
   // No @var lines — insert after the last `use` statement, with a blank line
@@ -595,18 +590,18 @@ function findPhpDocInsertPosition(
     // If there's already a blank line after the last use, insert after it
     const nextLine = lastUseLine + 1 < lines.length ? lines[lastUseLine + 1] : '';
     if (nextLine.trim() === '') {
-      return { line: lastUseLine + 2, character: 0 };
+      return { pos: { line: lastUseLine + 2, character: 0 }, prefix: '' };
     }
-    // Insert a blank line + the phpdoc
-    return { line: lastUseLine + 1, character: 0 };
+    // No blank line yet — prepend one so use block and @var block are separated
+    return { pos: { line: lastUseLine + 1, character: 0 }, prefix: '\n' };
   }
 
   // No use statements either — insert after first <?php line
   for (let i = 0; i < lines.length; i++) {
     if (lines[i].includes('<?php')) {
-      return { line: i + 1, character: 0 };
+      return { pos: { line: i + 1, character: 0 }, prefix: '' };
     }
   }
 
-  return { line: 0, character: 0 };
+  return { pos: { line: 0, character: 0 }, prefix: '' };
 }
