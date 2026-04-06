@@ -1,14 +1,12 @@
-# VS Code / Cursor Setup
+# VS Code Setup
 
 ## Install the extension
 
-Install **Magento 2 LSP** from the marketplace:
+Search "Magento 2 LSP" in the Extensions panel, or run:
 
-- **VS Code** — search "Magento 2 LSP" in the Extensions panel, or run:
-  ```
-  code --install-extension mage-os.magento2-lsp
-  ```
-- **Cursor** — search "Magento 2 LSP" in the Extensions panel (Cursor uses Open VSX)
+```
+code --install-extension mage-os.magento2-lsp
+```
 
 The extension requires the `magento2-lsp` binary on your `$PATH`. Install it with:
 

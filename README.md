@@ -67,7 +67,8 @@ Then add the `bin/` directory to your `$PATH`, or reference the binaries directl
 
 - [Neovim](docs/editor-neovim.md)
 - [Zed](docs/editor-zed.md)
-- [VS Code / Cursor](docs/editor-vscode.md)
+- [VS Code](docs/editor-vscode.md)
+- [Cursor](docs/editor-cursor.md)
 - **Other editors** - any editor with LSP support can use this server: `magento2-lsp --stdio`
   Ask your LLM of choice for installation instructions. If it requires some special wrapper like VS Code or Zed do, please open an issue and let me know what is needed.
 
