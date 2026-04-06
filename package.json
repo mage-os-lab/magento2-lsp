@@ -1,7 +1,12 @@
 {
-  "name": "magento2-lsp",
+  "name": "@mage-os/magento2-lsp",
   "version": "0.1.0",
-  "description": "LSP server for navigating Magento 2 di.xml declarations",
+  "description": "Magento 2 Language Server and MCP server — navigation, diagnostics, and AI tooling for XML config and PHP",
+  "author": "Vinai Kopp",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mage-os-lab/magento2-lsp"
+  },
   "bin": {
     "magento2-lsp": "./bin/magento2-lsp",
     "magento2-lsp-mcp": "./bin/magento2-lsp-mcp"

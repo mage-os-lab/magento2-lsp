@@ -15,13 +15,18 @@ For the full parameter and response reference, see [MCP Tools Reference](mcp-too
 
 ## Installation
 
-### Claude Code
-
-Clone the repo first.  
-Then add the MCP server to your project so it's available in every Claude Code session:
+Install the server:
 
 ```bash
-claude mcp add magento2-lsp-mcp /absolute/path/to/magento2-lsp/bin/magento2-lsp-mcp
+npm install -g @mage-os/magento2-lsp
+```
+
+### Claude Code
+
+Add the MCP server to your project so it's available in every Claude Code session:
+
+```bash
+claude mcp add magento2-lsp-mcp magento2-lsp-mcp
 ```
 
 Or add it manually to `.mcp.json` in your project root:
@@ -30,13 +35,24 @@ Or add it manually to `.mcp.json` in your project root:
 {
   "mcpServers": {
     "magento2-lsp-mcp": {
-      "command": "/absolute/path/to/magento2-lsp/bin/magento2-lsp-mcp"
+      "command": "magento2-lsp-mcp"
     }
   }
 }
 ```
 
-If `bin/` is already on your `$PATH`, you can use just `magento2-lsp-mcp` as the command.
+You can also run the MCP server without a global install using `npx`:
+
+```json
+{
+  "mcpServers": {
+    "magento2-lsp-mcp": {
+      "command": "npx",
+      "args": ["-y", "@mage-os/magento2-lsp", "magento2-lsp-mcp"]
+    }
+  }
+}
+```
 
 ## Available Tools
 

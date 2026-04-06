@@ -1,33 +1,24 @@
 # VS Code / Cursor Setup
 
-A minimal extension is included in `editors/vscode/`. It works with VS Code, Cursor, and other VS Code-based editors.
+## Install the extension
 
-## Step 1 - Build the extension
+Install **Magento 2 LSP** from the marketplace:
 
-After cloning the repository:
+- **VS Code** — search "Magento 2 LSP" in the Extensions panel, or run:
+  ```
+  code --install-extension mage-os.magento2-lsp
+  ```
+- **Cursor** — search "Magento 2 LSP" in the Extensions panel (Cursor uses Open VSX)
 
-```bash
-cd editors/vscode
-npm install
-npm run build
-```
-
-## Step 2 - Install it
+The extension requires the `magento2-lsp` binary on your `$PATH`. Install it with:
 
 ```bash
-# Install the vsce tool if you don't have it
-npm install -g @vscode/vsce
-
-# Package and install
-vsce package
-code --install-extension magento2-lsp-0.0.1.vsix
+npm install -g @mage-os/magento2-lsp
 ```
 
-Or during development, open the `editors/vscode/` folder in VS Code and press `F5` to launch an Extension Development Host.
+## Configure (optional)
 
-## Step 3 - Configure (optional)
-
-By default the extension finds `magento2-lsp` on your `$PATH`. To use a custom path, add to your VS Code settings:
+To use a custom binary path instead of `$PATH` lookup, add to your VS Code settings:
 
 ```json
 {
@@ -43,3 +34,20 @@ Server settings are passed via `initializationOptions`. To configure them, the V
 |---------|------|-------------|
 | `templateDir` | `string` | Optional. Path to a directory with custom code action templates (absolute, or relative to the project root). Overrides `MAGENTO_LSP_TEMPLATES_DIR` env var and built-in defaults. When omitted, the env var or built-in templates are used. See [Code Actions](features.md#code-actions-quick-fixes) for template file details. |
 | `hintMode` | `string` | Optional. `"codeLens"` (default) uses traditional code lenses; `"inlayHint"` delivers indicators as inlay hints inline after the symbol. Overrides `MAGENTO_LSP_HINT_MODE` env var. |
+
+<details>
+<summary>Install extension from source</summary>
+
+After cloning the repository:
+
+```bash
+cd editors/vscode
+npm install
+npm run build
+```
+
+Then either:
+- Install the vsce tool (`npm install -g @vscode/vsce`), run `vsce package`, and `code --install-extension magento2-lsp-0.0.1.vsix`
+- Or open the `editors/vscode/` folder in VS Code and press `F5` to launch an Extension Development Host
+
+</details>

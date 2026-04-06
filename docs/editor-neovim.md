@@ -1,6 +1,12 @@
 # Neovim Setup
 
-Add to the `servers` table in your LSP config (e.g., `init.lua`):
+Install the language server:
+
+```bash
+npm install -g @mage-os/magento2-lsp
+```
+
+Then add to the `servers` table in your LSP config (e.g., `init.lua`):
 
 ```lua
 ['magento2-lsp'] = {

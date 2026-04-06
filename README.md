@@ -45,6 +45,15 @@ See [docs/mcp.md](docs/mcp.md) for design rationale, tool descriptions, and inst
 ## Installation
 
 ```bash
+npm install -g @mage-os/magento2-lsp
+```
+
+This provides two commands: `magento2-lsp` (LSP server) and `magento2-lsp-mcp` (MCP server).
+
+<details>
+<summary>Install from source</summary>
+
+```bash
 git clone https://github.com/mage-os-lab/magento2-lsp.git
 cd magento2-lsp
 npm install
@@ -52,8 +61,7 @@ npm run build
 ```
 
 Then add the `bin/` directory to your `$PATH`, or reference the binaries directly in your editor/agent config.
-
-> npm registry publishing is planned for a future release.
+</details>
 
 ## LSP Setup (Editor)
 
