@@ -444,6 +444,132 @@ describe('phtmlValidator', () => {
     });
   });
 
+  // ----- Default Hyvä theme exclusion -----
+
+  describe('default Hyvä theme exclusion', () => {
+    it('does not warn for templates in the default Hyvä theme package', () => {
+      const defaultThemePath = '/project/vendor/hyva-themes/magento2-default-theme';
+      const theme: ThemeInfo = {
+        code: 'frontend/Hyva/default',
+        shortCode: 'Hyva/default',
+        area: 'frontend',
+        path: defaultThemePath,
+      };
+      hyvaThemeTailwindPaths.add(`${defaultThemePath}/web/tailwind`);
+      const project = makeProject({ themes: [theme] });
+      const filePath = `${defaultThemePath}/Magento_Theme/templates/html/header.phtml`;
+      const content = '<script>console.log("hi");</script>';
+
+      const diags = validatePhtml(filePath, content, project);
+
+      expect(diags).toHaveLength(0);
+    });
+  });
+
+  // ----- Script type filtering -----
+
+  describe('script type filtering', () => {
+    it('does not warn for <script type="application/json">', () => {
+      hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
+      const project = makeProject({ themes: [makeHyvaTheme()] });
+      const filePath = `${HYVA_THEME_PATH}/Magento_Catalog/templates/view.phtml`;
+      const content = '<script type="application/json">{"key": "value"}</script>';
+
+      const diags = validatePhtml(filePath, content, project);
+
+      expect(diags).toHaveLength(0);
+    });
+
+    it('does not warn for <script type="text/json">', () => {
+      hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
+      const project = makeProject({ themes: [makeHyvaTheme()] });
+      const filePath = `${HYVA_THEME_PATH}/Magento_Catalog/templates/view.phtml`;
+      const content = '<script type="text/json">{"key": "value"}</script>';
+
+      const diags = validatePhtml(filePath, content, project);
+
+      expect(diags).toHaveLength(0);
+    });
+
+    it('does not warn for <script type="application/ld+json">', () => {
+      hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
+      const project = makeProject({ themes: [makeHyvaTheme()] });
+      const filePath = `${HYVA_THEME_PATH}/Magento_Catalog/templates/view.phtml`;
+      const content = '<script type="application/ld+json">{"@context": "https://schema.org"}</script>';
+
+      const diags = validatePhtml(filePath, content, project);
+
+      expect(diags).toHaveLength(0);
+    });
+
+    it('does not warn for <script type="module">', () => {
+      hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
+      const project = makeProject({ themes: [makeHyvaTheme()] });
+      const filePath = `${HYVA_THEME_PATH}/Magento_Catalog/templates/view.phtml`;
+      const content = '<script type="module" src="app.js"></script>';
+
+      const diags = validatePhtml(filePath, content, project);
+
+      expect(diags).toHaveLength(0);
+    });
+
+    it('warns for <script type="text/javascript"> without CSP', () => {
+      hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
+      const project = makeProject({ themes: [makeHyvaTheme()] });
+      const filePath = `${HYVA_THEME_PATH}/Magento_Catalog/templates/view.phtml`;
+      const content = '<script type="text/javascript">var x = 1;</script>';
+
+      const diags = validatePhtml(filePath, content, project);
+
+      expect(diags).toHaveLength(1);
+      expect(diags[0].code).toBe(DIAG_MISSING_CSP_REGISTRATION);
+    });
+
+    it('warns for <script type="speculationrules"> without CSP', () => {
+      hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
+      const project = makeProject({ themes: [makeHyvaTheme()] });
+      const filePath = `${HYVA_THEME_PATH}/Magento_Catalog/templates/view.phtml`;
+      const content = '<script type="speculationrules">{"prefetch": []}</script>';
+
+      const diags = validatePhtml(filePath, content, project);
+
+      expect(diags).toHaveLength(1);
+      expect(diags[0].code).toBe(DIAG_MISSING_CSP_REGISTRATION);
+    });
+
+    it('does not warn when JS script has CSP and JSON script does not', () => {
+      hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
+      const project = makeProject({ themes: [makeHyvaTheme()] });
+      const filePath = `${HYVA_THEME_PATH}/Magento_Catalog/templates/view.phtml`;
+      const content = [
+        '<script>var x = 1;</script>',
+        FRONTEND_CSP,
+        '<script type="application/json">{"key": "value"}</script>',
+      ].join('\n');
+
+      const diags = validatePhtml(filePath, content, project);
+
+      expect(diags.filter((d) => d.code === DIAG_MISSING_CSP_REGISTRATION)).toHaveLength(0);
+    });
+
+    it('warns only for JS script when mixed with JSON script', () => {
+      hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
+      const project = makeProject({ themes: [makeHyvaTheme()] });
+      const filePath = `${HYVA_THEME_PATH}/Magento_Catalog/templates/view.phtml`;
+      const content = [
+        '<script>var x = 1;</script>',
+        '<script type="application/json">{"key": "value"}</script>',
+      ].join('\n');
+
+      const diags = validatePhtml(filePath, content, project);
+
+      const regDiags = diags.filter((d) => d.code === DIAG_MISSING_CSP_REGISTRATION);
+      expect(regDiags).toHaveLength(1);
+      // Diagnostic should be on line 0 (the JS script), not on the JSON script
+      expect(regDiags[0].range.start.line).toBe(0);
+    });
+  });
+
   // ----- Missing CSP type hints -----
 
   describe('missing CSP type hints', () => {

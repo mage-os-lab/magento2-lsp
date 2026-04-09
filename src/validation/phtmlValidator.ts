@@ -39,6 +39,13 @@ export const FRONTEND_CSP_TAG = '<?php $hyvaCsp->registerInlineScript(); ?>';
 /** The PHP tag required after </script> in base-area templates (with isset guard). */
 export const BASE_CSP_TAG = '<?php if (isset($hyvaCsp)) $hyvaCsp->registerInlineScript(); ?>';
 
+/**
+ * Script type values that require CSP registration.
+ * A script with no type attribute (null) also requires CSP (defaults to JS).
+ * All other type values (application/json, text/json, application/ld+json, module, etc.) are exempt.
+ */
+const TYPES_REQUIRING_CSP = new Set(['text/javascript', 'speculationrules']);
+
 // --- Hyvä module dependency cache ---
 
 /**
@@ -103,6 +110,11 @@ export function determineCspArea(
   filePath: string,
   project: ProjectContext,
 ): CspArea | undefined {
+  // 0. Skip the default Hyvä theme — it ships with correct CSP registrations
+  if (filePath.includes('/hyva-themes/magento2-default-theme/')) {
+    return undefined;
+  }
+
   // 1. Check if file is inside a Hyvä theme
   const theme = project.themeResolver.getThemeForFile(filePath);
   if (theme && isHyvaTheme(theme)) {
@@ -234,6 +246,55 @@ function findOwningModulePath(
  * by whitespace (spaces, tabs, newlines). Any other content between </script>
  * and the CSP tag counts as a violation.
  */
+/**
+ * Check whether a script type attribute value requires CSP registration.
+ * Scripts with no type (null) default to JavaScript and require CSP.
+ * Only explicit types in TYPES_REQUIRING_CSP also require CSP.
+ */
+function scriptTypeRequiresCsp(type: string | null): boolean {
+  if (type === null) return true;
+  return TYPES_REQUIRING_CSP.has(type.toLowerCase().trim());
+}
+
+/**
+ * Extract the type attribute value from a <script> tag's attribute string.
+ * Returns null if no type attribute is present.
+ */
+function extractScriptType(attributes: string): string | null {
+  const match = attributes.match(/\btype\s*=\s*["']([^"']*)["']/i)
+    || attributes.match(/\btype\s*=\s*([^\s>]+)/i);
+  return match ? match[1] : null;
+}
+
+/**
+ * Build an array of script type values (or null) for each </script> in the
+ * content, paired by matching <script> opening tags in document order.
+ */
+function getScriptTypes(content: string): Array<string | null> {
+  const openRe = /<script\b([^>]*)>/gi;
+  const closeRe = /<\/script\s*>/gi;
+
+  const openTypes: Array<{ offset: number; type: string | null }> = [];
+  let m;
+  while ((m = openRe.exec(content)) !== null) {
+    openTypes.push({ offset: m.index, type: extractScriptType(m[1]) });
+  }
+
+  const types: Array<string | null> = [];
+  let openIdx = 0;
+  while ((m = closeRe.exec(content)) !== null) {
+    const closeOffset = m.index;
+    if (openIdx < openTypes.length && openTypes[openIdx].offset < closeOffset) {
+      types.push(openTypes[openIdx].type);
+      openIdx++;
+    } else {
+      // No matching opening tag found — assume JS (null)
+      types.push(null);
+    }
+  }
+  return types;
+}
+
 function findMissingCspRegistrations(
   content: string,
   cspArea: CspArea,
@@ -241,9 +302,13 @@ function findMissingCspRegistrations(
   const diagnostics: Diagnostic[] = [];
   const expectedTag = cspArea === 'frontend' ? FRONTEND_CSP_TAG : BASE_CSP_TAG;
 
+  // Determine the type attribute of each script block
+  const scriptTypes = getScriptTypes(content);
+
   // Match all </script> tags (case-insensitive, as HTML tag names are case-insensitive)
   const closeScriptRe = /<\/script\s*>/gi;
   let match;
+  let scriptIndex = 0;
 
   // Track line/column incrementally across matches (matches are in document order)
   let trackedLine = 0;
@@ -251,6 +316,11 @@ function findMissingCspRegistrations(
   let trackedOffset = 0;
 
   while ((match = closeScriptRe.exec(content)) !== null) {
+    const type = scriptTypes[scriptIndex++] ?? null;
+
+    // Skip scripts whose type does not require CSP registration
+    if (!scriptTypeRequiresCsp(type)) continue;
+
     const tagStart = match.index;
     const tagEnd = tagStart + match[0].length;
 
