@@ -40,11 +40,11 @@ export const FRONTEND_CSP_TAG = '<?php $hyvaCsp->registerInlineScript(); ?>';
 export const BASE_CSP_TAG = '<?php if (isset($hyvaCsp)) $hyvaCsp->registerInlineScript(); ?>';
 
 /**
- * Script type values that require CSP registration.
- * A script with no type attribute (null) also requires CSP (defaults to JS).
- * All other type values (application/json, text/json, application/ld+json, module, etc.) are exempt.
+ * Script type values that execute code and require CSP registration.
+ * Scripts with no type attribute (null) default to JS and also require CSP.
+ * All other type values are non-executable (data) and exempt.
  */
-const TYPES_REQUIRING_CSP = new Set(['text/javascript', 'speculationrules']);
+const EXECUTABLE_SCRIPT_TYPES = new Set(['text/javascript', 'module', 'speculationrules']);
 
 // --- Hyvä module dependency cache ---
 
@@ -239,60 +239,59 @@ function findOwningModulePath(
 // --- Script tag scanning ---
 
 /**
- * Find all </script> tags in the content that are not followed by the correct
- * CSP registration call, and return a Warning diagnostic for each.
- *
- * The expected CSP tag must appear immediately after </script>, separated only
- * by whitespace (spaces, tabs, newlines). Any other content between </script>
- * and the CSP tag counts as a violation.
+ * Check whether a script tag requires CSP registration.
+ * External scripts (with a src attribute) are always exempt.
+ * Only executable types (no type, text/javascript, module, speculationrules)
+ * require CSP — all other type values are non-executable data.
  */
-/**
- * Check whether a script type attribute value requires CSP registration.
- * Scripts with no type (null) default to JavaScript and require CSP.
- * Only explicit types in TYPES_REQUIRING_CSP also require CSP.
- */
-function scriptTypeRequiresCsp(type: string | null): boolean {
+function scriptRequiresCsp(type: string | null, hasSrc: boolean): boolean {
+  if (hasSrc) return false;
   if (type === null) return true;
-  return TYPES_REQUIRING_CSP.has(type.toLowerCase().trim());
+  return EXECUTABLE_SCRIPT_TYPES.has(type.toLowerCase().trim());
+}
+
+interface ScriptInfo {
+  type: string | null;
+  hasSrc: boolean;
 }
 
 /**
- * Extract the type attribute value from a <script> tag's attribute string.
- * Returns null if no type attribute is present.
+ * Extract the type and src attributes from a <script> tag's attribute string.
  */
-function extractScriptType(attributes: string): string | null {
-  const match = attributes.match(/\btype\s*=\s*["']([^"']*)["']/i)
+function extractScriptAttrs(attributes: string): ScriptInfo {
+  const typeMatch = attributes.match(/\btype\s*=\s*["']([^"']*)["']/i)
     || attributes.match(/\btype\s*=\s*([^\s>]+)/i);
-  return match ? match[1] : null;
+  const hasSrc = /\bsrc\s*=/i.test(attributes);
+  return { type: typeMatch ? typeMatch[1] : null, hasSrc };
 }
 
 /**
- * Build an array of script type values (or null) for each </script> in the
- * content, paired by matching <script> opening tags in document order.
+ * Build an array of ScriptInfo for each </script> in the content,
+ * paired by matching <script> opening tags in document order.
  */
-function getScriptTypes(content: string): Array<string | null> {
+function getScriptInfos(content: string): ScriptInfo[] {
   const openRe = /<script\b([^>]*)>/gi;
   const closeRe = /<\/script\s*>/gi;
 
-  const openTypes: Array<{ offset: number; type: string | null }> = [];
+  const opens: Array<{ offset: number; info: ScriptInfo }> = [];
   let m;
   while ((m = openRe.exec(content)) !== null) {
-    openTypes.push({ offset: m.index, type: extractScriptType(m[1]) });
+    opens.push({ offset: m.index, info: extractScriptAttrs(m[1]) });
   }
 
-  const types: Array<string | null> = [];
+  const infos: ScriptInfo[] = [];
   let openIdx = 0;
   while ((m = closeRe.exec(content)) !== null) {
     const closeOffset = m.index;
-    if (openIdx < openTypes.length && openTypes[openIdx].offset < closeOffset) {
-      types.push(openTypes[openIdx].type);
+    if (openIdx < opens.length && opens[openIdx].offset < closeOffset) {
+      infos.push(opens[openIdx].info);
       openIdx++;
     } else {
-      // No matching opening tag found — assume JS (null)
-      types.push(null);
+      // No matching opening tag found — assume inline JS
+      infos.push({ type: null, hasSrc: false });
     }
   }
-  return types;
+  return infos;
 }
 
 /**
@@ -324,8 +323,8 @@ function hasRegisterInlineScriptCall(
   const normalized = phpCode.replace(/\s+/g, '');
 
   if (cspArea === 'base') {
-    return normalized.includes('if(isset($hyvaCsp))$hyvaCsp->registerInlineScript()')
-      || normalized.includes('if(isset($hyvaCsp)){$hyvaCsp->registerInlineScript()');
+    return normalized.includes('isset($hyvaCsp)')
+      && normalized.includes('$hyvaCsp->registerInlineScript()');
   }
 
   return normalized.includes('$hyvaCsp->registerInlineScript()');
@@ -336,10 +335,9 @@ function findMissingCspRegistrations(
   cspArea: CspArea,
 ): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
-  const expectedTag = cspArea === 'frontend' ? FRONTEND_CSP_TAG : BASE_CSP_TAG;
 
-  // Determine the type attribute of each script block
-  const scriptTypes = getScriptTypes(content);
+  // Determine type/src attributes for each script block
+  const scriptInfos = getScriptInfos(content);
 
   // Match all </script> tags (case-insensitive, as HTML tag names are case-insensitive)
   const closeScriptRe = /<\/script\s*>/gi;
@@ -352,10 +350,10 @@ function findMissingCspRegistrations(
   let trackedOffset = 0;
 
   while ((match = closeScriptRe.exec(content)) !== null) {
-    const type = scriptTypes[scriptIndex++] ?? null;
+    const info = scriptInfos[scriptIndex++] ?? { type: null, hasSrc: false };
 
-    // Skip scripts whose type does not require CSP registration
-    if (!scriptTypeRequiresCsp(type)) continue;
+    // Skip scripts that don't require CSP (external src, data-only types)
+    if (!scriptRequiresCsp(info.type, info.hasSrc)) continue;
 
     const tagStart = match.index;
     const tagEnd = tagStart + match[0].length;
@@ -391,7 +389,7 @@ function findMissingCspRegistrations(
         },
         severity: DiagnosticSeverity.Warning,
         source: 'magento2-lsp',
-        message: `Missing CSP registration: </script> must be followed by ${expectedTag}`,
+        message: `Missing CSP registration: </script> must be followed by a <?php block calling $hyvaCsp->registerInlineScript()${cspArea === 'base' ? ' (guarded by isset)' : ''}`,
         code: DIAG_MISSING_CSP_REGISTRATION,
         data: { cspArea },
       });

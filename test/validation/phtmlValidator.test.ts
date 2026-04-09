@@ -142,7 +142,7 @@ describe('phtmlValidator', () => {
       expect(diags).toHaveLength(1);
       expect(diags[0].severity).toBe(DiagnosticSeverity.Warning);
       expect(diags[0].code).toBe(DIAG_MISSING_CSP_REGISTRATION);
-      expect(diags[0].message).toContain(FRONTEND_CSP);
+      expect(diags[0].message).toContain('registerInlineScript()');
       expect(diags[0].source).toBe('magento2-lsp');
     });
 
@@ -202,7 +202,7 @@ describe('phtmlValidator', () => {
       const diags = validatePhtml(filePath, content, project);
 
       expect(diags).toHaveLength(1);
-      expect(diags[0].message).toContain(FRONTEND_CSP);
+      expect(diags[0].message).toContain('registerInlineScript()');
     });
 
     it('does not warn about missing registration in compat module when CSP is present', () => {
@@ -239,7 +239,7 @@ describe('phtmlValidator', () => {
       const diags = validatePhtml(filePath, content, project);
 
       expect(diags).toHaveLength(1);
-      expect(diags[0].message).toContain(FRONTEND_CSP);
+      expect(diags[0].message).toContain('registerInlineScript()');
     });
 
     it('warns for base template missing CSP in a Hyvä-dependent module (isset variant)', () => {
@@ -255,7 +255,7 @@ describe('phtmlValidator', () => {
       const diags = validatePhtml(filePath, content, project);
 
       expect(diags).toHaveLength(1);
-      expect(diags[0].message).toContain(BASE_CSP);
+      expect(diags[0].message).toContain('guarded by isset');
     });
 
     it('warns when module is in a subdirectory of a Hyvä-dependent composer package', () => {
@@ -278,7 +278,7 @@ describe('phtmlValidator', () => {
       const diags = validatePhtml(filePath, content, project);
 
       expect(diags).toHaveLength(1);
-      expect(diags[0].message).toContain(FRONTEND_CSP);
+      expect(diags[0].message).toContain('registerInlineScript()');
     });
 
     it('does not warn for modules without the Hyvä dependency', () => {
@@ -305,7 +305,7 @@ describe('phtmlValidator', () => {
       const diags = validatePhtml(filePath, content, project);
 
       expect(diags).toHaveLength(1);
-      expect(diags[0].message).toContain(BASE_CSP);
+      expect(diags[0].message).toContain('guarded by isset');
     });
 
     it('does not warn about missing registration when CSP with isset is present', () => {
@@ -440,7 +440,7 @@ describe('phtmlValidator', () => {
       const diags = validatePhtml(filePath, content, project);
 
       expect(diags).toHaveLength(1);
-      expect(diags[0].message).toContain(BASE_CSP);
+      expect(diags[0].message).toContain('guarded by isset');
     });
   });
 
@@ -584,11 +584,45 @@ describe('phtmlValidator', () => {
       expect(diags).toHaveLength(0);
     });
 
-    it('does not warn for <script type="module">', () => {
+    it('warns for inline <script type="module"> without CSP', () => {
+      hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
+      const project = makeProject({ themes: [makeHyvaTheme()] });
+      const filePath = `${HYVA_THEME_PATH}/Magento_Catalog/templates/view.phtml`;
+      const content = '<script type="module">import { init } from "./app.js"; init();</script>';
+
+      const diags = validatePhtml(filePath, content, project);
+
+      expect(diags).toHaveLength(1);
+      expect(diags[0].code).toBe(DIAG_MISSING_CSP_REGISTRATION);
+    });
+
+    it('does not warn for <script src="..."> (external script)', () => {
+      hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
+      const project = makeProject({ themes: [makeHyvaTheme()] });
+      const filePath = `${HYVA_THEME_PATH}/Magento_Catalog/templates/view.phtml`;
+      const content = '<script src="app.js"></script>';
+
+      const diags = validatePhtml(filePath, content, project);
+
+      expect(diags).toHaveLength(0);
+    });
+
+    it('does not warn for <script type="module" src="..."> (external module)', () => {
       hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
       const project = makeProject({ themes: [makeHyvaTheme()] });
       const filePath = `${HYVA_THEME_PATH}/Magento_Catalog/templates/view.phtml`;
       const content = '<script type="module" src="app.js"></script>';
+
+      const diags = validatePhtml(filePath, content, project);
+
+      expect(diags).toHaveLength(0);
+    });
+
+    it('does not warn for <script type="text/javascript" src="..."> (external JS)', () => {
+      hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
+      const project = makeProject({ themes: [makeHyvaTheme()] });
+      const filePath = `${HYVA_THEME_PATH}/Magento_Catalog/templates/view.phtml`;
+      const content = '<script type="text/javascript" src="legacy.js"></script>';
 
       const diags = validatePhtml(filePath, content, project);
 
@@ -649,6 +683,32 @@ describe('phtmlValidator', () => {
       expect(regDiags).toHaveLength(1);
       // Diagnostic should be on line 0 (the JS script), not on the JSON script
       expect(regDiags[0].range.start.line).toBe(0);
+    });
+  });
+
+  // ----- Edge cases: script tags inside PHP strings -----
+
+  describe('script tags inside PHP strings', () => {
+    it('false-positive: treats <script> inside PHP heredoc as a real script tag', () => {
+      hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
+      const project = makeProject({ themes: [makeHyvaTheme()] });
+      const filePath = `${HYVA_THEME_PATH}/Magento_Catalog/templates/view.phtml`;
+      // A <script> inside a PHP heredoc is not a real HTML script tag, but
+      // the regex-based scanner cannot distinguish it. This test documents the
+      // known false-positive so future improvements can verify the fix.
+      const content = [
+        '<?php',
+        '$html = <<<HTML',
+        '<script>alert("hi");</script>',
+        'HTML;',
+        '?>',
+      ].join('\n');
+
+      const diags = validatePhtml(filePath, content, project);
+
+      // Current behavior: warns (false positive) because the scanner is regex-based
+      const cspDiags = diags.filter((d) => d.code === DIAG_MISSING_CSP_REGISTRATION);
+      expect(cspDiags).toHaveLength(1);
     });
   });
 

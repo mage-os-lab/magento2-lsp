@@ -541,37 +541,31 @@ function findUseStatementInsertPosition(
   // declare(strict_types=1)) that follows the first `<?php` tag.
   for (let i = 0; i < lines.length; i++) {
     if (lines[i].includes('<?php')) {
-      let insertAfter = i;
+      // j tracks the next line to inspect; after the loop it points past the
+      // last preamble line, so the insert position is j - 1.
+      let j = i + 1;
 
-      // Skip past license/doc comment blocks
-      let j = insertAfter + 1;
       // Skip blank lines after <?php
       while (j < lines.length && lines[j].trim() === '') j++;
+
       // Skip block comment (/* ... */ or /** ... */)
       if (j < lines.length && /^\s*(\/\*|\/\*\*)/.test(lines[j])) {
         while (j < lines.length && !lines[j].includes('*/')) j++;
         if (j < lines.length) j++; // skip the closing */ line
-        insertAfter = j - 1;
       }
+
       // Skip single-line comments (// ...)
-      while (j < lines.length && /^\s*\/\//.test(lines[j])) {
-        insertAfter = j;
-        j++;
-      }
+      while (j < lines.length && /^\s*\/\//.test(lines[j])) j++;
 
       // Skip blank lines after comment
-      while (j < lines.length && lines[j].trim() === '') {
-        insertAfter = j;
-        j++;
-      }
+      while (j < lines.length && lines[j].trim() === '') j++;
 
       // Skip declare(strict_types=1); if present
-      if (j < lines.length && /^\s*declare\s*\(/.test(lines[j])) {
-        insertAfter = j;
-        j = insertAfter + 1;
-      }
+      if (j < lines.length && /^\s*declare\s*\(/.test(lines[j])) j++;
 
-      // Insert after preamble, with a blank line separator if needed
+      // j now points to the first non-preamble line; insert after the last
+      // preamble line, with a blank line separator if needed.
+      const insertAfter = j - 1;
       const nextLine = insertAfter + 1 < lines.length ? lines[insertAfter + 1] : '';
       if (nextLine.trim() === '') {
         return { line: insertAfter + 2, character: 0 };
@@ -602,10 +596,11 @@ function findPhpDocInsertPosition(
   // the template body next to a loop variable's @var, for example.
   let lastVarLine = -1;
   for (let i = 0; i < lines.length; i++) {
-    // Stop at the first line that looks like HTML template content (not PHP
-    // or whitespace). This matches the coding standard's header boundary.
+    // Stop at the first line that is not part of the PHP file header.
+    // Header lines are: PHP open/close tags, comments, use/declare statements,
+    // and blank lines.
     const trimmed = lines[i].trim();
-    if (trimmed !== '' && !trimmed.startsWith('<?') && !trimmed.startsWith('*') && !trimmed.startsWith('//') && !trimmed.startsWith('/*') && !trimmed.startsWith('*/') && !trimmed.startsWith('use ') && !trimmed.startsWith('declare')) {
+    if (trimmed !== '' && !/^(<\?|\?>|\*|\/\/|\/\*|\*\/|use |declare\b)/.test(trimmed)) {
       break;
     }
     if (/^\s*\/\*\*\s*@var\b/.test(lines[i])) {
