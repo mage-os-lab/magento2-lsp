@@ -646,6 +646,72 @@ describe('handleCodeAction', () => {
       expect(resolved.edit!.changes![fileUri].length).toBeGreaterThan(0);
     });
 
+    it('inserts use statement after declare(strict_types=1), not before it', () => {
+      const project = makeHyvaProject();
+      const filePath = `${HYVA_THEME_PATH}/Vendor_Module/templates/page.phtml`;
+      const fileUri = URI.file(filePath).toString();
+      const content = [
+        '<?php',
+        '/**',
+        ' * License comment',
+        ' */',
+        '',
+        'declare(strict_types=1);',
+        '',
+        '/** @var HyvaCsp $hyvaCsp */',
+        '?>',
+        '<script>init();</script>',
+      ].join('\n');
+
+      const diag = makeCspDiag(9, 24, 33);
+      const params = makeParams(filePath, [diag]);
+      const getDocText = (uri: string) => uri === fileUri ? content : undefined;
+      const actions = handleCodeAction(params, () => project, getDocText);
+
+      expect(actions).not.toBeNull();
+      const edits = (actions![0].data as any).edit.changes[fileUri];
+      const useEdit = edits.find((e: any) => e.newText.includes('use Hyva'));
+      expect(useEdit).toBeDefined();
+      // The use statement should be inserted after declare (line 5), not before it.
+      // declare is on line 5, so use should be at line 7 or later (after the blank line).
+      expect(useEdit!.range.start.line).toBeGreaterThanOrEqual(7);
+    });
+
+    it('inserts @var annotation in file header, not after body @var', () => {
+      const project = makeHyvaProject();
+      const filePath = `${HYVA_THEME_PATH}/Vendor_Module/templates/page.phtml`;
+      const fileUri = URI.file(filePath).toString();
+      const content = [
+        '<?php',
+        '',
+        'use Hyva\\Theme\\ViewModel\\HyvaCsp;',
+        'use Magento\\Catalog\\Model\\Product;',
+        '',
+        '/** @var Product $product */',
+        '',
+        '?>',
+        '<div>',
+        '    <?php /** @var Product $item */ ?>',
+        '    <?php foreach ($items as $item): ?>',
+        '        <span><?= $item->getName() ?></span>',
+        '    <?php endforeach; ?>',
+        '</div>',
+        '<script>init();</script>',
+      ].join('\n');
+
+      const diag = makeCspDiag(14, 24, 33);
+      const params = makeParams(filePath, [diag]);
+      const getDocText = (uri: string) => uri === fileUri ? content : undefined;
+      const actions = handleCodeAction(params, () => project, getDocText);
+
+      expect(actions).not.toBeNull();
+      const edits = (actions![0].data as any).edit.changes[fileUri];
+      const docEdit = edits.find((e: any) => e.newText.includes('@var HyvaCsp'));
+      expect(docEdit).toBeDefined();
+      // Should be inserted after the header @var (line 5), not after the body @var (line 9)
+      expect(docEdit!.range.start.line).toBe(6);
+    });
+
     it('returns null when no document text is available', () => {
       const project = makeHyvaProject();
       const filePath = `${HYVA_THEME_PATH}/Vendor_Module/templates/page.phtml`;

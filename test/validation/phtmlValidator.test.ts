@@ -466,6 +466,88 @@ describe('phtmlValidator', () => {
     });
   });
 
+  // ----- Flexible CSP call matching -----
+
+  describe('flexible CSP call format', () => {
+    it('accepts registerInlineScript with additional code in the PHP block', () => {
+      hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
+      const project = makeProject({ themes: [makeHyvaTheme()] });
+      const filePath = `${HYVA_THEME_PATH}/Magento_Catalog/templates/view.phtml`;
+      const content = `<script>x();</script>\n<?php $hyvaCsp->registerInlineScript(); $otherCode = true; ?>`;
+
+      const diags = validatePhtml(filePath, content, project);
+
+      expect(diags.filter((d) => d.code === DIAG_MISSING_CSP_REGISTRATION)).toHaveLength(0);
+    });
+
+    it('accepts registerInlineScript in a multi-line PHP block', () => {
+      hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
+      const project = makeProject({ themes: [makeHyvaTheme()] });
+      const filePath = `${HYVA_THEME_PATH}/Magento_Catalog/templates/view.phtml`;
+      const content = [
+        '<script>x();</script>',
+        '<?php',
+        '    $hyvaCsp->registerInlineScript();',
+        '    echo "more";',
+        '?>',
+      ].join('\n');
+
+      const diags = validatePhtml(filePath, content, project);
+
+      expect(diags.filter((d) => d.code === DIAG_MISSING_CSP_REGISTRATION)).toHaveLength(0);
+    });
+
+    it('accepts registerInlineScript without trailing semicolon', () => {
+      hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
+      const project = makeProject({ themes: [makeHyvaTheme()] });
+      const filePath = `${HYVA_THEME_PATH}/Magento_Catalog/templates/view.phtml`;
+      const content = `<script>x();</script>\n<?php $hyvaCsp->registerInlineScript() ?>`;
+
+      const diags = validatePhtml(filePath, content, project);
+
+      expect(diags.filter((d) => d.code === DIAG_MISSING_CSP_REGISTRATION)).toHaveLength(0);
+    });
+
+    it('warns when PHP block after </script> has different code (no registerInlineScript)', () => {
+      hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
+      const project = makeProject({ themes: [makeHyvaTheme()] });
+      const filePath = `${HYVA_THEME_PATH}/Magento_Catalog/templates/view.phtml`;
+      const content = `<script>x();</script>\n<?php echo "hello"; ?>`;
+
+      const diags = validatePhtml(filePath, content, project);
+
+      expect(diags.filter((d) => d.code === DIAG_MISSING_CSP_REGISTRATION)).toHaveLength(1);
+    });
+
+    it('accepts isset-guarded call with braces in base area', () => {
+      hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
+      const project = makeProject({ themes: [makeHyvaTheme()] });
+      const filePath = `${MODULE_PATH}/view/base/templates/widget/list.phtml`;
+      const content = [
+        '<script>run();</script>',
+        '<?php if (isset($hyvaCsp)) { $hyvaCsp->registerInlineScript(); } ?>',
+      ].join('\n');
+
+      const diags = validatePhtml(filePath, content, project);
+
+      expect(diags.filter((d) => d.code === DIAG_MISSING_CSP_REGISTRATION)).toHaveLength(0);
+    });
+
+    it('warns in base area when PHP block has unguarded registerInlineScript', () => {
+      hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
+      const project = makeProject({ themes: [makeHyvaTheme()] });
+      const filePath = `${MODULE_PATH}/view/base/templates/widget/list.phtml`;
+      const content = [
+        '<script>run();</script>',
+        '<?php $hyvaCsp->registerInlineScript(); ?>',
+      ].join('\n');
+
+      const diags = validatePhtml(filePath, content, project);
+
+      expect(diags.filter((d) => d.code === DIAG_MISSING_CSP_REGISTRATION)).toHaveLength(1);
+    });
+  });
+
   // ----- Script type filtering -----
 
   describe('script type filtering', () => {

@@ -295,6 +295,42 @@ function getScriptTypes(content: string): Array<string | null> {
   return types;
 }
 
+/**
+ * Check whether a PHP block starting at `pos` in `content` contains
+ * the required registerInlineScript() call for the given CSP area.
+ *
+ * The coding standard allows flexibility in the PHP block format — any PHP
+ * block that contains the call is accepted. For base area, the call must be
+ * guarded by isset($hyvaCsp).
+ *
+ * Returns true if the PHP block is valid (no diagnostic needed).
+ */
+function hasRegisterInlineScriptCall(
+  content: string,
+  pos: number,
+  cspArea: CspArea,
+): boolean {
+  // Must start with <?php
+  if (!content.startsWith('<?php', pos)) return false;
+
+  // Extract PHP code up to ?> or end of content
+  const phpStart = pos + 5; // length of '<?php'
+  const closeIdx = content.indexOf('?>', phpStart);
+  const phpCode = closeIdx === -1
+    ? content.slice(phpStart)
+    : content.slice(phpStart, closeIdx);
+
+  // Normalize: strip all whitespace for comparison (matches the coding standard)
+  const normalized = phpCode.replace(/\s+/g, '');
+
+  if (cspArea === 'base') {
+    return normalized.includes('if(isset($hyvaCsp))$hyvaCsp->registerInlineScript()')
+      || normalized.includes('if(isset($hyvaCsp)){$hyvaCsp->registerInlineScript()');
+  }
+
+  return normalized.includes('$hyvaCsp->registerInlineScript()');
+}
+
 function findMissingCspRegistrations(
   content: string,
   cspArea: CspArea,
@@ -330,8 +366,10 @@ function findMissingCspRegistrations(
       pos++;
     }
 
-    // Check if the expected tag starts at this position (zero-allocation comparison)
-    const found = content.startsWith(expectedTag, pos);
+    // Check if a PHP block with registerInlineScript follows at this position.
+    // The coding standard allows variations — as long as the next PHP block
+    // contains the required call (with isset guard for base area), it's valid.
+    const found = hasRegisterInlineScriptCall(content, pos, cspArea);
 
     if (!found) {
       // Advance line/column tracker from last tracked position to tagStart

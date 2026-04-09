@@ -537,23 +537,46 @@ function findUseStatementInsertPosition(
     return { line: lastUseLine + 1, character: 0 };
   }
 
-  // No use statements — insert after the first `<?php` tag.
-  // If the `<?php` line has only the opening tag (possibly with whitespace),
-  // insert on the line after it. Otherwise insert on the next line.
+  // No use statements — insert after the file header preamble (license comment,
+  // declare(strict_types=1)) that follows the first `<?php` tag.
   for (let i = 0; i < lines.length; i++) {
     if (lines[i].includes('<?php')) {
-      // Check if this is a standalone `<?php` line (convention: first line)
-      if (/^\s*<\?php\s*$/.test(lines[i])) {
-        // Insert after a blank line (convention: <?php, blank line, use stmts)
-        // If the next line is blank, insert after it; otherwise insert right after <?php
-        const nextLine = i + 1 < lines.length ? lines[i + 1] : '';
-        if (nextLine.trim() === '') {
-          return { line: i + 2, character: 0 };
-        }
-        return { line: i + 1, character: 0 };
+      let insertAfter = i;
+
+      // Skip past license/doc comment blocks
+      let j = insertAfter + 1;
+      // Skip blank lines after <?php
+      while (j < lines.length && lines[j].trim() === '') j++;
+      // Skip block comment (/* ... */ or /** ... */)
+      if (j < lines.length && /^\s*(\/\*|\/\*\*)/.test(lines[j])) {
+        while (j < lines.length && !lines[j].includes('*/')) j++;
+        if (j < lines.length) j++; // skip the closing */ line
+        insertAfter = j - 1;
       }
-      // Inline <?php — insert on the next line
-      return { line: i + 1, character: 0 };
+      // Skip single-line comments (// ...)
+      while (j < lines.length && /^\s*\/\//.test(lines[j])) {
+        insertAfter = j;
+        j++;
+      }
+
+      // Skip blank lines after comment
+      while (j < lines.length && lines[j].trim() === '') {
+        insertAfter = j;
+        j++;
+      }
+
+      // Skip declare(strict_types=1); if present
+      if (j < lines.length && /^\s*declare\s*\(/.test(lines[j])) {
+        insertAfter = j;
+        j = insertAfter + 1;
+      }
+
+      // Insert after preamble, with a blank line separator if needed
+      const nextLine = insertAfter + 1 < lines.length ? lines[insertAfter + 1] : '';
+      if (nextLine.trim() === '') {
+        return { line: insertAfter + 2, character: 0 };
+      }
+      return { line: insertAfter + 1, character: 0 };
     }
   }
 
@@ -574,9 +597,17 @@ function findUseStatementInsertPosition(
 function findPhpDocInsertPosition(
   lines: string[],
 ): { pos: { line: number; character: number }; prefix: string } | undefined {
-  // Find the last `/** @var` line
+  // Find the last `/** @var` line in the file header only (before the first
+  // non-whitespace HTML content). This prevents inserting the annotation in
+  // the template body next to a loop variable's @var, for example.
   let lastVarLine = -1;
   for (let i = 0; i < lines.length; i++) {
+    // Stop at the first line that looks like HTML template content (not PHP
+    // or whitespace). This matches the coding standard's header boundary.
+    const trimmed = lines[i].trim();
+    if (trimmed !== '' && !trimmed.startsWith('<?') && !trimmed.startsWith('*') && !trimmed.startsWith('//') && !trimmed.startsWith('/*') && !trimmed.startsWith('*/') && !trimmed.startsWith('use ') && !trimmed.startsWith('declare')) {
+      break;
+    }
     if (/^\s*\/\*\*\s*@var\b/.test(lines[i])) {
       lastVarLine = i;
     }
