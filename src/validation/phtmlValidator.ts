@@ -26,7 +26,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Diagnostic, DiagnosticSeverity } from 'vscode-languageserver/node';
-import { DIAG_MISSING_CSP_REGISTRATION, DIAG_MISSING_CSP_TYPE_HINT } from './diagnosticCodes';
+import { DIAG_MISSING_CSP_REGISTRATION, DIAG_MISSING_CSP_TYPE_HINT, DIAG_UNEXPECTED_CSP_IN_ADMINHTML } from './diagnosticCodes';
 import { readComposerPackages } from '../utils/composerPackages';
 import type { ThemeInfo } from '../project/themeResolver';
 import type { ProjectContext } from '../project/projectManager';
@@ -74,6 +74,15 @@ export function validatePhtml(
   content: string,
   project: ProjectContext,
 ): Diagnostic[] {
+  // Adminhtml templates must not use registerInlineScript() — it is a frontend-only
+  // API. Detect adminhtml via the theme area (for theme templates) or the
+  // view/adminhtml/ path segment (for module templates). This matches the
+  // hyva-coding-standard CspRegisterInlineScriptSniff behaviour.
+  const fileArea = project.themeResolver.getAreaForFile(filePath);
+  if (fileArea === 'adminhtml') {
+    return findUnexpectedCspInAdminhtml(content);
+  }
+
   const cspArea = determineCspArea(filePath, project);
   if (!cspArea) return [];
 
@@ -447,6 +456,38 @@ function findMissingCspTypeHints(
   }
 
   return diagnostics;
+}
+
+/**
+ * Warn when registerInlineScript() appears in an adminhtml template.
+ *
+ * The $hyvaCsp view model is only available in frontend themes. Using it in
+ * adminhtml templates causes a runtime error. This check mirrors the
+ * hyva-coding-standard's "UnexpectedCspRegisterInlineScript" warning.
+ *
+ * Returns a single diagnostic on the first occurrence, or an empty array.
+ */
+function findUnexpectedCspInAdminhtml(content: string): Diagnostic[] {
+  const callRe = /\$hyvaCsp->registerInlineScript\(\)/;
+  const lines = content.split('\n');
+
+  for (let i = 0; i < lines.length; i++) {
+    const match = callRe.exec(lines[i]);
+    if (match) {
+      return [{
+        range: {
+          start: { line: i, character: match.index },
+          end: { line: i, character: match.index + match[0].length },
+        },
+        severity: DiagnosticSeverity.Warning,
+        source: 'magento2-lsp',
+        message: '$hyvaCsp->registerInlineScript() must not be used in adminhtml area templates',
+        code: DIAG_UNEXPECTED_CSP_IN_ADMINHTML,
+      }];
+    }
+  }
+
+  return [];
 }
 
 /**

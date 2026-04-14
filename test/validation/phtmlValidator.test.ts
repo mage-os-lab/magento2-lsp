@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DiagnosticSeverity } from 'vscode-languageserver/node';
-import { DIAG_MISSING_CSP_REGISTRATION, DIAG_MISSING_CSP_TYPE_HINT } from '../../src/validation/diagnosticCodes';
+import { DIAG_MISSING_CSP_REGISTRATION, DIAG_MISSING_CSP_TYPE_HINT, DIAG_UNEXPECTED_CSP_IN_ADMINHTML } from '../../src/validation/diagnosticCodes';
 import { validatePhtml, clearHyvaModulePathsCache } from '../../src/validation/phtmlValidator';
 import { ThemeResolver } from '../../src/project/themeResolver';
 import { CompatModuleIndex } from '../../src/index/compatModuleIndex';
@@ -459,6 +459,117 @@ describe('phtmlValidator', () => {
       const project = makeProject({ themes: [theme] });
       const filePath = `${defaultThemePath}/Magento_Theme/templates/html/header.phtml`;
       const content = '<script>console.log("hi");</script>';
+
+      const diags = validatePhtml(filePath, content, project);
+
+      expect(diags).toHaveLength(0);
+    });
+  });
+
+  // ----- Adminhtml area exclusion -----
+  //
+  // registerInlineScript() is a frontend-only API. Adminhtml templates must not
+  // require it, and should warn when it is present. Adminhtml can be detected
+  // two ways: by the theme's area field, or by the view/adminhtml/ path segment
+  // in module templates.
+
+  describe('adminhtml area templates', () => {
+    it('does not require CSP in an adminhtml compat module template', () => {
+      // A compat module with a view/adminhtml/ template — no CSP should be required.
+      const compatPath = '/project/vendor/hyva/compat-catalog';
+      const project = makeProject({
+        compatMappings: [{
+          original: 'Magento_Catalog',
+          compat: 'Hyva_CompatCatalog',
+          compatPath,
+        }],
+      });
+      const filePath = `${compatPath}/view/adminhtml/templates/form.phtml`;
+      const content = '<script>adminInit();</script>';
+
+      const diags = validatePhtml(filePath, content, project);
+
+      expect(diags.filter((d) => d.code === DIAG_MISSING_CSP_REGISTRATION)).toHaveLength(0);
+    });
+
+    it('does not require CSP in an adminhtml theme template', () => {
+      // An adminhtml Hyvä theme (area: 'adminhtml') — CSP should not be required.
+      const adminhtmlThemePath = '/project/vendor/hyva/admin-theme';
+      const adminhtmlTheme: ThemeInfo = {
+        code: 'adminhtml/Hyva/admin',
+        shortCode: 'Hyva/admin',
+        area: 'adminhtml',
+        path: adminhtmlThemePath,
+      };
+      // Mark it as "Hyvä" by adding the tailwind path — even so, adminhtml should skip.
+      hyvaThemeTailwindPaths.add(`${adminhtmlThemePath}/web/tailwind`);
+      const project = makeProject({ themes: [adminhtmlTheme] });
+      const filePath = `${adminhtmlThemePath}/Magento_Backend/templates/page/header.phtml`;
+      const content = '<script>adminPanel();</script>';
+
+      const diags = validatePhtml(filePath, content, project);
+
+      expect(diags.filter((d) => d.code === DIAG_MISSING_CSP_REGISTRATION)).toHaveLength(0);
+    });
+
+    it('does not require CSP in a Hyvä-dependent module adminhtml template', () => {
+      // A module that depends on hyva-themes/magento2-theme-module, but the
+      // template is in view/adminhtml/ — CSP should not be required.
+      mockComposerPackages.push({
+        absPath: HYVA_MODULE_PATH,
+        type: 'magento2-module',
+        raw: { require: { 'hyva-themes/magento2-theme-module': '*' } },
+      });
+      const project = makeProject();
+      const filePath = `${HYVA_MODULE_PATH}/view/adminhtml/templates/config/form.phtml`;
+      const content = '<script>configInit();</script>';
+
+      const diags = validatePhtml(filePath, content, project);
+
+      expect(diags.filter((d) => d.code === DIAG_MISSING_CSP_REGISTRATION)).toHaveLength(0);
+    });
+
+    it('warns when registerInlineScript() is used in an adminhtml module template', () => {
+      // registerInlineScript() in an adminhtml template is always wrong — the
+      // $hyvaCsp view model is not available in the admin area.
+      const project = makeProject();
+      const filePath = `${MODULE_PATH}/view/adminhtml/templates/form.phtml`;
+      const content = [
+        '<script>adminInit();</script>',
+        '<?php $hyvaCsp->registerInlineScript(); ?>',
+      ].join('\n');
+
+      const diags = validatePhtml(filePath, content, project);
+
+      expect(diags).toHaveLength(1);
+      expect(diags[0].code).toBe(DIAG_UNEXPECTED_CSP_IN_ADMINHTML);
+      expect(diags[0].severity).toBe(DiagnosticSeverity.Warning);
+      expect(diags[0].message).toContain('must not be used in adminhtml');
+    });
+
+    it('warns when registerInlineScript() is used in an adminhtml theme template', () => {
+      const adminhtmlThemePath = '/project/vendor/hyva/admin-theme';
+      const adminhtmlTheme: ThemeInfo = {
+        code: 'adminhtml/Hyva/admin',
+        shortCode: 'Hyva/admin',
+        area: 'adminhtml',
+        path: adminhtmlThemePath,
+      };
+      const project = makeProject({ themes: [adminhtmlTheme] });
+      const filePath = `${adminhtmlThemePath}/Magento_Backend/templates/page/header.phtml`;
+      const content = '<?php $hyvaCsp->registerInlineScript(); ?>';
+
+      const diags = validatePhtml(filePath, content, project);
+
+      expect(diags).toHaveLength(1);
+      expect(diags[0].code).toBe(DIAG_UNEXPECTED_CSP_IN_ADMINHTML);
+    });
+
+    it('does not warn for adminhtml template without registerInlineScript()', () => {
+      // A clean adminhtml template — no diagnostics at all.
+      const project = makeProject();
+      const filePath = `${MODULE_PATH}/view/adminhtml/templates/form.phtml`;
+      const content = '<script>adminInit();</script>';
 
       const diags = validatePhtml(filePath, content, project);
 
