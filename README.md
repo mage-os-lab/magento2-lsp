@@ -50,6 +50,8 @@ npm install -g @mage-os/magento2-lsp
 
 This provides two commands: `magento2-lsp` (LSP server) and `magento2-lsp-mcp` (MCP server).
 
+Don't want Node on your host? See [docs/docker.md](docs/docker.md) to run both servers from a container.
+
 <details>
 <summary>Install from source</summary>
 

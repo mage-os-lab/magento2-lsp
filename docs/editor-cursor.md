@@ -6,6 +6,8 @@
 npm install -g @mage-os/magento2-lsp
 ```
 
+Or run it from Docker without installing Node - see [docker.md](docker.md).
+
 ## Step 2 - Install the extension
 
 1. Open the Extensions panel (`Cmd+Shift+X`)

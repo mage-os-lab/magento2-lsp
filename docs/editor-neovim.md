@@ -6,6 +6,8 @@ Install the language server:
 npm install -g @mage-os/magento2-lsp
 ```
 
+(Or run it from Docker without installing Node - see [docker.md](docker.md).)
+
 Then add to the `servers` table in your LSP config (e.g., `init.lua`):
 
 ```lua

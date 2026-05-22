@@ -21,6 +21,8 @@ Install the server:
 npm install -g @mage-os/magento2-lsp
 ```
 
+Or run it from Docker without installing Node - see [docker.md](docker.md).
+
 ### Claude Code
 
 Add the MCP server to your project so it's available in every Claude Code session:

@@ -1,0 +1,14 @@
+node_modules
+dist
+.git
+.github
+test
+editors
+docs
+video
+assets
+plans
+*.md
+*.vsix
+.magento2-lsp-cache.json
+commit-msg.txt

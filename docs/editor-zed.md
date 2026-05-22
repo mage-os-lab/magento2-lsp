@@ -12,6 +12,8 @@ The extension requires the `magento2-lsp` binary on your `$PATH`. Install it wit
 npm install -g @mage-os/magento2-lsp
 ```
 
+Or run it from Docker without installing Node - see [docker.md](docker.md).
+
 ## Step 2 - Configure Zed settings
 
 Open your Zed settings with `Cmd+,` and add:

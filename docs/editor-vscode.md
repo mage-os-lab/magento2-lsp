@@ -14,6 +14,8 @@ The extension requires the `magento2-lsp` binary on your `$PATH`. Install it wit
 npm install -g @mage-os/magento2-lsp
 ```
 
+Or run it from Docker without installing Node - see [docker.md](docker.md).
+
 ## Configure (optional)
 
 To use a custom binary path instead of `$PATH` lookup, add to your VS Code settings:
