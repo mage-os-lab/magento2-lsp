@@ -78,6 +78,12 @@ import { validateXmlFile, isXmllintAvailable, invalidateCatalogCache } from './v
 import { validateSemantics } from './validation/semanticValidator';
 import * as fs from 'fs';
 import * as path from 'path';
+import { neutralizeContainerWatchdog } from './utils/containerWatchdog';
+
+// Disable the upstream parent-PID liveness probe when running in a container,
+// where the editor's host PID isn't in our PID namespace. Must run before any
+// `initialize` message is processed.
+neutralizeContainerWatchdog();
 
 const connection = createConnection(ProposedFeatures.all);
 const projectManager = new ProjectManager();
