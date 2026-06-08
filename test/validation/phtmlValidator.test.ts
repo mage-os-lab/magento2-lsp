@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DiagnosticSeverity } from 'vscode-languageserver/node';
-import { DIAG_MISSING_CSP_REGISTRATION, DIAG_MISSING_CSP_TYPE_HINT, DIAG_UNEXPECTED_CSP_IN_ADMINHTML } from '../../src/validation/diagnosticCodes';
+import { DIAG_MISSING_CSP_REGISTRATION, DIAG_MISSING_CSP_TYPE_HINT } from '../../src/validation/diagnosticCodes';
 import { validatePhtml, clearHyvaModulePathsCache } from '../../src/validation/phtmlValidator';
 import { ThemeResolver } from '../../src/project/themeResolver';
 import { CompatModuleIndex } from '../../src/index/compatModuleIndex';
@@ -466,16 +466,17 @@ describe('phtmlValidator', () => {
     });
   });
 
-  // ----- Adminhtml area exclusion -----
+  // ----- Adminhtml area templates -----
   //
-  // registerInlineScript() is a frontend-only API. Adminhtml templates must not
-  // require it, and should warn when it is present. Adminhtml can be detected
-  // two ways: by the theme's area field, or by the view/adminhtml/ path segment
-  // in module templates.
+  // Adminhtml templates are treated like base-area templates: every executable
+  // inline <script> must be followed by the isset-guarded registerInlineScript()
+  // call. Validation is gated on a Hyvä context (compat module, Hyvä-dependent
+  // module, or a project shipping any Hyvä theme) so plain Magento admin
+  // templates are left untouched. Adminhtml is detected by the theme's area field
+  // or the view/adminhtml/ path segment in module templates.
 
   describe('adminhtml area templates', () => {
-    it('does not require CSP in an adminhtml compat module template', () => {
-      // A compat module with a view/adminhtml/ template — no CSP should be required.
+    it('warns (isset variant) when a compat module adminhtml template is missing CSP', () => {
       const compatPath = '/project/vendor/hyva/compat-catalog';
       const project = makeProject({
         compatMappings: [{
@@ -489,11 +490,13 @@ describe('phtmlValidator', () => {
 
       const diags = validatePhtml(filePath, content, project);
 
-      expect(diags.filter((d) => d.code === DIAG_MISSING_CSP_REGISTRATION)).toHaveLength(0);
+      const regDiags = diags.filter((d) => d.code === DIAG_MISSING_CSP_REGISTRATION);
+      expect(regDiags).toHaveLength(1);
+      expect(regDiags[0].message).toContain('guarded by isset');
     });
 
-    it('does not require CSP in an adminhtml theme template', () => {
-      // An adminhtml Hyvä theme (area: 'adminhtml') — CSP should not be required.
+    it('warns (isset variant) when an adminhtml theme template is missing CSP', () => {
+      // An adminhtml Hyvä theme (area: 'adminhtml') in a Hyvä project.
       const adminhtmlThemePath = '/project/vendor/hyva/admin-theme';
       const adminhtmlTheme: ThemeInfo = {
         code: 'adminhtml/Hyva/admin',
@@ -501,7 +504,7 @@ describe('phtmlValidator', () => {
         area: 'adminhtml',
         path: adminhtmlThemePath,
       };
-      // Mark it as "Hyvä" by adding the tailwind path — even so, adminhtml should skip.
+      // Mark it as "Hyvä" via the tailwind path so the project counts as Hyvä.
       hyvaThemeTailwindPaths.add(`${adminhtmlThemePath}/web/tailwind`);
       const project = makeProject({ themes: [adminhtmlTheme] });
       const filePath = `${adminhtmlThemePath}/Magento_Backend/templates/page/header.phtml`;
@@ -509,12 +512,12 @@ describe('phtmlValidator', () => {
 
       const diags = validatePhtml(filePath, content, project);
 
-      expect(diags.filter((d) => d.code === DIAG_MISSING_CSP_REGISTRATION)).toHaveLength(0);
+      const regDiags = diags.filter((d) => d.code === DIAG_MISSING_CSP_REGISTRATION);
+      expect(regDiags).toHaveLength(1);
+      expect(regDiags[0].message).toContain('guarded by isset');
     });
 
-    it('does not require CSP in a Hyvä-dependent module adminhtml template', () => {
-      // A module that depends on hyva-themes/magento2-theme-module, but the
-      // template is in view/adminhtml/ — CSP should not be required.
+    it('warns (isset variant) for a Hyvä-dependent module adminhtml template', () => {
       mockComposerPackages.push({
         absPath: HYVA_MODULE_PATH,
         type: 'magento2-module',
@@ -526,13 +529,26 @@ describe('phtmlValidator', () => {
 
       const diags = validatePhtml(filePath, content, project);
 
+      const regDiags = diags.filter((d) => d.code === DIAG_MISSING_CSP_REGISTRATION);
+      expect(regDiags).toHaveLength(1);
+      expect(regDiags[0].message).toContain('guarded by isset');
+    });
+
+    it('does not warn when the isset-guarded CSP call is present', () => {
+      hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
+      const project = makeProject({ themes: [makeHyvaTheme()] });
+      const filePath = `${MODULE_PATH}/view/adminhtml/templates/form.phtml`;
+      const content = `<script>adminInit();</script>\n${BASE_CSP}`;
+
+      const diags = validatePhtml(filePath, content, project);
+
       expect(diags.filter((d) => d.code === DIAG_MISSING_CSP_REGISTRATION)).toHaveLength(0);
     });
 
-    it('warns when registerInlineScript() is used in an adminhtml module template', () => {
-      // registerInlineScript() in an adminhtml template is always wrong — the
-      // $hyvaCsp view model is not available in the admin area.
-      const project = makeProject();
+    it('warns when adminhtml template has an unguarded registerInlineScript call', () => {
+      // An unguarded call is no longer accepted in adminhtml — it must be isset-guarded.
+      hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
+      const project = makeProject({ themes: [makeHyvaTheme()] });
       const filePath = `${MODULE_PATH}/view/adminhtml/templates/form.phtml`;
       const content = [
         '<script>adminInit();</script>',
@@ -541,35 +557,40 @@ describe('phtmlValidator', () => {
 
       const diags = validatePhtml(filePath, content, project);
 
-      expect(diags).toHaveLength(1);
-      expect(diags[0].code).toBe(DIAG_UNEXPECTED_CSP_IN_ADMINHTML);
-      expect(diags[0].severity).toBe(DiagnosticSeverity.Warning);
-      expect(diags[0].message).toContain('must not be used in adminhtml');
+      const regDiags = diags.filter((d) => d.code === DIAG_MISSING_CSP_REGISTRATION);
+      expect(regDiags).toHaveLength(1);
+      expect(regDiags[0].message).toContain('guarded by isset');
     });
 
-    it('warns when registerInlineScript() is used in an adminhtml theme template', () => {
-      const adminhtmlThemePath = '/project/vendor/hyva/admin-theme';
-      const adminhtmlTheme: ThemeInfo = {
-        code: 'adminhtml/Hyva/admin',
-        shortCode: 'Hyva/admin',
-        area: 'adminhtml',
-        path: adminhtmlThemePath,
-      };
-      const project = makeProject({ themes: [adminhtmlTheme] });
-      const filePath = `${adminhtmlThemePath}/Magento_Backend/templates/page/header.phtml`;
-      const content = '<?php $hyvaCsp->registerInlineScript(); ?>';
+    it('carries the adminhtml cspArea in the diagnostic data', () => {
+      hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
+      const project = makeProject({ themes: [makeHyvaTheme()] });
+      const filePath = `${MODULE_PATH}/view/adminhtml/templates/form.phtml`;
+      const content = '<script>adminInit();</script>';
+
+      const diags = validatePhtml(filePath, content, project);
+      const regDiags = diags.filter((d) => d.code === DIAG_MISSING_CSP_REGISTRATION);
+
+      expect(regDiags).toHaveLength(1);
+      expect((regDiags[0].data as any).cspArea).toBe('adminhtml');
+    });
+
+    it('does not require CSP for an adminhtml template outside a Hyvä context', () => {
+      // Plain Magento project (no Hyvä theme, no Hyvä dependency) — left untouched.
+      const project = makeProject({ themes: [makeNonHyvaTheme()] });
+      const filePath = `${MODULE_PATH}/view/adminhtml/templates/form.phtml`;
+      const content = '<script>adminInit();</script>';
 
       const diags = validatePhtml(filePath, content, project);
 
-      expect(diags).toHaveLength(1);
-      expect(diags[0].code).toBe(DIAG_UNEXPECTED_CSP_IN_ADMINHTML);
+      expect(diags).toHaveLength(0);
     });
 
-    it('does not warn for adminhtml template without registerInlineScript()', () => {
-      // A clean adminhtml template — no diagnostics at all.
-      const project = makeProject();
+    it('does not warn for a non-executable JSON script in an adminhtml template', () => {
+      hyvaThemeTailwindPaths.add(`${HYVA_THEME_PATH}/web/tailwind`);
+      const project = makeProject({ themes: [makeHyvaTheme()] });
       const filePath = `${MODULE_PATH}/view/adminhtml/templates/form.phtml`;
-      const content = '<script>adminInit();</script>';
+      const content = '<script type="application/json">{"key": "value"}</script>';
 
       const diags = validatePhtml(filePath, content, project);
 

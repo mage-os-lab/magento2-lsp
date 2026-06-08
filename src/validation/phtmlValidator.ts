@@ -11,12 +11,13 @@
  *     </script>
  *     <?php $hyvaCsp->registerInlineScript(); ?>
  *
- *   Base area (shared between Hyvä and Luma):
+ *   Base and adminhtml areas (shared between Hyvä and Luma / rendered in admin):
  *     </script>
  *     <?php if (isset($hyvaCsp)) $hyvaCsp->registerInlineScript(); ?>
  *
- * The isset() guard is needed in base-area templates because they may also
- * render under non-Hyvä themes where $hyvaCsp is not available.
+ * The isset() guard is needed in base- and adminhtml-area templates because they
+ * may also render in contexts where $hyvaCsp is not available (non-Hyvä themes,
+ * or the admin area without the Hyvä CSP view model).
  *
  * This validator produces a Warning diagnostic on every </script> tag that
  * is not immediately followed (whitespace-only separation) by the correct
@@ -26,7 +27,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Diagnostic, DiagnosticSeverity } from 'vscode-languageserver/node';
-import { DIAG_MISSING_CSP_REGISTRATION, DIAG_MISSING_CSP_TYPE_HINT, DIAG_UNEXPECTED_CSP_IN_ADMINHTML } from './diagnosticCodes';
+import { DIAG_MISSING_CSP_REGISTRATION, DIAG_MISSING_CSP_TYPE_HINT } from './diagnosticCodes';
 import { readComposerPackages } from '../utils/composerPackages';
 import type { ThemeInfo } from '../project/themeResolver';
 import type { ProjectContext } from '../project/projectManager';
@@ -74,15 +75,6 @@ export function validatePhtml(
   content: string,
   project: ProjectContext,
 ): Diagnostic[] {
-  // Adminhtml templates must not use registerInlineScript() — it is a frontend-only
-  // API. Detect adminhtml via the theme area (for theme templates) or the
-  // view/adminhtml/ path segment (for module templates). This matches the
-  // hyva-coding-standard CspRegisterInlineScriptSniff behaviour.
-  const fileArea = project.themeResolver.getAreaForFile(filePath);
-  if (fileArea === 'adminhtml') {
-    return findUnexpectedCspInAdminhtml(content);
-  }
-
   const cspArea = determineCspArea(filePath, project);
   if (!cspArea) return [];
 
@@ -98,20 +90,31 @@ export function validatePhtml(
  * The area context for CSP validation.
  * - 'frontend': template is Hyvä-only, use direct $hyvaCsp call.
  * - 'base': template is shared with non-Hyvä themes, use isset() guard.
+ * - 'adminhtml': template renders in the admin area, use isset() guard.
  */
-export type CspArea = 'frontend' | 'base';
+export type CspArea = 'frontend' | 'base' | 'adminhtml';
+
+/**
+ * Areas where the registerInlineScript() call must be guarded by isset($hyvaCsp),
+ * because the $hyvaCsp view model is not guaranteed to be available at render time.
+ * Mirrors CspRegisterInlineScriptSniff::requiresIssetGuard() in hyva-coding-standard.
+ */
+function requiresIssetGuard(cspArea: CspArea): boolean {
+  return cspArea === 'base' || cspArea === 'adminhtml';
+}
 
 /**
  * Determine whether this template needs CSP validation and which area variant.
  *
  * Detection order (first match wins):
- *   1. File is inside a Hyvä theme directory → 'frontend'
- *   2. File is inside a Hyvä compatibility module → 'frontend'
- *   3. File is in a module that requires hyva-themes/magento2-theme-module:
+ *   1. File is an adminhtml template in a Hyvä context → 'adminhtml'
+ *   2. File is inside a Hyvä theme directory → 'frontend'
+ *   3. File is inside a Hyvä compatibility module → 'frontend'
+ *   4. File is in a module that requires hyva-themes/magento2-theme-module:
  *      - view/frontend/templates/ → 'frontend'
  *      - view/base/templates/ → 'base'
- *   4. File is in view/base/templates/ and the project has any Hyvä theme → 'base'
- *   5. Otherwise → undefined (not a Hyvä context, skip validation)
+ *   5. File is in view/base/templates/ and the project has any Hyvä theme → 'base'
+ *   6. Otherwise → undefined (not a Hyvä context, skip validation)
  *
  * @returns The CSP area variant, or undefined if the file is not in a Hyvä context.
  */
@@ -124,19 +127,28 @@ export function determineCspArea(
     return undefined;
   }
 
-  // 1. Check if file is inside a Hyvä theme
+  // 1. Adminhtml templates require the same isset-guarded call as base-area
+  //    templates (CspRegisterInlineScriptSniff treats both alike). Detect via the
+  //    theme area (for theme templates) or the view/adminhtml/ path segment (for
+  //    module templates), and only validate inside a Hyvä context so plain
+  //    Magento admin templates are left untouched.
+  if (project.themeResolver.getAreaForFile(filePath) === 'adminhtml') {
+    return isHyvaContext(filePath, project) ? 'adminhtml' : undefined;
+  }
+
+  // 2. Check if file is inside a Hyvä theme
   const theme = project.themeResolver.getThemeForFile(filePath);
   if (theme && isHyvaTheme(theme)) {
     return 'frontend';
   }
 
-  // 2. Check if file is inside a Hyvä compatibility module
+  // 3. Check if file is inside a Hyvä compatibility module
   const compatInfo = project.indexes.compatModule.getCompatModuleForFile(filePath);
   if (compatInfo) {
     return 'frontend';
   }
 
-  // 3. Check if file is in a module that depends on hyva-themes/magento2-theme-module
+  // 4. Check if file is in a module that depends on hyva-themes/magento2-theme-module
   //    A single composer package can contain multiple Magento modules in subdirectories
   //    (e.g., hyva-themes/commerce-module-cms/ contains src/liveview-editor/ as a module).
   //    So we check if the module path is inside any Hyvä-dependent package path.
@@ -147,12 +159,34 @@ export function determineCspArea(
     if (filePath.includes('/view/base/templates/')) return 'base';
   }
 
-  // 4. Base-area templates get the isset() variant if the project has any Hyvä theme
+  // 5. Base-area templates get the isset() variant if the project has any Hyvä theme
   if (filePath.includes('/view/base/templates/') && projectHasHyvaTheme(project)) {
     return 'base';
   }
 
   return undefined;
+}
+
+/**
+ * Check whether a file sits in a Hyvä context for the purpose of CSP validation.
+ *
+ * Used to gate adminhtml-area templates: only adminhtml templates that belong to
+ * a Hyvä compat module, a module depending on the Hyvä theme module, or a project
+ * that ships any Hyvä theme are validated. This mirrors the gating applied to
+ * base-area templates and keeps plain Magento admin templates untouched.
+ */
+function isHyvaContext(filePath: string, project: ProjectContext): boolean {
+  if (project.indexes.compatModule.getCompatModuleForFile(filePath)) {
+    return true;
+  }
+
+  const hyvaPackagePaths = getHyvaPackagePaths(project.root);
+  const owningModulePath = findOwningModulePath(filePath, project.modules);
+  if (owningModulePath && isInsideAnyPath(owningModulePath, hyvaPackagePaths)) {
+    return true;
+  }
+
+  return projectHasHyvaTheme(project);
 }
 
 // --- Hyvä detection helpers ---
@@ -308,8 +342,8 @@ function getScriptInfos(content: string): ScriptInfo[] {
  * the required registerInlineScript() call for the given CSP area.
  *
  * The coding standard allows flexibility in the PHP block format — any PHP
- * block that contains the call is accepted. For base area, the call must be
- * guarded by isset($hyvaCsp).
+ * block that contains the call is accepted. For base and adminhtml areas, the
+ * call must be guarded by isset($hyvaCsp).
  *
  * Returns true if the PHP block is valid (no diagnostic needed).
  */
@@ -331,7 +365,7 @@ function hasRegisterInlineScriptCall(
   // Normalize: strip all whitespace for comparison (matches the coding standard)
   const normalized = phpCode.replace(/\s+/g, '');
 
-  if (cspArea === 'base') {
+  if (requiresIssetGuard(cspArea)) {
     return normalized.includes('isset($hyvaCsp)')
       && normalized.includes('$hyvaCsp->registerInlineScript()');
   }
@@ -398,7 +432,7 @@ function findMissingCspRegistrations(
         },
         severity: DiagnosticSeverity.Warning,
         source: 'magento2-lsp',
-        message: `Missing CSP registration: </script> must be followed by a <?php block calling $hyvaCsp->registerInlineScript()${cspArea === 'base' ? ' (guarded by isset)' : ''}`,
+        message: `Missing CSP registration: </script> must be followed by a <?php block calling $hyvaCsp->registerInlineScript()${requiresIssetGuard(cspArea) ? ' (guarded by isset)' : ''}`,
         code: DIAG_MISSING_CSP_REGISTRATION,
         data: { cspArea },
       });
@@ -456,38 +490,6 @@ function findMissingCspTypeHints(
   }
 
   return diagnostics;
-}
-
-/**
- * Warn when registerInlineScript() appears in an adminhtml template.
- *
- * The $hyvaCsp view model is only available in frontend themes. Using it in
- * adminhtml templates causes a runtime error. This check mirrors the
- * hyva-coding-standard's "UnexpectedCspRegisterInlineScript" warning.
- *
- * Returns a single diagnostic on the first occurrence, or an empty array.
- */
-function findUnexpectedCspInAdminhtml(content: string): Diagnostic[] {
-  const callRe = /\$hyvaCsp->registerInlineScript\(\)/;
-  const lines = content.split('\n');
-
-  for (let i = 0; i < lines.length; i++) {
-    const match = callRe.exec(lines[i]);
-    if (match) {
-      return [{
-        range: {
-          start: { line: i, character: match.index },
-          end: { line: i, character: match.index + match[0].length },
-        },
-        severity: DiagnosticSeverity.Warning,
-        source: 'magento2-lsp',
-        message: '$hyvaCsp->registerInlineScript() must not be used in adminhtml area templates',
-        code: DIAG_UNEXPECTED_CSP_IN_ADMINHTML,
-      }];
-    }
-  }
-
-  return [];
 }
 
 /**

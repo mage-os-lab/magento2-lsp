@@ -19,4 +19,3 @@ export const DIAG_FK_TABLE_NOT_FOUND = 'fk-table-not-found';
 export const DIAG_FK_COLUMN_NOT_FOUND = 'fk-column-not-found';
 export const DIAG_MISSING_CSP_REGISTRATION = 'missing-csp-registration';
 export const DIAG_MISSING_CSP_TYPE_HINT = 'missing-csp-type-hint';
-export const DIAG_UNEXPECTED_CSP_IN_ADMINHTML = 'unexpected-csp-in-adminhtml';
