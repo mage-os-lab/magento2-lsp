@@ -201,6 +201,81 @@ describe('DiIndex', () => {
       });
     });
 
+    describe('elements spanning more than one line', () => {
+      it('pairs a preference whose for and type sit on different lines', () => {
+        // <preference for="My\\Interface"
+        //             type="Impl\\A"/>
+        const forRef = makeRef({
+          fqcn: 'My\\Interface',
+          kind: 'preference-for',
+          file: '/module-a/etc/di.xml',
+          line: 4,
+          pairedFqcn: 'Impl\\A',
+        });
+        const typeRef = makeRef({
+          fqcn: 'Impl\\A',
+          kind: 'preference-type',
+          file: '/module-a/etc/di.xml',
+          line: 5,
+          pairedFqcn: 'My\\Interface',
+        });
+
+        index.addFile('/module-a/etc/di.xml', [forRef, typeRef], []);
+
+        const effective = index.getEffectivePreferenceType('My\\Interface', 'global');
+        expect(effective).toBeDefined();
+        expect(effective!.fqcn).toBe('Impl\\A');
+      });
+
+      it('pairs each preference with its own type when a file declares several', () => {
+        const refs = [
+          makeRef({
+            fqcn: 'My\\First',
+            kind: 'preference-for',
+            line: 4,
+            pairedFqcn: 'Impl\\First',
+          }),
+          makeRef({
+            fqcn: 'Impl\\First',
+            kind: 'preference-type',
+            line: 5,
+            pairedFqcn: 'My\\First',
+          }),
+          makeRef({
+            fqcn: 'My\\Second',
+            kind: 'preference-for',
+            line: 6,
+            pairedFqcn: 'Impl\\Second',
+          }),
+          makeRef({
+            fqcn: 'Impl\\Second',
+            kind: 'preference-type',
+            line: 7,
+            pairedFqcn: 'My\\Second',
+          }),
+        ];
+
+        index.addFile('/test/di.xml', refs, []);
+
+        expect(index.getEffectivePreferenceType('My\\First', 'global')!.fqcn).toBe('Impl\\First');
+        expect(index.getEffectivePreferenceType('My\\Second', 'global')!.fqcn).toBe('Impl\\Second');
+      });
+
+      it('still resolves when two interfaces share one implementation', () => {
+        const refs = [
+          makeRef({ fqcn: 'My\\A', kind: 'preference-for', line: 4, pairedFqcn: 'Shared\\Impl' }),
+          makeRef({ fqcn: 'Shared\\Impl', kind: 'preference-type', line: 5, pairedFqcn: 'My\\A' }),
+          makeRef({ fqcn: 'My\\B', kind: 'preference-for', line: 6, pairedFqcn: 'Shared\\Impl' }),
+          makeRef({ fqcn: 'Shared\\Impl', kind: 'preference-type', line: 7, pairedFqcn: 'My\\B' }),
+        ];
+
+        index.addFile('/test/di.xml', refs, []);
+
+        expect(index.getEffectivePreferenceType('My\\A', 'global')!.fqcn).toBe('Shared\\Impl');
+        expect(index.getEffectivePreferenceType('My\\B', 'global')!.fqcn).toBe('Shared\\Impl');
+      });
+    });
+
     describe('scoped overrides global', () => {
       it('picks scoped preference over global regardless of module order', () => {
         const forRefGlobal = makeRef({
