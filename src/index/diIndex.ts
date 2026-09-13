@@ -442,16 +442,20 @@ export class DiIndex {
 
   /**
    * For a preference-for reference, find the corresponding preference-type reference
-   * on the same line in the same file. These two always appear together on the same
-   * <preference> element.
+   * from the same <preference> element.
+   *
+   * Matched on pairedFqcn, which the parser sets on both sides for exactly this, rather
+   * than on the line number. A <preference> whose for and type attributes are wrapped
+   * onto separate lines is ordinary formatting, and matching by line silently dropped it
+   * from the effective config.
    */
   private findPairedTypeRef(forRef: DiReference): DiReference | undefined {
     const fileRefs = this.fileToRefs.get(forRef.file) ?? [];
     return fileRefs.find(
       (r) =>
         r.kind === 'preference-type' &&
-        r.line === forRef.line &&
-        r.file === forRef.file,
+        r.fqcn === forRef.pairedFqcn &&
+        r.pairedFqcn === forRef.fqcn,
     );
   }
 
