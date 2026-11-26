@@ -13,7 +13,16 @@ describe('LayoutIndex', () => {
   });
 
   it('indexes layout XML files', () => {
-    expect(project.indexes.layout.getFileCount()).toBe(5);
+    // 5 module/theme layouts + 1 from the theme source in a "library" package
+    expect(project.indexes.layout.getFileCount()).toBe(6);
+  });
+
+  it('indexes layout XML of a theme source in a non-theme package', () => {
+    const refs = project.indexes.layout.getReferencesForFqcn('Test\\Foo\\Block\\LibrarySrcBlock');
+    expect(refs).toHaveLength(1);
+    expect(refs[0].file).toBe(
+      path.join(FIXTURE_ROOT, 'vendor/test/theme-library-src/src/Test_Foo/layout/default.xml'),
+    );
   });
 
   it('finds block class references', () => {

@@ -11,6 +11,8 @@
  *
  * Themes are discovered from:
  *   - vendor/ packages with type "magento2-theme" in installed.json
+ *   - other vendor/ packages that register a theme in registration.php
+ *     (root or src/), e.g. theme sources shipped as "library" packages
  *   - app/design/{area}/ directories
  *
  * This class also supports reverse navigation:
@@ -249,9 +251,14 @@ export class ThemeResolver {
 
   private discoverFromInstalledJson(magentoRoot: string): void {
     for (const pkg of readComposerPackages(magentoRoot)) {
-      if (pkg.type !== 'magento2-theme') continue;
+      // Theme sources are not always "magento2-theme" packages: some are shipped
+      // as e.g. "library" packages with registration.php in src/ and copied into
+      // app/design by a build step. Any package whose registration.php registers
+      // a THEME is accepted; parseThemeRegistration() ignores module registrations.
+      const isThemePackage = pkg.type === 'magento2-theme';
 
-      // Find registration.php — check autoload.files first, then root
+      // Find registration.php — check autoload.files first, then root (and src/
+      // for non-theme packages)
       const regCandidates: string[] = [];
       const autoload = pkg.raw.autoload as Record<string, unknown> | undefined;
       const autoloadFiles = autoload?.files;
@@ -263,6 +270,9 @@ export class ThemeResolver {
         }
       }
       regCandidates.push(path.join(pkg.absPath, 'registration.php'));
+      if (!isThemePackage) {
+        regCandidates.push(path.join(pkg.absPath, 'src', 'registration.php'));
+      }
 
       for (const regPath of regCandidates) {
         const theme = this.parseThemeRegistration(regPath);
