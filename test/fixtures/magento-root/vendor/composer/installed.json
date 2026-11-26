@@ -35,6 +35,12 @@
           "registration.php"
         ]
       }
+    },
+    {
+      "name": "test/theme-library-src",
+      "version": "1.0.0",
+      "type": "library",
+      "install-path": "../test/theme-library-src"
     }
   ]
 }

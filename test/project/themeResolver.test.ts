@@ -50,6 +50,20 @@ describe('ThemeResolver', () => {
       expect(child!.parentCode).toBe('Test/parent');
     });
 
+    it('discovers theme source from a non-theme package with registration.php in src/', () => {
+      const theme = resolver
+        .getAllThemes()
+        .find((t) => t.code === 'frontend/Test/library-src');
+      expect(theme).toBeDefined();
+      expect(theme!.path).toBe(path.join(FIXTURE_ROOT, 'vendor/test/theme-library-src/src'));
+      expect(theme!.parentCode).toBe('Test/parent');
+    });
+
+    it('does not register module packages as themes', () => {
+      const codes = resolver.getAllThemes().map((t) => t.code);
+      expect(codes.some((c) => c.includes('Foo') || c.includes('HyvaCompat'))).toBe(false);
+    });
+
     it('root theme has no parent', () => {
       const themes = resolver.getAllThemes();
       const parent = themes.find((t) => t.code === 'frontend/Test/parent');
@@ -93,6 +107,14 @@ describe('ThemeResolver', () => {
       const theme = resolver.getThemeForFile(childThemePath);
       expect(theme).toBeDefined();
       expect(theme!.code).toBe('frontend/Test/child');
+    });
+
+    it('identifies theme source files in a non-theme package', () => {
+      const file = path.join(
+        FIXTURE_ROOT,
+        'vendor/test/theme-library-src/src/Test_Foo/layout/default.xml',
+      );
+      expect(resolver.getThemeForFile(file)?.code).toBe('frontend/Test/library-src');
     });
 
     it('returns undefined for module files', () => {
